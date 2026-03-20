@@ -1,91 +1,95 @@
-# MNW4 Net Worth Sheet — Apps Script Setup
+# Family Office Wealth Tracker — Apps Script Setup
 
-## Files to add to your Apps Script project
+## Files in this project
 
 | File | Purpose |
 |------|---------|
-| `PropertyValues.gs` | Zillow Zestimate auto-pull for US properties |
-| `CurrencyConversion.gs` | Foreign currency → USD conversion for international assets |
+| `Code.gs` | Core backend: assets CRUD, FX rates, Plaid API, property refresh, web app entry |
+| `PropertyValues.gs` | US property auto-valuation via Rentcast + interactive lookup |
+| `CurrencyConversion.gs` | Foreign currency → USD helpers (`TO_USD`, `FX_RATE` formulas) |
+| `Plaid.gs` | Plaid Link sidebar UI (credential setup, open sidebar, remove connection) |
+| `PlaidLink.html` | Plaid Link embedded iframe |
 
 ---
 
-## Step 1: Add the scripts
+## Step 1: Add files to your Apps Script project
 
 1. Open your Google Sheet
 2. Go to **Extensions > Apps Script**
-3. For each `.gs` file above:
-   - Click **+** next to "Files"
-   - Choose **Script**
-   - Name it (e.g. `PropertyValues`, `CurrencyConversion`)
-   - Paste the contents
+3. For each `.gs` file above, click **+** next to "Files" → Script → paste contents
 4. Click **Save** (Ctrl+S)
 
 ---
 
-## Step 2: Set up Zillow (US Properties)
+## Step 2: Set Script Properties
 
-1. Go to [RapidAPI](https://rapidapi.com) → sign up free
-2. Search for **"Zillow Com"** API → subscribe (free tier: 20 req/month)
-3. Copy your **RapidAPI Key**
-4. In Apps Script: **Project Settings** (gear icon) → **Script Properties**
-5. Add: `RAPIDAPI_KEY` = `<your key>`
+Go to **Project Settings** (gear icon) → **Script Properties**, then add:
 
-**In your sheet**, use the formula:
-```
-=ZESTIMATE("123 Main St, Austin, TX 78701")
-```
-
-To refresh all US properties at once, run `refreshAllZestimates()` from the editor,
-or install the daily trigger by running `installZilowTrigger()` once.
+| Property | Value | Required? |
+|----------|-------|-----------|
+| `RENTCAST_API_KEY` | Your key from rentcast.io | For US property values |
+| `PLAID_CLIENT_ID` | Your Plaid client ID | For bank sync |
+| `PLAID_SECRET` | Your Plaid secret | For bank sync |
+| `PLAID_ENV` | `sandbox` or `production` | For bank sync |
+| `EXCHANGERATE_API_KEY` | Key from exchangerate-api.com | Optional (higher FX volume) |
 
 ---
 
-## Step 3: Set up Foreign Currency (International Properties)
+## Step 3: US Property Values (Rentcast)
 
-No API key required — uses a free exchange rate API automatically.
+Zillow deprecated their public API. This tracker uses **Rentcast** instead.
 
-**In your sheet**, use these formulas:
+1. Sign up at [rentcast.io](https://rentcast.io) — free tier: **50 requests/month**
+2. Copy your API key → add as `RENTCAST_API_KEY` in Script Properties
+
+**How to tag a property for auto-valuation:**
+
+In the asset's **Notes** field, include the address like this:
 ```
-=FX_RATE("COP")           → today's Colombian Peso to USD rate
-=TO_USD(500000000, "COP") → converts 500M COP to USD
-=TO_USD(250000, "EUR")    → converts 250K EUR to USD
+address: 709 Kuhlman Road, Houston, TX 77024
 ```
 
-To set up currency dropdowns in column C, run `setupCurrencyDropdowns()` once.
+Then run **Tracker > Refresh US Property Values** (or `refreshUSPropertyValues()`) to update all tagged Real Estate assets.
 
-To install a daily auto-refresh trigger, run `installFxTrigger()` once.
-
----
-
-## Supported Currencies (sample)
-
-| Code | Currency |
-|------|----------|
-| COP | Colombian Peso |
-| EUR | Euro |
-| GBP | British Pound |
-| MXN | Mexican Peso |
-| CAD | Canadian Dollar |
-| AUD | Australian Dollar |
-| JPY | Japanese Yen |
-| CHF | Swiss Franc |
-| BRL | Brazilian Real |
-| AED | UAE Dirham |
-
-Full list of 30+ currencies in `CurrencyConversion.gs`.
+For a one-off lookup, run **Tracker > Lookup Single Property** (or `lookupSingleProperty()`).
 
 ---
 
-## Recommended Sheet Layout for International Properties
+## Step 4: Foreign Currency (International Properties)
 
-| Column A | Column B | Column C | Column D | Column E | Column F |
-|----------|----------|----------|----------|----------|----------|
-| Asset Name | Address/Description | Currency | Local Value | USD Value | Last Updated |
-| Casa Bianca | Cartagena, Colombia | COP | 2,000,000,000 | =TO_USD(D2,C2) | auto |
+No separate setup required — `CurrencyConversion.gs` uses [open.er-api.com](https://open.er-api.com) automatically.
+
+Use these formulas in your sheet:
+```
+=FX_RATE("COP")              → today's COP → USD rate
+=TO_USD(2000000000, "COP")   → converts 2B COP to USD
+=TO_USD(250000, "EUR")       → converts 250K EUR to USD
+```
+
+For higher request volume, add a free key from [exchangerate-api.com](https://www.exchangerate-api.com) as `EXCHANGERATE_API_KEY`.
 
 ---
 
-## Optional: Higher-volume FX API
+## Step 5: Bank Sync (Plaid)
 
-For frequent refreshes, get a free key at [exchangerate-api.com](https://www.exchangerate-api.com)
-and add it to Script Properties as `EXCHANGERATE_API_KEY`.
+1. Set `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` in Script Properties
+2. Run **Tracker > Connect Bank Account** to open the Plaid Link sidebar
+3. Connect your bank — accounts are automatically added to the Assets sheet
+4. Use **Tracker > Sync Plaid Accounts** to refresh balances on demand
+   (also runs automatically in the daily 7 AM sync trigger)
+
+---
+
+## Supported Currencies
+
+COP · EUR · GBP · MXN · CAD · AUD · JPY · CHF · BRL · AED · DOP · and 20+ more.
+Full list in `CurrencyConversion.gs`.
+
+---
+
+## Daily Auto-Sync
+
+Run `installTriggers()` once from the Apps Script editor to install a daily 7 AM trigger that refreshes:
+- FX exchange rates
+- Plaid account balances
+- US property values (Rentcast)
