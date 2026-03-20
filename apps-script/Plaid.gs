@@ -35,18 +35,11 @@ function openPlaidLink() {
     if (resp === ui.Button.YES) setPlaidCredentials();
     return;
   }
-  try {
-    var result = getPlaidLinkToken();
-    if (!result.success) throw new Error(result.error);
-    var content = HtmlService.createHtmlOutputFromFile('PlaidLink').getContent();
-    content = content.replace('LINK_TOKEN_PLACEHOLDER', result.linkToken);
-    content = content.replace('PLAID_ENV_PLACEHOLDER', result.env);
-    var html = HtmlService.createHtmlOutput(content)
-      .setTitle('Connect Bank Account').setWidth(400);
-    SpreadsheetApp.getUi().showSidebar(html);
-  } catch(e) {
-    SpreadsheetApp.getUi().alert('Error opening Plaid: ' + e.message);
-  }
+  // Token is fetched client-side via google.script.run inside the sidebar
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLink')
+    .setTitle('Connect Bank Account')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
 function handlePlaidSuccess(publicToken) {
