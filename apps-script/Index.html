@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Family Office Wealth Tracker</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e;font-size:14px}
+/* Header */
+header{position:sticky;top:0;z-index:100;background:#0d2137;color:#fff;padding:0 24px}
+.header-inner{display:flex;align-items:center;justify-content:space-between;height:56px}
+.header-title{font-size:18px;font-weight:600;letter-spacing:.3px}
+.header-date{font-size:13px;opacity:.7}
+/* Nav */
+nav{background:#0d2137;display:flex;gap:0;border-top:1px solid rgba(255,255,255,.1)}
+.tab-btn{background:none;border:none;color:rgba(255,255,255,.65);padding:12px 20px;cursor:pointer;font-size:13px;font-weight:500;border-bottom:3px solid transparent;transition:.2s;white-space:nowrap}
+.tab-btn:hover{color:#fff}
+.tab-btn.active{color:#fff;border-bottom-color:#4fc3f7}
+/* Main */
+main{padding:20px 24px;max-width:1200px;margin:0 auto}
+/* Cards */
+.card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:20px}
+/* Net worth banner */
+.banner{background:linear-gradient(135deg,#0d2137,#1a3a5c);color:#fff;border-radius:8px;padding:28px 24px;margin-bottom:20px}
+.banner-label{font-size:13px;opacity:.75;margin-bottom:6px}
+.banner-value{font-size:36px;font-weight:700;letter-spacing:-1px}
+/* Metric cards */
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px}
+.metric-card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);padding:16px}
+.metric-label{font-size:12px;color:#666;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.metric-value{font-size:22px;font-weight:700;color:#0d2137}
+/* Two-col layout */
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+@media(max-width:720px){.two-col{grid-template-columns:1fr}}
+.section-title{font-size:14px;font-weight:600;color:#0d2137;margin-bottom:14px}
+/* Chart */
+.chart-wrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.legend{flex:1;min-width:120px}
+.legend-item{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px}
+.legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
+.legend-pct{margin-left:auto;font-weight:600;color:#0d2137}
+/* Lists */
+.list-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:13px}
+.list-item:last-child{border-bottom:none}
+.list-name{font-weight:500}
+.list-val{font-weight:600;color:#0d2137}
+/* Toolbar */
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.toolbar input,.toolbar select{padding:7px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;background:#fff;outline:none}
+.toolbar input:focus,.toolbar select:focus{border-color:#1a73e8}
+.toolbar input{flex:1;min-width:160px}
+/* Buttons */
+.btn{padding:7px 16px;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;transition:.15s}
+.btn-primary{background:#1a73e8;color:#fff}
+.btn-primary:hover{background:#1558b0}
+.btn-secondary{background:#e8eaed;color:#3c4043}
+.btn-secondary:hover{background:#dadce0}
+.btn-danger{background:#fce8e6;color:#c5221f}
+.btn-danger:hover{background:#f5c6c4}
+.btn-sm{padding:4px 10px;font-size:12px}
+/* Tables */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead tr{background:#0d2137;color:#fff}
+thead th{padding:10px 12px;text-align:left;font-weight:500;font-size:13px;cursor:pointer;user-select:none;white-space:nowrap}
+thead th:hover{background:#1a3a5c}
+thead th .sort-icon{margin-left:4px;opacity:.6}
+tbody tr{border-bottom:1px solid #f0f0f0}
+tbody tr:hover{background:#f8f9ff}
+tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
+.no-data{text-align:center;color:#999;padding:32px;font-size:14px}
+/* Category badge */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+/* Delta colors */
+.pos{color:#1e8e3e}
+.neg{color:#c5221f}
+/* Modals */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center;padding:16px}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:10px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.modal-header{padding:18px 20px 14px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between}
+.modal-title{font-size:16px;font-weight:600}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1}
+.modal-body{padding:20px}
+.form-row{margin-bottom:14px}
+.form-row label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+.form-row input,.form-row select,.form-row textarea{width:100%;padding:8px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;outline:none}
+.form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:#1a73e8}
+.form-row textarea{resize:vertical;min-height:70px}
+.form-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.usd-preview{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:6px;padding:10px 12px;font-size:13px;color:#1a3a5c;margin-bottom:14px}
+.usd-preview span{font-weight:700}
+.modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end}
+/* Toast */
+#toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center}
+.toast{padding:10px 20px;border-radius:6px;color:#fff;font-size:13px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.2);animation:fadeIn .2s}
+.toast.success{background:#1e8e3e}
+.toast.error{background:#c5221f}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* Loading overlay */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:150;align-items:center;justify-content:center;font-size:15px;color:#0d2137;font-weight:500}
+.loading-overlay.open{display:flex}
+/* Tab panels */
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="header-title">Family Office Wealth Tracker</div>
+    <div class="header-date" id="header-date"></div>
+  </div>
+  <nav>
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="assets">Assets</button>
+    <button class="tab-btn" data-tab="entities">Entities</button>
+    <button class="tab-btn" data-tab="history">History</button>
+  </nav>
+</header>
+
+<div class="loading-overlay" id="loading">Loading data…</div>
+<div id="toast-container"></div>
+
+<main>
+  <!-- Dashboard -->
+  <div class="tab-panel active" id="tab-dashboard">
+    <div class="banner">
+      <div class="banner-label">Total Net Worth</div>
+      <div class="banner-value" id="net-worth">$0</div>
+    </div>
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="metric-label">Total Assets</div><div class="metric-value" id="m-assets">$0</div></div>
+      <div class="metric-card"><div class="metric-label">Total Liabilities</div><div class="metric-value" id="m-liabilities">$0</div></div>
+      <div class="metric-card"><div class="metric-label">Liquid Cash</div><div class="metric-value" id="m-cash">$0</div></div>
+      <div class="metric-card"><div class="metric-label">Asset Count</div><div class="metric-value" id="m-count">0</div></div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title">Allocation by Category</div>
+        <div class="chart-wrap">
+          <svg id="donut-svg" width="160" height="160" viewBox="0 0 160 160"></svg>
+          <div class="legend" id="donut-legend"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title">Top Holdings</div>
+        <div id="top-holdings"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title">Recent Changes</div>
+      <div id="recent-changes"></div>
+    </div>
+  </div>
+
+  <!-- Assets -->
+  <div class="tab-panel" id="tab-assets">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="asset-search" placeholder="Search assets…" oninput="renderAssetsTable()">
+        <select id="asset-cat-filter" onchange="renderAssetsTable()"><option value="">All Categories</option></select>
+        <button class="btn btn-primary" onclick="openAssetModal()">+ Add Asset</button>
+        <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
+      </div>
+      <div class="table-wrap">
+        <table id="assets-table">
+          <thead><tr>
+            <th onclick="sortTable('assets','Name')">Name <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Category')">Category <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Entity')">Entity <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Currency')">Currency <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','USD Value')">USD Value <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','My Share USD')">My Share USD <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Last Updated')">Updated <span class="sort-icon">↕</span></th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="assets-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Entities -->
+  <div class="tab-panel" id="tab-entities">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="entity-search" placeholder="Search entities…" oninput="renderEntitiesTable()">
+        <button class="btn btn-primary" onclick="openEntityModal()">+ Add Entity</button>
+      </div>
+      <div class="table-wrap">
+        <table id="entities-table">
+          <thead><tr>
+            <th onclick="sortTable('entities','Name')">Name <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('entities','Type')">Type <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('entities','Jurisdiction')">Jurisdiction <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('entities','Ownership %')">Ownership % <span class="sort-icon">↕</span></th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="entities-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- History -->
+  <div class="tab-panel" id="tab-history">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="history-search" placeholder="Search history…" oninput="renderHistoryTable()">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Date</th>
+            <th>Asset</th>
+            <th>Old Value USD</th>
+            <th>New Value USD</th>
+            <th>Delta USD</th>
+            <th>Currency</th>
+            <th>Notes</th>
+          </tr></thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Asset Modal -->
+<div class="modal-overlay" id="asset-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="asset-modal-title">Add Asset</div>
+      <button class="modal-close" onclick="closeModal('asset-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="a-id">
+      <div class="form-two">
+        <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
+        <div class="form-row"><label>Category</label>
+          <select id="a-category">
+            <option>Real Estate</option><option>Private Equity</option><option>Public Equity</option>
+            <option>Cash</option><option>Crypto</option><option>Auto</option>
+            <option>Art/Jewelry</option><option>VIP Medical</option><option>Insurance</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Entity</label><select id="a-entity"><option value="">— None —</option></select></div>
+        <div class="form-row"><label>Currency</label>
+          <select id="a-currency" onchange="updateUSDPreview()">
+            <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
+            <option>BRL</option><option>MXN</option><option>CAD</option><option>JPY</option>
+            <option>CHF</option><option>AUD</option><option>DOP</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>My Share %</label><input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()"></div>
+        <div class="form-row"><label>Local Value</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
+      </div>
+      <div class="usd-preview">Est. My Share USD: <span id="usd-preview">$0</span></div>
+      <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('asset-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAsset()">Save Asset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Entity Modal -->
+<div class="modal-overlay" id="entity-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="entity-modal-title">Add Entity</div>
+      <button class="modal-close" onclick="closeModal('entity-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="e-orig-name">
+      <div class="form-two">
+        <div class="form-row"><label>Name</label><input type="text" id="e-name" placeholder="Entity name"></div>
+        <div class="form-row"><label>Type</label>
+          <select id="e-type">
+            <option>LLC</option><option>Trust</option><option>Corporation</option>
+            <option>Partnership</option><option>Individual</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Jurisdiction</label><input type="text" id="e-jurisdiction" placeholder="e.g. Delaware, USA"></div>
+        <div class="form-row"><label>Ownership %</label><input type="number" id="e-ownership" value="100" min="0" max="100" step="0.01"></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="e-notes" placeholder="Optional notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('entity-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveEntity()">Save Entity</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  assets: [], entities: [], fxRates: [], history: [], categories: [], currencies: [],
+  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
+};
+
+// ── Category colors ────────────────────────────────────────────────────────
+const CAT_COLORS = {
+  'Real Estate':'#1a73e8','Private Equity':'#7c4dff','Public Equity':'#00897b',
+  'Cash':'#43a047','Crypto':'#f4511e','Auto':'#fb8c00',
+  'Art/Jewelry':'#e91e63','VIP Medical':'#00acc1','Insurance':'#8d6e63','Other':'#78909c'
+};
+function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.onload = function(){
+  document.getElementById('header-date').textContent = fmtDate(new Date().toISOString());
+  document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+  loadData();
+};
+
+function loadData(){
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(onDataLoaded)
+    .withFailureHandler(e=>{showLoading(false);toast('Failed to load data: '+e.message,'error')})
+    .getFullData();
+}
+
+function onDataLoaded(d){
+  state.assets   = d.assets   || [];
+  state.entities = d.entities || [];
+  state.fxRates  = d.fxRates  || [];
+  state.history  = d.history  || [];
+  state.categories= d.categories||[];
+  state.currencies= d.currencies||[];
+  showLoading(false);
+  buildCatFilter();
+  renderDashboard();
+  renderAssetsTable();
+  renderEntitiesTable();
+  renderHistoryTable();
+}
+
+// ── Tabs ───────────────────────────────────────────────────────────────────
+function switchTab(name){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+function renderDashboard(){
+  const assets = state.assets;
+  const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
+  const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
+  document.getElementById('net-worth').textContent   = fmtUSD(totalUSD);
+  document.getElementById('m-assets').textContent    = fmtUSD(totalUSD);
+  document.getElementById('m-liabilities').textContent = fmtUSD(0);
+  document.getElementById('m-cash').textContent      = fmtUSD(cashUSD);
+  document.getElementById('m-count').textContent     = assets.length;
+  renderDonut();
+  renderTopHoldings();
+  renderRecentChanges();
+}
+
+function renderDonut(){
+  const totByCat = {};
+  state.assets.forEach(a=>{
+    const c=a.Category||'Other';
+    totByCat[c]=(totByCat[c]||0)+num(a['My Share USD']);
+  });
+  const total = Object.values(totByCat).reduce((s,v)=>s+v,0)||1;
+  const entries = Object.entries(totByCat).sort((a,b)=>b[1]-a[1]);
+  const cx=80,cy=80,r=60,ri=36;
+  let angle=-Math.PI/2;
+  let paths='';
+  entries.forEach(([cat,val])=>{
+    const pct=val/total;
+    const a2=angle+pct*2*Math.PI;
+    if(pct<0.001){angle=a2;return;}
+    const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
+    const x2=cx+r*Math.cos(a2),  y2=cy+r*Math.sin(a2);
+    const xi1=cx+ri*Math.cos(angle),yi1=cy+ri*Math.sin(angle);
+    const xi2=cx+ri*Math.cos(a2),  yi2=cy+ri*Math.sin(a2);
+    const large=pct>0.5?1:0;
+    const color=catColor(cat);
+    paths+=`<path d="M${xi1},${yi1} A${ri},${ri} 0 ${large} 1 ${xi2},${yi2} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x1},${y1} Z" fill="${color}" opacity=".9"/>`;
+    angle=a2;
+  });
+  document.getElementById('donut-svg').innerHTML=paths;
+  const leg=document.getElementById('donut-legend');
+  leg.innerHTML=entries.slice(0,8).map(([cat,val])=>`
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${catColor(cat)}"></div>
+      <span>${esc(cat)}</span>
+      <span class="legend-pct">${((val/total)*100).toFixed(1)}%</span>
+    </div>`).join('');
+}
+
+function renderTopHoldings(){
+  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).slice(0,8);
+  const el=document.getElementById('top-holdings');
+  if(!sorted.length){el.innerHTML='<div class="no-data">No assets yet</div>';return;}
+  el.innerHTML=sorted.map(a=>`
+    <div class="list-item">
+      <div>
+        <div class="list-name">${esc(a.Name)}</div>
+        <div style="font-size:11px;color:#888">${esc(a.Category||'')} · ${esc(a.Entity||'')}</div>
+      </div>
+      <div class="list-val">${fmtUSD(num(a['My Share USD']))}</div>
+    </div>`).join('');
+}
+
+function renderRecentChanges(){
+  const hist=[...state.history].reverse().slice(0,8);
+  const el=document.getElementById('recent-changes');
+  if(!hist.length){el.innerHTML='<div class="no-data">No history yet</div>';return;}
+  el.innerHTML=hist.map(h=>{
+    const d=num(h['Delta USD']);
+    const cls=d>=0?'pos':'neg';
+    const sign=d>=0?'+':'';
+    return`<div class="list-item">
+      <div>
+        <div class="list-name">${esc(h['Asset Name']||'')}</div>
+        <div style="font-size:11px;color:#888">${fmtDate(h.Date)}</div>
+      </div>
+      <div class="list-val ${cls}">${sign}${fmtUSD(d)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Assets Table ───────────────────────────────────────────────────────────
+function buildCatFilter(){
+  const sel=document.getElementById('asset-cat-filter');
+  sel.innerHTML='<option value="">All Categories</option>';
+  const cats=state.categories.length?state.categories:Object.keys(CAT_COLORS);
+  cats.forEach(c=>sel.insertAdjacentHTML('beforeend',`<option value="${esc(c)}">${esc(c)}</option>`));
+}
+
+function renderAssetsTable(){
+  const q=(document.getElementById('asset-search').value||'').toLowerCase();
+  const cat=document.getElementById('asset-cat-filter').value;
+  let rows=[...state.assets].filter(a=>{
+    if(cat&&a.Category!==cat)return false;
+    if(q){
+      const hay=(a.Name+a.Category+a.Entity+a.Currency).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  });
+  const {col,asc}=state.sort.assets;
+  rows.sort((a,b)=>cmp(a[col],b[col],asc));
+  const tb=document.getElementById('assets-tbody');
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No assets found</td></tr>`;return;}
+  tb.innerHTML=rows.map(a=>`
+    <tr>
+      <td>${esc(a.Name)}</td>
+      <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
+      <td>${esc(a.Entity||'')}</td>
+      <td>${esc(a.Currency||'')}</td>
+      <td>${fmtUSD(num(a['USD Value']))}</td>
+      <td>${fmtUSD(num(a['My Share USD']))}</td>
+      <td>${fmtDate(a['Last Updated'])}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openAssetModal(${JSON.stringify(esc(a.ID))})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteAsset(${JSON.stringify(esc(a.ID))},${JSON.stringify(esc(a.Name))})">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+function sortTable(tbl,col){
+  const s=state.sort[tbl];
+  s.asc=s.col===col?!s.asc:true;
+  s.col=col;
+  if(tbl==='assets')renderAssetsTable();
+  else renderEntitiesTable();
+}
+
+// ── Entities Table ─────────────────────────────────────────────────────────
+function renderEntitiesTable(){
+  const q=(document.getElementById('entity-search').value||'').toLowerCase();
+  let rows=[...state.entities].filter(e=>{
+    if(!q)return true;
+    return (e.Name+e.Type+e.Jurisdiction).toLowerCase().includes(q);
+  });
+  const {col,asc}=state.sort.entities;
+  rows.sort((a,b)=>cmp(a[col],b[col],asc));
+  const tb=document.getElementById('entities-tbody');
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="6" class="no-data">No entities found</td></tr>`;return;}
+  tb.innerHTML=rows.map(e=>`
+    <tr>
+      <td>${esc(e.Name)}</td>
+      <td>${esc(e.Type||'')}</td>
+      <td>${esc(e.Jurisdiction||'')}</td>
+      <td>${num(e['Ownership %'])}%</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Notes||'')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openEntityModal(${JSON.stringify(esc(e.Name))})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteEntity(${JSON.stringify(esc(e.Name))})">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── History Table ──────────────────────────────────────────────────────────
+function renderHistoryTable(){
+  const q=(document.getElementById('history-search').value||'').toLowerCase();
+  let rows=[...state.history].reverse().filter(h=>{
+    if(!q)return true;
+    return (h['Asset Name']+h.Date+h.Notes).toLowerCase().includes(q);
+  });
+  const tb=document.getElementById('history-tbody');
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="7" class="no-data">No history found</td></tr>`;return;}
+  tb.innerHTML=rows.map(h=>{
+    const d=num(h['Delta USD']);
+    const cls=d>=0?'pos':'neg';
+    const sign=d>=0?'+':'';
+    return`<tr>
+      <td>${fmtDate(h.Date)}</td>
+      <td>${esc(h['Asset Name']||'')}</td>
+      <td>${fmtUSD(num(h['Old Value USD']))}</td>
+      <td>${fmtUSD(num(h['New Value USD']))}</td>
+      <td class="${cls}">${sign}${fmtUSD(d)}</td>
+      <td>${esc(h.Currency||'')}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.Notes||'')}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Asset Modal ────────────────────────────────────────────────────────────
+function openAssetModal(id){
+  const asset=id?state.assets.find(a=>a.ID==id):null;
+  document.getElementById('asset-modal-title').textContent=asset?'Edit Asset':'Add Asset';
+  document.getElementById('a-id').value=asset?asset.ID:'';
+  document.getElementById('a-name').value=asset?asset.Name:'';
+  document.getElementById('a-category').value=asset?asset.Category:'Real Estate';
+  document.getElementById('a-currency').value=asset?asset.Currency:'USD';
+  document.getElementById('a-share').value=asset?asset['My Share %']:100;
+  document.getElementById('a-local').value=asset?asset['Local Value']:'';
+  document.getElementById('a-notes').value=asset?asset.Notes:'';
+  // populate entity dropdown
+  const sel=document.getElementById('a-entity');
+  sel.innerHTML='<option value="">— None —</option>';
+  state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option${asset&&asset.Entity===e.Name?' selected':''}>${esc(e.Name)}</option>`));
+  updateUSDPreview();
+  openModal('asset-modal');
+}
+
+function updateUSDPreview(){
+  const currency=document.getElementById('a-currency').value;
+  const local=parseFloat(document.getElementById('a-local').value)||0;
+  const share=parseFloat(document.getElementById('a-share').value)||0;
+  const fx=state.fxRates.find(r=>r.Currency===currency);
+  const rate=fx?num(fx['Rate to USD']):1;
+  const usd=local*rate*(share/100);
+  document.getElementById('usd-preview').textContent=fmtUSD(usd);
+}
+
+function saveAsset(){
+  const id=document.getElementById('a-id').value;
+  const data={
+    ID:id,
+    Name:document.getElementById('a-name').value.trim(),
+    Category:document.getElementById('a-category').value,
+    Entity:document.getElementById('a-entity').value,
+    Currency:document.getElementById('a-currency').value,
+    'My Share %':parseFloat(document.getElementById('a-share').value)||100,
+    'Local Value':parseFloat(document.getElementById('a-local').value)||0,
+    Notes:document.getElementById('a-notes').value.trim()
+  };
+  if(!data.Name){toast('Asset name is required','error');return;}
+  showLoading(true);
+  closeModal('asset-modal');
+  const fn=id?google.script.run.withSuccessHandler(()=>{toast('Asset updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateAsset(data)
+              :google.script.run.withSuccessHandler(()=>{toast('Asset added');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).addAsset(data);
+}
+
+function deleteAsset(id,name){
+  if(!confirm(`Delete "${name}"?`))return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(()=>{toast('Asset deleted');loadData()})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+    .deleteAsset(id);
+}
+
+// ── Entity Modal ───────────────────────────────────────────────────────────
+function openEntityModal(name){
+  const entity=name?state.entities.find(e=>e.Name==name):null;
+  document.getElementById('entity-modal-title').textContent=entity?'Edit Entity':'Add Entity';
+  document.getElementById('e-orig-name').value=entity?entity.Name:'';
+  document.getElementById('e-name').value=entity?entity.Name:'';
+  document.getElementById('e-type').value=entity?entity.Type:'LLC';
+  document.getElementById('e-jurisdiction').value=entity?entity.Jurisdiction:'';
+  document.getElementById('e-ownership').value=entity?entity['Ownership %']:100;
+  document.getElementById('e-notes').value=entity?entity.Notes:'';
+  openModal('entity-modal');
+}
+
+function saveEntity(){
+  const origName=document.getElementById('e-orig-name').value;
+  const data={
+    'Orig Name':origName,
+    Name:document.getElementById('e-name').value.trim(),
+    Type:document.getElementById('e-type').value,
+    Jurisdiction:document.getElementById('e-jurisdiction').value.trim(),
+    'Ownership %':parseFloat(document.getElementById('e-ownership').value)||100,
+    Notes:document.getElementById('e-notes').value.trim()
+  };
+  if(!data.Name){toast('Entity name is required','error');return;}
+  showLoading(true);
+  closeModal('entity-modal');
+  const fn=origName?google.script.run.withSuccessHandler(()=>{toast('Entity updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateEntity(data)
+                   :google.script.run.withSuccessHandler(()=>{toast('Entity added');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).addEntity(data);
+}
+
+function deleteEntity(name){
+  if(!confirm(`Delete entity "${name}"?`))return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(()=>{toast('Entity deleted');loadData()})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+    .deleteEntity(name);
+}
+
+// ── FX Refresh ─────────────────────────────────────────────────────────────
+function refreshRates(){
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(()=>{toast('FX rates refreshed');loadData()})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+    .fetchExchangeRates();
+}
+
+// ── Modal helpers ──────────────────────────────────────────────────────────
+function openModal(id){document.getElementById(id).classList.add('open')}
+function closeModal(id){document.getElementById(id).classList.remove('open')}
+document.addEventListener('click',e=>{
+  if(e.target.classList.contains('modal-overlay'))e.target.classList.remove('open');
+});
+
+// ── Loading ────────────────────────────────────────────────────────────────
+function showLoading(v){document.getElementById('loading').classList.toggle('open',v)}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg,type='success'){
+  const el=document.createElement('div');
+  el.className=`toast ${type}`;
+  el.textContent=msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(()=>el.remove(),3000);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s){
+  if(s==null)return'';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function num(v){return parseFloat(v)||0}
+function fmtUSD(n){
+  const abs=Math.abs(n);
+  const s=abs>=1?abs.toLocaleString('en-US',{maximumFractionDigits:0}):abs.toFixed(2);
+  return (n<0?'-':'')+'$'+s;
+}
+function fmtDate(d){
+  if(!d)return'';
+  try{
+    const dt=new Date(d);
+    if(isNaN(dt))return String(d);
+    return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+  }catch(e){return String(d)}
+}
+function cmp(a,b,asc){
+  const na=num(a),nb=num(b);
+  let r;
+  if(!isNaN(na)&&!isNaN(nb)&&(typeof a==='number'||typeof b==='number'||String(a).match(/^\d/)))
+    r=na-nb;
+  else r=String(a||'').localeCompare(String(b||''));
+  return asc?r:-r;
+}
+</script>
+</body>
+</html>
