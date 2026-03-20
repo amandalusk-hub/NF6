@@ -21,10 +21,11 @@ var CATEGORIES = [
 var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP'];
 
 var COL = {
-  ASSETS:   ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
-  ENTITIES: ['Name','Type','Jurisdiction','Ownership %','Notes'],
-  FX:       ['Currency','Rate to USD','Last Fetched'],
-  HISTORY:  ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
+  ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
+  FX:          ['Currency','Rate to USD','Last Fetched'],
+  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
 };
 
 // ── Menu ─────────────────────────────────────────────────────────────────────
@@ -152,7 +153,7 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History' }[key];
+  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History' }[key];
 }
 
 function getSpreadsheet_() {
@@ -181,12 +182,12 @@ function sheetToObjects_(key) {
 
 function getFullData() {
   ensureSheets_();
-  var assets   = sheetToObjects_('ASSETS');
-  var entities = sheetToObjects_('ENTITIES');
-  var fx       = sheetToObjects_('FX');
-  var history  = sheetToObjects_('HISTORY');
+  var assets      = sheetToObjects_('ASSETS');
+  var liabilities = sheetToObjects_('LIABILITIES');
+  var entities    = sheetToObjects_('ENTITIES');
+  var fx          = sheetToObjects_('FX');
+  var history     = sheetToObjects_('HISTORY');
 
-  // Serialize dates
   function clean(arr) {
     return arr.map(function(obj) {
       var out = {};
@@ -198,12 +199,13 @@ function getFullData() {
   }
 
   return {
-    assets:     clean(assets),
-    entities:   clean(entities),
-    fxRates:    clean(fx),
-    history:    clean(history),
-    categories: CATEGORIES,
-    currencies: CURRENCIES
+    assets:      clean(assets),
+    liabilities: clean(liabilities),
+    entities:    clean(entities),
+    fxRates:     clean(fx),
+    history:     clean(history),
+    categories:  CATEGORIES,
+    currencies:  CURRENCIES
   };
 }
 
@@ -354,6 +356,47 @@ function deleteEntity(name) {
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] === name) { sheet.deleteRow(i + 1); return { success: true }; }
+  }
+  return { success: false, error: 'Not found' };
+}
+
+// ── Liabilities CRUD ──────────────────────────────────────────────────────────
+
+function addLiability(data) {
+  var sheet  = getSheet_('LIABILITIES');
+  var id     = Utilities.getUuid();
+  var now    = new Date();
+  var fxRate = getFxRate_(data.currency || 'USD');
+  var amount = Number(data.amount) || 0;
+  var usdVal = amount * fxRate;
+  sheet.appendRow([id, data.name || '', data.type || '', data.currency || 'USD', amount, usdVal, now, now, data.notes || '']);
+  return { success: true, id: id };
+}
+
+function updateLiability(data) {
+  var sheet = getSheet_('LIABILITIES');
+  var rows  = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] !== data.id) continue;
+    var fxRate = getFxRate_(data.currency || rows[i][3]);
+    var amount = data.amount !== undefined ? Number(data.amount) : Number(rows[i][4]);
+    sheet.getRange(i + 1, 2).setValue(data.name     !== undefined ? data.name     : rows[i][1]);
+    sheet.getRange(i + 1, 3).setValue(data.type     !== undefined ? data.type     : rows[i][2]);
+    sheet.getRange(i + 1, 4).setValue(data.currency !== undefined ? data.currency : rows[i][3]);
+    sheet.getRange(i + 1, 5).setValue(amount);
+    sheet.getRange(i + 1, 6).setValue(amount * fxRate);
+    sheet.getRange(i + 1, 8).setValue(new Date());
+    sheet.getRange(i + 1, 9).setValue(data.notes    !== undefined ? data.notes    : rows[i][8]);
+    return { success: true };
+  }
+  return { success: false, error: 'Liability not found' };
+}
+
+function deleteLiability(id) {
+  var sheet = getSheet_('LIABILITIES');
+  var rows  = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
   }
   return { success: false, error: 'Not found' };
 }
