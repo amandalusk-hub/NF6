@@ -87,9 +87,26 @@ Full list in `CurrencyConversion.gs`.
 
 ---
 
+## Deployment Readiness Check
+
+After completing setup, run **Tracker > Check Setup** from the Google Sheets menu bar.
+
+The check verifies:
+- Spreadsheet is accessible
+- All required sheets (Assets, Entities, FX Rates, History) exist
+- FX API is reachable (no key needed)
+- `RENTCAST_API_KEY` is set (for US property values)
+- `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` are set (for bank sync)
+- Plaid API connectivity (if credentials present)
+- Daily sync trigger is installed
+
+If any item shows ❌, follow the instructions in the alert to fix it before going live.
+
+---
+
 ## Daily Auto-Sync
 
-Run `installTriggers()` once from the Apps Script editor to install a daily 7 AM trigger that refreshes:
+Run **Tracker > Install Daily Trigger** (or `installTriggers()`) once to set up a daily 7 AM refresh of:
 - FX exchange rates
 - Plaid account balances
 - US property values (Rentcast)

@@ -27,6 +27,101 @@ var COL = {
   HISTORY:  ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
 };
 
+// ── Menu ─────────────────────────────────────────────────────────────────────
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Tracker')
+    .addItem('Check Setup', 'deploymentReadinessCheck')
+    .addSeparator()
+    .addItem('Refresh FX Rates', 'fetchExchangeRates')
+    .addItem('Refresh US Property Values', 'refreshPropertyValues')
+    .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addSeparator()
+    .addItem('Connect Bank Account', 'openPlaidLink')
+    .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
+    .addItem('Remove Plaid Connection', 'removePlaidConnection')
+    .addSeparator()
+    .addItem('Install Daily Trigger', 'installTriggers')
+    .addToUi();
+}
+
+// ── Deployment Readiness Check ────────────────────────────────────────────────
+
+function deploymentReadinessCheck() {
+  var props  = PropertiesService.getScriptProperties();
+  var checks = [];
+  var ok     = true;
+
+  // Helper to record a check result
+  function check(label, passed, detail) {
+    checks.push((passed ? '✅' : '❌') + ' ' + label + (detail ? ': ' + detail : ''));
+    if (!passed) ok = false;
+  }
+
+  // 1. Spreadsheet access
+  try {
+    var ss = getSpreadsheet_();
+    check('Spreadsheet', true, ss.getName());
+  } catch(e) {
+    check('Spreadsheet', false, 'Cannot open — set SPREADSHEET_ID or run from Sheet');
+  }
+
+  // 2. Required sheets
+  try {
+    ensureSheets_();
+    check('Sheets (Assets / Entities / FX Rates / History)', true, 'all present');
+  } catch(e) {
+    check('Sheets', false, e.message);
+  }
+
+  // 3. FX API (free, no key required)
+  try {
+    var fxResp = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
+    check('FX API (open.er-api.com)', fxResp.getResponseCode() === 200, 'HTTP ' + fxResp.getResponseCode());
+  } catch(e) {
+    check('FX API (open.er-api.com)', false, e.message);
+  }
+
+  // 4. Rentcast API key
+  var rentcastKey = props.getProperty('RENTCAST_API_KEY');
+  check('RENTCAST_API_KEY', !!rentcastKey, rentcastKey ? 'set' : 'missing — US property valuations will not work');
+
+  // 5. Plaid credentials
+  var plaidClientId = props.getProperty('PLAID_CLIENT_ID');
+  var plaidSecret   = props.getProperty('PLAID_SECRET');
+  var plaidEnv      = props.getProperty('PLAID_ENV');
+  check('PLAID_CLIENT_ID', !!plaidClientId, plaidClientId ? 'set' : 'missing — bank sync will not work');
+  check('PLAID_SECRET',    !!plaidSecret,   plaidSecret   ? 'set' : 'missing — bank sync will not work');
+  check('PLAID_ENV',       !!plaidEnv,      plaidEnv      ? plaidEnv : 'missing (sandbox / production)');
+
+  // 6. Plaid API connectivity (only if credentials are present)
+  if (plaidClientId && plaidSecret && plaidEnv) {
+    try {
+      var plaidResult = getPlaidLinkToken();
+      check('Plaid API connectivity', plaidResult.success, plaidResult.success ? 'OK' : plaidResult.error);
+    } catch(e) {
+      check('Plaid API connectivity', false, e.message);
+    }
+  } else {
+    checks.push('⚠️  Plaid API connectivity: skipped (credentials not set)');
+  }
+
+  // 7. Daily trigger
+  var triggers = ScriptApp.getProjectTriggers();
+  var hasTrigger = triggers.some(function(t) { return t.getHandlerFunction() === 'dailySync_'; });
+  check('Daily sync trigger', hasTrigger, hasTrigger ? 'installed' : 'not installed — run "Install Daily Trigger"');
+
+  // 8. Web app deployment (informational only — can't verify programmatically)
+  checks.push('ℹ️  Web app: deploy via Deploy > New deployment if using the web UI');
+
+  var summary = (ok ? '✅ All required checks passed.' : '⚠️  Some checks failed — see details below.') +
+    '\n\n' + checks.join('\n');
+
+  SpreadsheetApp.getUi().alert('Deployment Readiness Check', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  return { ok: ok, checks: checks };
+}
+
 // ── Entry Point ──────────────────────────────────────────────────────────────
 
 function doGet() {
