@@ -164,6 +164,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <select id="asset-cat-filter" onchange="renderAssetsTable()"><option value="">All Categories</option></select>
         <button class="btn btn-primary" onclick="openAssetModal()">+ Add Asset</button>
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
+        <button class="btn btn-secondary" onclick="connectBank()">🏦 Connect Bank</button>
       </div>
       <div class="table-wrap">
         <table id="assets-table">
@@ -683,6 +684,48 @@ function cmp(a,b,asc){
     r=na-nb;
   else r=String(a||'').localeCompare(String(b||''));
   return asc?r:-r;
+}
+
+// ── Plaid Bank Connection ───────────────────────────────────────────────────
+var _plaidHandler = null;
+
+function connectBank() {
+  toast('Preparing secure bank connection…', 'success');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result || !result.success) {
+        toast('Could not connect: ' + (result ? result.error : 'No response'), 'error');
+        return;
+      }
+      var script = document.createElement('script');
+      script.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+      script.onload = function() {
+        _plaidHandler = Plaid.create({
+          token: result.linkToken,
+          onSuccess: function(publicToken) {
+            toast('Syncing accounts…', 'success');
+            google.script.run
+              .withSuccessHandler(function(r) {
+                if (r && r.success) {
+                  toast(r.message, 'success');
+                  loadData();
+                } else {
+                  toast((r && r.message) || 'Sync failed', 'error');
+                }
+              })
+              .withFailureHandler(function(e) { toast('Error: ' + e.message, 'error'); })
+              .handlePlaidSuccess(publicToken);
+          },
+          onExit: function(err) {
+            if (err) toast(err.display_message || err.error_message || 'Cancelled', 'error');
+          }
+        });
+        _plaidHandler.open();
+      };
+      document.body.appendChild(script);
+    })
+    .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
+    .getPlaidLinkToken();
 }
 </script>
 </body>
