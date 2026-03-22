@@ -116,6 +116,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
+    <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
   </nav>
@@ -178,6 +179,31 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th>Actions</th>
           </tr></thead>
           <tbody id="assets-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Liabilities -->
+  <div class="tab-panel" id="tab-liabilities">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="liability-search" placeholder="Search liabilities…" oninput="renderLiabilitiesTable()">
+        <select id="liability-type-filter" onchange="renderLiabilitiesTable()"><option value="">All Types</option></select>
+        <button class="btn btn-primary" onclick="openLiabilityModal()">+ Add Liability</button>
+      </div>
+      <div class="table-wrap">
+        <table id="liabilities-table">
+          <thead><tr>
+            <th onclick="sortTable('liabilities','Name')">Name <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('liabilities','Type')">Type <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('liabilities','Currency')">Currency <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('liabilities','Amount')">Amount <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('liabilities','USD Value')">USD Value <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('liabilities','Last Updated')">Updated <span class="sort-icon">↕</span></th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="liabilities-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -304,11 +330,48 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- Liability Modal -->
+<div class="modal-overlay" id="liability-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="liability-modal-title">Add Liability</div>
+      <button class="modal-close" onclick="closeModal('liability-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="l-id">
+      <div class="form-two">
+        <div class="form-row"><label>Name</label><input type="text" id="l-name" placeholder="e.g. Mortgage, Car Loan"></div>
+        <div class="form-row"><label>Type</label>
+          <select id="l-type">
+            <option>Mortgage</option><option>Car Loan</option><option>Credit Card</option>
+            <option>Personal Loan</option><option>Business Loan</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Currency</label>
+          <select id="l-currency">
+            <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
+            <option>BRL</option><option>MXN</option><option>CAD</option><option>JPY</option>
+            <option>CHF</option><option>AUD</option><option>DOP</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Amount</label><input type="number" id="l-amount" placeholder="0.00" min="0"></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="Optional notes…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('liability-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLiability()">Save Liability</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  assets: [], entities: [], fxRates: [], history: [], categories: [], currencies: [],
-  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
+  assets: [], liabilities: [], entities: [], fxRates: [], history: [], categories: [], currencies: [],
+  sort: { assets: { col: 'Name', asc: true }, liabilities: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
 };
 
 // ── Category colors ────────────────────────────────────────────────────────
@@ -335,16 +398,19 @@ function loadData(){
 }
 
 function onDataLoaded(d){
-  state.assets   = d.assets   || [];
-  state.entities = d.entities || [];
-  state.fxRates  = d.fxRates  || [];
-  state.history  = d.history  || [];
-  state.categories= d.categories||[];
-  state.currencies= d.currencies||[];
+  state.assets      = d.assets      || [];
+  state.liabilities = d.liabilities || [];
+  state.entities    = d.entities    || [];
+  state.fxRates     = d.fxRates     || [];
+  state.history     = d.history     || [];
+  state.categories  = d.categories  || [];
+  state.currencies  = d.currencies  || [];
   showLoading(false);
   buildCatFilter();
+  buildLiabilityTypeFilter();
   renderDashboard();
   renderAssetsTable();
+  renderLiabilitiesTable();
   renderEntitiesTable();
   renderHistoryTable();
 }
@@ -358,11 +424,13 @@ function switchTab(name){
 // ── Dashboard ──────────────────────────────────────────────────────────────
 function renderDashboard(){
   const assets = state.assets;
-  const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
+  const totalAssets = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
+  const totalLiabilities = state.liabilities.reduce((s,l)=>s+num(l['USD Value']),0);
+  const netWorth = totalAssets - totalLiabilities;
   const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
-  document.getElementById('net-worth').textContent   = fmtUSD(totalUSD);
-  document.getElementById('m-assets').textContent    = fmtUSD(totalUSD);
-  document.getElementById('m-liabilities').textContent = fmtUSD(0);
+  document.getElementById('net-worth').textContent   = fmtUSD(netWorth);
+  document.getElementById('m-assets').textContent    = fmtUSD(totalAssets);
+  document.getElementById('m-liabilities').textContent = fmtUSD(totalLiabilities);
   document.getElementById('m-cash').textContent      = fmtUSD(cashUSD);
   document.getElementById('m-count').textContent     = assets.length;
   renderDonut();
@@ -480,7 +548,94 @@ function sortTable(tbl,col){
   s.asc=s.col===col?!s.asc:true;
   s.col=col;
   if(tbl==='assets')renderAssetsTable();
+  else if(tbl==='liabilities')renderLiabilitiesTable();
   else renderEntitiesTable();
+}
+
+// ── Liabilities Table ──────────────────────────────────────────────────────
+function buildLiabilityTypeFilter(){
+  const sel=document.getElementById('liability-type-filter');
+  sel.innerHTML='<option value="">All Types</option>';
+  const types=['Mortgage','Car Loan','Credit Card','Personal Loan','Business Loan','Other'];
+  types.forEach(t=>sel.insertAdjacentHTML('beforeend',`<option value="${esc(t)}">${esc(t)}</option>`));
+}
+
+function renderLiabilitiesTable(){
+  const q=(document.getElementById('liability-search').value||'').toLowerCase();
+  const type=document.getElementById('liability-type-filter').value;
+  let rows=[...state.liabilities].filter(l=>{
+    if(type&&l.Type!==type)return false;
+    if(q){
+      const hay=(l.Name+l.Type+l.Currency).toLowerCase();
+      if(!hay.includes(q))return false;
+    }
+    return true;
+  });
+  const {col,asc}=state.sort.liabilities;
+  rows.sort((a,b)=>cmp(a[col],b[col],asc));
+  const tb=document.getElementById('liabilities-tbody');
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="7" class="no-data">No liabilities found</td></tr>`;return;}
+  tb.innerHTML=rows.map(l=>`
+    <tr>
+      <td>${esc(l.Name)}</td>
+      <td>${esc(l.Type||'')}</td>
+      <td>${esc(l.Currency||'')}</td>
+      <td>${fmtUSD(num(l.Amount))}</td>
+      <td>${fmtUSD(num(l['USD Value']))}</td>
+      <td>${fmtDate(l['Last Updated'])}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openLiabilityModal(${JSON.stringify(esc(l.ID))})">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteLiability_(${JSON.stringify(esc(l.ID))},${JSON.stringify(esc(l.Name))})">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+// ── Liability Modal ─────────────────────────────────────────────────────────
+function openLiabilityModal(id){
+  const l=id?state.liabilities.find(x=>x.ID==id):null;
+  document.getElementById('liability-modal-title').textContent=l?'Edit Liability':'Add Liability';
+  document.getElementById('l-id').value=l?l.ID:'';
+  document.getElementById('l-name').value=l?l.Name:'';
+  document.getElementById('l-type').value=l?l.Type:'Mortgage';
+  document.getElementById('l-currency').value=l?l.Currency:'USD';
+  document.getElementById('l-amount').value=l?l.Amount:'';
+  document.getElementById('l-notes').value=l?l.Notes:'';
+  openModal('liability-modal');
+}
+
+function saveLiability(){
+  const id=document.getElementById('l-id').value;
+  const data={
+    id:id,
+    name:document.getElementById('l-name').value.trim(),
+    type:document.getElementById('l-type').value,
+    currency:document.getElementById('l-currency').value,
+    amount:parseFloat(document.getElementById('l-amount').value)||0,
+    notes:document.getElementById('l-notes').value.trim()
+  };
+  if(!data.name){toast('Liability name is required','error');return;}
+  showLoading(true);
+  closeModal('liability-modal');
+  if(id){
+    google.script.run
+      .withSuccessHandler(()=>{toast('Liability updated');loadData()})
+      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+      .updateLiability(data);
+  } else {
+    google.script.run
+      .withSuccessHandler(()=>{toast('Liability added');loadData()})
+      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+      .addLiability(data);
+  }
+}
+
+function deleteLiability_(id,name){
+  if(!confirm(`Delete liability "${name}"?`))return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(()=>{toast('Liability deleted');loadData()})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+    .deleteLiability(id);
 }
 
 // ── Entities Table ─────────────────────────────────────────────────────────
@@ -606,7 +761,7 @@ function openEntityModal(name){
 function saveEntity(){
   const origName=document.getElementById('e-orig-name').value;
   const data={
-    'Orig Name':origName,
+    originalName:origName,
     Name:document.getElementById('e-name').value.trim(),
     Type:document.getElementById('e-type').value,
     Jurisdiction:document.getElementById('e-jurisdiction').value.trim(),
