@@ -21,11 +21,14 @@ var CATEGORIES = [
 var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP'];
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
-  ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
-  FX:          ['Currency','Rate to USD','Last Fetched'],
-  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
+  ASSETS:        ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
+  LIABILITIES:   ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
+  ENTITIES:      ['Name','Type','Jurisdiction','Ownership %','Notes'],
+  FX:            ['Currency','Rate to USD','Last Fetched'],
+  HISTORY:       ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
+  INVESTMENTS:   ['ID','Name','Sponsor','Strategy','Terms','Date Invested','Currency','Initial Capital','Total Capital In','Total Distributions','Current Value','ROI %','Entity','Status','Date Added','Last Updated','Notes'],
+  CAPITAL_CALLS: ['ID','Investment ID','Investment Name','Date','Amount USD','Notes'],
+  DISTRIBUTIONS: ['ID','Investment ID','Investment Name','Date','Amount USD','Notes']
 };
 
 // ── Menu ─────────────────────────────────────────────────────────────────────
@@ -153,7 +156,11 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History' }[key];
+  return {
+    ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities',
+    FX: 'FX Rates', HISTORY: 'History',
+    INVESTMENTS: 'Investments', CAPITAL_CALLS: 'Capital Calls', DISTRIBUTIONS: 'Distributions'
+  }[key];
 }
 
 function getSpreadsheet_() {
@@ -182,11 +189,14 @@ function sheetToObjects_(key) {
 
 function getFullData() {
   ensureSheets_();
-  var assets      = sheetToObjects_('ASSETS');
-  var liabilities = sheetToObjects_('LIABILITIES');
-  var entities    = sheetToObjects_('ENTITIES');
-  var fx          = sheetToObjects_('FX');
-  var history     = sheetToObjects_('HISTORY');
+  var assets        = sheetToObjects_('ASSETS');
+  var liabilities   = sheetToObjects_('LIABILITIES');
+  var entities      = sheetToObjects_('ENTITIES');
+  var fx            = sheetToObjects_('FX');
+  var history       = sheetToObjects_('HISTORY');
+  var investments   = sheetToObjects_('INVESTMENTS');
+  var capitalCalls  = sheetToObjects_('CAPITAL_CALLS');
+  var distributions = sheetToObjects_('DISTRIBUTIONS');
 
   function clean(arr) {
     return arr.map(function(obj) {
@@ -199,13 +209,16 @@ function getFullData() {
   }
 
   return {
-    assets:      clean(assets),
-    liabilities: clean(liabilities),
-    entities:    clean(entities),
-    fxRates:     clean(fx),
-    history:     clean(history),
-    categories:  CATEGORIES,
-    currencies:  CURRENCIES
+    assets:        clean(assets),
+    liabilities:   clean(liabilities),
+    entities:      clean(entities),
+    fxRates:       clean(fx),
+    history:       clean(history),
+    investments:   clean(investments),
+    capitalCalls:  clean(capitalCalls),
+    distributions: clean(distributions),
+    categories:    CATEGORIES,
+    currencies:    CURRENCIES
   };
 }
 
@@ -615,6 +628,160 @@ function syncPlaidAccounts() {
   });
 
   return { success: true, synced: synced };
+}
+
+// ── Investments CRUD ──────────────────────────────────────────────────────────
+
+function addInvestment(data) {
+  var sheet    = getSheet_('INVESTMENTS');
+  var id       = Utilities.getUuid();
+  var now      = new Date();
+  var currency = data.currency || 'USD';
+  var fxRate   = getFxRate_(currency);
+  var initial  = Number(data.initialCapital) || 0;
+  var initialUsd = initial * fxRate;
+
+  sheet.appendRow([
+    id,
+    data.name        || '',
+    data.sponsor     || '',
+    data.strategy    || '',
+    data.terms       || '',
+    data.dateInvested ? new Date(data.dateInvested) : now,
+    currency,
+    initialUsd,       // Initial Capital (stored in USD)
+    initialUsd,       // Total Capital In (starts = initial)
+    0,                // Total Distributions
+    initialUsd,       // Current Value (starts = capital in)
+    0,                // ROI %
+    data.entity      || '',
+    data.status      || 'Active',
+    now,              // Date Added
+    now,              // Last Updated
+    data.notes       || ''
+  ]);
+
+  return { success: true, id: id };
+}
+
+function updateInvestment(data) {
+  var sheet = getSheet_('INVESTMENTS');
+  var rows  = sheet.getDataRange().getValues();
+
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] !== data.id) continue;
+
+    var currency    = data.currency    !== undefined ? data.currency    : rows[i][6];
+    var fxRate      = getFxRate_(currency);
+    var currentVal  = data.currentValue !== undefined ? Number(data.currentValue) * fxRate : Number(rows[i][10]);
+    var totalIn     = Number(rows[i][8]);
+    var totalOut    = Number(rows[i][9]);
+    var roi         = totalIn > 0 ? ((totalOut + currentVal - totalIn) / totalIn * 100) : 0;
+
+    sheet.getRange(i + 1, 2).setValue(data.name         !== undefined ? data.name        : rows[i][1]);
+    sheet.getRange(i + 1, 3).setValue(data.sponsor      !== undefined ? data.sponsor     : rows[i][2]);
+    sheet.getRange(i + 1, 4).setValue(data.strategy     !== undefined ? data.strategy    : rows[i][3]);
+    sheet.getRange(i + 1, 5).setValue(data.terms        !== undefined ? data.terms       : rows[i][4]);
+    sheet.getRange(i + 1, 6).setValue(data.dateInvested !== undefined ? new Date(data.dateInvested) : rows[i][5]);
+    sheet.getRange(i + 1, 7).setValue(currency);
+    sheet.getRange(i + 1, 11).setValue(currentVal);
+    sheet.getRange(i + 1, 12).setValue(Math.round(roi * 100) / 100);
+    sheet.getRange(i + 1, 13).setValue(data.entity      !== undefined ? data.entity      : rows[i][12]);
+    sheet.getRange(i + 1, 14).setValue(data.status      !== undefined ? data.status      : rows[i][13]);
+    sheet.getRange(i + 1, 16).setValue(new Date());
+    sheet.getRange(i + 1, 17).setValue(data.notes       !== undefined ? data.notes       : rows[i][16]);
+
+    return { success: true };
+  }
+  return { success: false, error: 'Investment not found' };
+}
+
+function deleteInvestment(id) {
+  var sheet = getSheet_('INVESTMENTS');
+  var rows  = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
+  }
+  return { success: false, error: 'Not found' };
+}
+
+function addCapitalCall(data) {
+  var sheet = getSheet_('CAPITAL_CALLS');
+  var id    = Utilities.getUuid();
+  var now   = new Date();
+  var amount = Number(data.amount) || 0;
+
+  sheet.appendRow([
+    id,
+    data.investmentId   || '',
+    data.investmentName || '',
+    data.date ? new Date(data.date) : now,
+    amount,
+    data.notes || ''
+  ]);
+
+  // Update the investment's Total Capital In and recalc ROI
+  recalcInvestmentTotals_(data.investmentId);
+
+  return { success: true, id: id };
+}
+
+function addDistribution(data) {
+  var sheet  = getSheet_('DISTRIBUTIONS');
+  var id     = Utilities.getUuid();
+  var now    = new Date();
+  var amount = Number(data.amount) || 0;
+
+  sheet.appendRow([
+    id,
+    data.investmentId   || '',
+    data.investmentName || '',
+    data.date ? new Date(data.date) : now,
+    amount,
+    data.notes || ''
+  ]);
+
+  // Update the investment's Total Distributions and recalc ROI
+  recalcInvestmentTotals_(data.investmentId);
+
+  return { success: true, id: id };
+}
+
+function recalcInvestmentTotals_(investmentId) {
+  var invSheet   = getSheet_('INVESTMENTS');
+  var ccSheet    = getSheet_('CAPITAL_CALLS');
+  var distSheet  = getSheet_('DISTRIBUTIONS');
+  var invRows    = invSheet.getDataRange().getValues();
+
+  for (var i = 1; i < invRows.length; i++) {
+    if (invRows[i][0] !== investmentId) continue;
+
+    var initialCapital = Number(invRows[i][7]);
+
+    // Sum all capital calls for this investment
+    var ccRows    = ccSheet.getDataRange().getValues();
+    var totalCalls = 0;
+    for (var c = 1; c < ccRows.length; c++) {
+      if (ccRows[c][1] === investmentId) totalCalls += Number(ccRows[c][4]) || 0;
+    }
+
+    // Sum all distributions for this investment
+    var distRows   = distSheet.getDataRange().getValues();
+    var totalDist  = 0;
+    for (var d = 1; d < distRows.length; d++) {
+      if (distRows[d][1] === investmentId) totalDist += Number(distRows[d][4]) || 0;
+    }
+
+    var totalIn   = initialCapital + totalCalls;
+    var currentVal = Number(invRows[i][10]);
+    var roi       = totalIn > 0 ? ((totalDist + currentVal - totalIn) / totalIn * 100) : 0;
+
+    invSheet.getRange(i + 1, 9).setValue(totalIn);
+    invSheet.getRange(i + 1, 10).setValue(totalDist);
+    invSheet.getRange(i + 1, 12).setValue(Math.round(roi * 100) / 100);
+    invSheet.getRange(i + 1, 16).setValue(new Date());
+    break;
+  }
 }
 
 // ── Install Triggers ──────────────────────────────────────────────────────────
