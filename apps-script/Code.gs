@@ -700,7 +700,7 @@ function syncPlaidAccounts() {
       if (!data.accounts) return;
 
       data.accounts.forEach(function(acct) {
-        var balance  = acct.balances.current || 0;
+        var balance  = (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0;
         var acctName = (acct.name || 'Account') + ' ···' + (acct.mask || '');
         var acctId   = acct.account_id;
         var sheet    = getSheet_('ASSETS');
