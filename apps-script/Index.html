@@ -690,7 +690,7 @@ function cmp(a,b,asc){
 var _plaidHandler = null;
 
 function connectBank() {
-  toast('Preparing secure bank connection…', 'success');
+  toast('Preparing secure bank connection...', 'success');
   google.script.run
     .withSuccessHandler(function(result) {
       if (!result || !result.success) {
@@ -703,7 +703,7 @@ function connectBank() {
         _plaidHandler = Plaid.create({
           token: result.linkToken,
           onSuccess: function(publicToken) {
-            toast('Syncing accounts…', 'success');
+            toast('Syncing accounts...', 'success');
             google.script.run
               .withSuccessHandler(function(r) {
                 if (r && r.success) {
