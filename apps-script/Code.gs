@@ -1,16 +1,17 @@
 /**
  * Code.gs — Family Office Wealth Tracker
- * Google Apps Script Web App Backend
+ * Google Apps Script — single-file backend + web app
  *
- * SCRIPT PROPERTIES TO SET:
- *   SPREADSHEET_ID   — ID of the backing Google Sheet
- *   RENTCAST_API_KEY — from rentcast.io (free tier: 50 req/month)
- *   PLAID_CLIENT_ID  — 6997417fe8a45f001e390093
- *   PLAID_SECRET     — 08b872e451d778ce028d2b5952693b
- *   PLAID_ENV        — sandbox | production
+ * SCRIPT PROPERTIES TO SET (Extensions > Apps Script > Project Settings > Script Properties):
+ *   SPREADSHEET_ID      — ID of the backing Google Sheet (optional if running bound to sheet)
+ *   RENTCAST_API_KEY    — from rentcast.io (free tier: 50 req/month)
+ *   EXCHANGERATE_API_KEY— from exchangerate-api.com (optional, free tier works without key)
+ *   PLAID_CLIENT_ID     — your Plaid client ID
+ *   PLAID_SECRET        — your Plaid secret
+ *   PLAID_ENV           — sandbox | production
  */
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 var CATEGORIES = [
   'Real Estate', 'Private Equity', 'Public Equity',
@@ -18,7 +19,21 @@ var CATEGORIES = [
   'VIP Medical', 'Insurance', 'Other'
 ];
 
-var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP'];
+var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP','PYG'];
+
+var SUPPORTED_CURRENCIES = {
+  'AED':'UAE Dirham','ARS':'Argentine Peso','AUD':'Australian Dollar',
+  'BRL':'Brazilian Real','CAD':'Canadian Dollar','CHF':'Swiss Franc',
+  'CLP':'Chilean Peso','CNY':'Chinese Yuan','COP':'Colombian Peso',
+  'DOP':'Dominican Peso','EUR':'Euro','GBP':'British Pound',
+  'HKD':'Hong Kong Dollar','INR':'Indian Rupee','JPY':'Japanese Yen',
+  'KRW':'South Korean Won','MXN':'Mexican Peso','MYR':'Malaysian Ringgit',
+  'NOK':'Norwegian Krone','NZD':'New Zealand Dollar','PEN':'Peruvian Sol',
+  'PHP':'Philippine Peso','PLN':'Polish Zloty','PYG':'Paraguayan Guaraní',
+  'SAR':'Saudi Riyal','SEK':'Swedish Krona','SGD':'Singapore Dollar',
+  'THB':'Thai Baht','TRY':'Turkish Lira','TWD':'Taiwan Dollar',
+  'USD':'US Dollar','VND':'Vietnamese Dong','ZAR':'South African Rand'
+};
 
 var COL = {
   ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
@@ -28,7 +43,7 @@ var COL = {
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
 };
 
-// ── Menu ─────────────────────────────────────────────────────────────────────
+// ── Menu ──────────────────────────────────────────────────────────────────────
 
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -37,6 +52,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Refresh FX Rates', 'fetchExchangeRates')
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
+    .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
     .addSeparator()
     .addItem('Connect Bank Account', 'openPlaidLink')
@@ -54,7 +70,6 @@ function deploymentReadinessCheck() {
   var checks = [];
   var ok     = true;
 
-  // Helper to record a check result
   function check(label, passed, detail) {
     checks.push((passed ? '✅' : '❌') + ' ' + label + (detail ? ': ' + detail : ''));
     if (!passed) ok = false;
@@ -71,17 +86,17 @@ function deploymentReadinessCheck() {
   // 2. Required sheets
   try {
     ensureSheets_();
-    check('Sheets (Assets / Entities / FX Rates / History)', true, 'all present');
+    check('Sheets (Assets / Liabilities / Entities / FX Rates / History)', true, 'all present');
   } catch(e) {
     check('Sheets', false, e.message);
   }
 
-  // 3. FX API (free, no key required)
+  // 3. FX API
   try {
     var fxResp = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
     check('FX API (open.er-api.com)', fxResp.getResponseCode() === 200, 'HTTP ' + fxResp.getResponseCode());
   } catch(e) {
-    check('FX API (open.er-api.com)', false, e.message);
+    check('FX API', false, e.message);
   }
 
   // 4. Rentcast API key
@@ -96,7 +111,7 @@ function deploymentReadinessCheck() {
   check('PLAID_SECRET',    !!plaidSecret,   plaidSecret   ? 'set' : 'missing — bank sync will not work');
   check('PLAID_ENV',       !!plaidEnv,      plaidEnv      ? plaidEnv : 'missing (sandbox / production)');
 
-  // 6. Plaid API connectivity (only if credentials are present)
+  // 6. Plaid connectivity
   if (plaidClientId && plaidSecret && plaidEnv) {
     try {
       var plaidResult = getPlaidLinkToken();
@@ -109,12 +124,12 @@ function deploymentReadinessCheck() {
   }
 
   // 7. Daily trigger
-  var triggers = ScriptApp.getProjectTriggers();
+  var triggers   = ScriptApp.getProjectTriggers();
   var hasTrigger = triggers.some(function(t) { return t.getHandlerFunction() === 'dailySync_'; });
   check('Daily sync trigger', hasTrigger, hasTrigger ? 'installed' : 'not installed — run "Install Daily Trigger"');
 
-  // 8. Web app deployment (informational only — can't verify programmatically)
-  checks.push('ℹ️  Web app: deploy via Deploy > New deployment if using the web UI');
+  // 8. Web app (informational)
+  checks.push('ℹ️  Web app: deploy via Deploy > New deployment to get a shareable URL');
 
   var summary = (ok ? '✅ All required checks passed.' : '⚠️  Some checks failed — see details below.') +
     '\n\n' + checks.join('\n');
@@ -123,7 +138,7 @@ function deploymentReadinessCheck() {
   return { ok: ok, checks: checks };
 }
 
-// ── Entry Point ──────────────────────────────────────────────────────────────
+// ── Web App Entry Point ───────────────────────────────────────────────────────
 
 function doGet() {
   ensureSheets_();
@@ -132,12 +147,12 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// ── Sheet Bootstrapping ──────────────────────────────────────────────────────
+// ── Sheet Bootstrapping ───────────────────────────────────────────────────────
 
 function ensureSheets_() {
   var ss = getSpreadsheet_();
   Object.keys(COL).forEach(function(key) {
-    var name = sheetName_(key);
+    var name  = sheetName_(key);
     var sheet = ss.getSheetByName(name);
     if (!sheet) {
       sheet = ss.insertSheet(name);
@@ -178,15 +193,10 @@ function sheetToObjects_(key) {
   });
 }
 
-// ── Main Data Fetch ──────────────────────────────────────────────────────────
+// ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
   ensureSheets_();
-  var assets      = sheetToObjects_('ASSETS');
-  var liabilities = sheetToObjects_('LIABILITIES');
-  var entities    = sheetToObjects_('ENTITIES');
-  var fx          = sheetToObjects_('FX');
-  var history     = sheetToObjects_('HISTORY');
 
   function clean(arr) {
     return arr.map(function(obj) {
@@ -199,17 +209,17 @@ function getFullData() {
   }
 
   return {
-    assets:      clean(assets),
-    liabilities: clean(liabilities),
-    entities:    clean(entities),
-    fxRates:     clean(fx),
-    history:     clean(history),
+    assets:      clean(sheetToObjects_('ASSETS')),
+    liabilities: clean(sheetToObjects_('LIABILITIES')),
+    entities:    clean(sheetToObjects_('ENTITIES')),
+    fxRates:     clean(sheetToObjects_('FX')),
+    history:     clean(sheetToObjects_('HISTORY')),
     categories:  CATEGORIES,
     currencies:  CURRENCIES
   };
 }
 
-// ── FX Rates ─────────────────────────────────────────────────────────────────
+// ── FX Rates ──────────────────────────────────────────────────────────────────
 
 function fetchExchangeRates() {
   try {
@@ -226,12 +236,10 @@ function fetchExchangeRates() {
       if (rate !== null) rows.push([code, rate, now]);
     });
 
-    // Overwrite FX sheet
     var last = sheet.getLastRow();
     if (last > 1) sheet.getRange(2, 1, last - 1, 3).clearContent();
     if (rows.length) sheet.getRange(2, 1, rows.length, 3).setValues(rows);
 
-    // Cache
     var map = {};
     rows.forEach(function(r) { map[r[0]] = r[1]; });
     PropertiesService.getScriptProperties().setProperty('FX_CACHE', JSON.stringify({ rates: map, fetched: now.toISOString() }));
@@ -247,7 +255,7 @@ function getFxRate_(currency) {
   try {
     var cached = PropertiesService.getScriptProperties().getProperty('FX_CACHE');
     if (cached) {
-      var obj = JSON.parse(cached);
+      var obj    = JSON.parse(cached);
       var ageHrs = (Date.now() - new Date(obj.fetched).getTime()) / 3600000;
       if (ageHrs < 4 && obj.rates[currency]) return obj.rates[currency];
     }
@@ -256,24 +264,77 @@ function getFxRate_(currency) {
   return (result.success && result.rates[currency]) ? result.rates[currency] : 1;
 }
 
-// ── Assets CRUD ──────────────────────────────────────────────────────────────
+/**
+ * Get today's exchange rate for a currency to USD.
+ * Use directly in sheet cells: =FX_RATE("COP")
+ * @param {string} currencyCode - ISO 4217 code (e.g. "COP", "EUR")
+ * @return {number} Rate: 1 unit of currencyCode = X USD
+ * @customfunction
+ */
+function FX_RATE(currencyCode) {
+  if (!currencyCode) return '';
+  currencyCode = currencyCode.toString().trim().toUpperCase();
+  if (currencyCode === 'USD') return 1;
+
+  var cache    = CacheService.getScriptCache();
+  var cacheKey = 'fx_' + currencyCode + '_USD';
+  var cached   = cache.get(cacheKey);
+  if (cached) return Number(cached);
+
+  try {
+    var apiKey  = PropertiesService.getScriptProperties().getProperty('EXCHANGERATE_API_KEY');
+    var baseUrl = apiKey
+      ? 'https://v6.exchangerate-api.com/v6/' + apiKey + '/latest/' + currencyCode
+      : 'https://open.er-api.com/v6/latest/' + currencyCode;
+
+    var resp = UrlFetchApp.fetch(baseUrl, { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) return 'Error: HTTP ' + resp.getResponseCode();
+
+    var data = JSON.parse(resp.getContentText());
+    if (!data.rates || !data.rates['USD']) return 'Error: no rate';
+
+    var rate = data.rates['USD'];
+    cache.put(cacheKey, rate.toString(), 14400); // cache 4 hours
+    return rate;
+  } catch(e) {
+    return 'Error: ' + e.message;
+  }
+}
+
+/**
+ * Convert a foreign currency amount to USD.
+ * Use directly in sheet cells: =TO_USD(1000000, "COP")
+ * @param {number} amount
+ * @param {string} currencyCode - ISO 4217 code
+ * @return {number} USD equivalent
+ * @customfunction
+ */
+function TO_USD(amount, currencyCode) {
+  if (!amount || !currencyCode) return '';
+  currencyCode = currencyCode.toString().trim().toUpperCase();
+  if (currencyCode === 'USD') return Number(amount);
+  var rate = FX_RATE(currencyCode);
+  if (typeof rate !== 'number') return rate;
+  return Number(amount) * rate;
+}
+
+// ── Assets CRUD ───────────────────────────────────────────────────────────────
 
 function addAsset(data) {
-  var sheet      = getSheet_('ASSETS');
-  var id         = Utilities.getUuid();
-  var now        = new Date();
-  var fxRate     = getFxRate_(data.currency || 'USD');
-  var localVal   = Number(data.localValue) || 0;
-  var usdVal     = localVal * fxRate;
-  var sharePct   = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
-  var shareUsd   = usdVal * sharePct / 100;
+  var sheet    = getSheet_('ASSETS');
+  var id       = Utilities.getUuid();
+  var now      = new Date();
+  var fxRate   = getFxRate_(data.currency || 'USD');
+  var localVal = Number(data.localValue) || 0;
+  var usdVal   = localVal * fxRate;
+  var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
+  var shareUsd = usdVal * sharePct / 100;
 
   sheet.appendRow([
     id, data.name || '', data.category || '', data.entity || '',
     data.currency || 'USD', localVal, fxRate, usdVal,
     sharePct, shareUsd, now, now, data.notes || '', ''
   ]);
-
   return { success: true, id: id };
 }
 
@@ -368,8 +429,7 @@ function addLiability(data) {
   var now    = new Date();
   var fxRate = getFxRate_(data.currency || 'USD');
   var amount = Number(data.amount) || 0;
-  var usdVal = amount * fxRate;
-  sheet.appendRow([id, data.name || '', data.type || '', data.currency || 'USD', amount, usdVal, now, now, data.notes || '']);
+  sheet.appendRow([id, data.name || '', data.type || '', data.currency || 'USD', amount, amount * fxRate, now, now, data.notes || '']);
   return { success: true, id: id };
 }
 
@@ -402,75 +462,137 @@ function deleteLiability(id) {
 }
 
 // ── Property Valuation (Rentcast) ─────────────────────────────────────────────
-// Zillow deprecated their public API; Rentcast provides free property AVM.
-// Free tier: 50 req/month. Get key at rentcast.io
-// Set RENTCAST_API_KEY in Script Properties.
 
-function getPropertyValue(address) {
+/**
+ * Refresh Rentcast AVM values for all US Real Estate assets.
+ * Assets with Category = "Real Estate" and a US address in Notes
+ * (format: "address: 123 Main St, City, TX 77001") are auto-updated.
+ */
+function refreshPropertyValues() {
   var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
-  if (!apiKey) return { success: false, error: 'Set RENTCAST_API_KEY in Script Properties' };
+  if (!apiKey) {
+    SpreadsheetApp.getUi().alert(
+      'Rentcast API key not set.\n\n' +
+      'Go to: Extensions > Apps Script > Project Settings > Script Properties\n' +
+      'Add: RENTCAST_API_KEY = your key from rentcast.io'
+    );
+    return { success: false, error: 'No API key' };
+  }
 
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var updated = 0;
+  var errors  = [];
+
+  for (var i = 1; i < rows.length; i++) {
+    var category = String(rows[i][2] || '').trim();
+    var currency = String(rows[i][4] || '').trim();
+    var notes    = String(rows[i][12] || '').trim();
+
+    if (category !== 'Real Estate' || currency !== 'USD') continue;
+
+    var addrMatch = notes.match(/address:\s*([^\|]+?)(?:\s*\||$)/i);
+    if (!addrMatch) continue;
+    var address = addrMatch[1].trim();
+
+    if (!/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/i.test(address)) continue;
+
+    var result = getRentcastEstimate_(address, apiKey);
+
+    if (!result.success) {
+      errors.push(rows[i][1] + ': ' + result.error);
+      Utilities.sleep(500);
+      continue;
+    }
+
+    var sheetRow = i + 1;
+    var oldUsd   = Number(rows[i][7]) || 0;
+    var newUsd   = result.value;
+    var sharePct = Number(rows[i][8]) || 100;
+
+    sheet.getRange(sheetRow, 6).setValue(newUsd);
+    sheet.getRange(sheetRow, 7).setValue(1);
+    sheet.getRange(sheetRow, 8).setValue(newUsd);
+    sheet.getRange(sheetRow, 10).setValue(newUsd * sharePct / 100);
+    sheet.getRange(sheetRow, 12).setValue(new Date());
+
+    var rangeNote = 'Rentcast ' + formatDate_(new Date()) +
+                    ': $' + formatNumber_(result.lowValue) + '–$' + formatNumber_(result.highValue);
+    var newNotes = notes.replace(/Rentcast [^\|]*/g, rangeNote);
+    if (newNotes === notes) newNotes = notes ? notes + ' | ' + rangeNote : rangeNote;
+    sheet.getRange(sheetRow, 13).setValue(newNotes);
+
+    if (Math.abs(newUsd - oldUsd) > 0.01) {
+      logHistory_(rows[i][1], oldUsd, newUsd, 'USD', 'Auto-updated via Rentcast');
+    }
+
+    updated++;
+    Utilities.sleep(600);
+  }
+
+  var msg = updated + ' US propert' + (updated === 1 ? 'y' : 'ies') + ' updated.';
+  if (errors.length) msg += '\n\nNot updated:\n' + errors.join('\n');
+  SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'Rentcast Update', 10);
+  return { success: true, updated: updated };
+}
+
+/**
+ * Prompt for a US address and show the Rentcast estimate interactively.
+ */
+function lookupSingleProperty() {
+  var ui     = SpreadsheetApp.getUi();
+  var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
+  if (!apiKey) {
+    ui.alert('RENTCAST_API_KEY not set.\n\nGo to: Extensions > Apps Script > Project Settings > Script Properties\nAdd: RENTCAST_API_KEY = your key from rentcast.io');
+    return;
+  }
+  var resp = ui.prompt('Property Lookup', 'Enter full US address (e.g. 123 Main St, Houston, TX 77001):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var address = resp.getResponseText().trim();
+  if (!address) return;
+  var result = getRentcastEstimate_(address, apiKey);
+  if (result.success) {
+    ui.alert('Rentcast Estimate',
+      address + '\n\n' +
+      'Value:  $' + formatNumber_(result.value) + '\n' +
+      'Range:  $' + formatNumber_(result.lowValue) + ' – $' + formatNumber_(result.highValue),
+      ui.ButtonSet.OK);
+  } else {
+    ui.alert('Could not get estimate: ' + result.error);
+  }
+}
+
+function getRentcastEstimate_(address, apiKey) {
   try {
-    var url = 'https://api.rentcast.io/v1/avm/value?address=' + encodeURIComponent(address);
+    var url  = 'https://api.rentcast.io/v1/avm/value?address=' + encodeURIComponent(address);
     var resp = UrlFetchApp.fetch(url, {
-      method: 'GET',
-      headers: { 'X-Api-Key': apiKey },
-      muteHttpExceptions: true
+      method: 'GET', headers: { 'X-Api-Key': apiKey }, muteHttpExceptions: true
     });
-
-    if (resp.getResponseCode() === 404) return { success: false, error: 'Address not found' };
-    if (resp.getResponseCode() !== 200) return { success: false, error: 'API error ' + resp.getResponseCode() };
-
-    var data = JSON.parse(resp.getContentText());
+    var code = resp.getResponseCode();
+    if (code === 404) return { success: false, error: 'Address not found' };
+    if (code === 429) return { success: false, error: 'Rate limit (50/month on free tier)' };
+    if (code !== 200) return { success: false, error: 'HTTP ' + code };
+    var data  = JSON.parse(resp.getContentText());
+    var value = data.price || data.value || data.priceRangeMid || null;
+    if (!value) return { success: false, error: 'No valuation returned' };
     return {
-      success: true,
-      value:      data.price      || data.value || null,
-      lowValue:   data.priceLow   || null,
-      highValue:  data.priceHigh  || null,
-      address:    data.formattedAddress || address
+      success:   true,
+      value:     Math.round(value),
+      lowValue:  Math.round(data.priceLow  || value * 0.95),
+      highValue: Math.round(data.priceHigh || value * 1.05)
     };
   } catch(e) {
     return { success: false, error: e.message };
   }
 }
 
-function refreshPropertyValues() {
-  var sheet = getSheet_('ASSETS');
-  var rows  = sheet.getDataRange().getValues();
-  var updated = 0;
+function formatNumber_(n) {
+  if (!n) return '0';
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
 
-  for (var i = 1; i < rows.length; i++) {
-    var category = rows[i][2];
-    var notes    = (rows[i][12] || '').toString();
-    var address  = '';
-
-    // Look for US address in notes field (format: "address: 123 Main St, City, ST")
-    var match = notes.match(/address:\s*(.+?)(?:\||$)/i);
-    if (match) address = match[1].trim();
-
-    if (category !== 'Real Estate' || !address) continue;
-    if (!/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/i.test(address)) continue;
-
-    var result = getPropertyValue(address);
-    if (!result.success || !result.value) continue;
-
-    var oldUsd = Number(rows[i][7]) || 0;
-    var newUsd = result.value;
-    sheet.getRange(i + 1, 6).setValue(newUsd);  // Local Value (USD for US properties)
-    sheet.getRange(i + 1, 7).setValue(1);
-    sheet.getRange(i + 1, 8).setValue(newUsd);
-    var sharePct = Number(rows[i][8]) || 100;
-    sheet.getRange(i + 1, 10).setValue(newUsd * sharePct / 100);
-    sheet.getRange(i + 1, 12).setValue(new Date());
-
-    if (Math.abs(newUsd - oldUsd) > 0.01) {
-      logHistory_(rows[i][1], oldUsd, newUsd, 'USD', 'Auto-updated via Rentcast');
-    }
-    updated++;
-    Utilities.sleep(500); // Rate limit
-  }
-
-  return { success: true, updated: updated };
+function formatDate_(d) {
+  return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
@@ -503,8 +625,8 @@ function getHistory(filters) {
 function getPlaidConfig_() {
   var p = PropertiesService.getScriptProperties();
   return {
-    clientId: p.getProperty('PLAID_CLIENT_ID') || '6997417fe8a45f001e390093',
-    secret:   p.getProperty('PLAID_SECRET')    || '08b872e451d778ce028d2b5952693b',
+    clientId: p.getProperty('PLAID_CLIENT_ID') || '',
+    secret:   p.getProperty('PLAID_SECRET')    || '',
     env:      p.getProperty('PLAID_ENV')        || 'sandbox'
   };
 }
@@ -520,13 +642,13 @@ function getPlaidLinkToken() {
       method: 'POST',
       contentType: 'application/json',
       payload: JSON.stringify({
-        client_id:    cfg.clientId,
-        secret:       cfg.secret,
-        client_name:  'MNW Family Office',
+        client_id:     cfg.clientId,
+        secret:        cfg.secret,
+        client_name:   'MNW Family Office',
         country_codes: ['US'],
-        language:     'en',
-        user:         { client_user_id: 'mnw-family-office' },
-        products:     ['transactions', 'accounts']
+        language:      'en',
+        user:          { client_user_id: 'mnw-family-office' },
+        products:      ['transactions', 'accounts']
       }),
       muteHttpExceptions: true
     });
@@ -549,7 +671,6 @@ function exchangePlaidToken(publicToken) {
     });
     var data = JSON.parse(resp.getContentText());
     if (!data.access_token) return { success: false, error: data.error_message };
-
     var p      = PropertiesService.getScriptProperties();
     var tokens = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
     if (tokens.indexOf(data.access_token) === -1) tokens.push(data.access_token);
@@ -582,11 +703,9 @@ function syncPlaidAccounts() {
         var balance  = acct.balances.current || 0;
         var acctName = (acct.name || 'Account') + ' ···' + (acct.mask || '');
         var acctId   = acct.account_id;
-
-        // Find existing asset by Plaid Account ID or name
-        var sheet = getSheet_('ASSETS');
-        var rows  = sheet.getDataRange().getValues();
-        var found = false;
+        var sheet    = getSheet_('ASSETS');
+        var rows     = sheet.getDataRange().getValues();
+        var found    = false;
 
         for (var i = 1; i < rows.length; i++) {
           if (rows[i][13] === acctId || (rows[i][1] === acctName && rows[i][2] === 'Cash')) {
@@ -598,36 +717,90 @@ function syncPlaidAccounts() {
             sheet.getRange(i + 1, 12).setValue(new Date());
             sheet.getRange(i + 1, 14).setValue(acctId);
             if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
-            found = true; break;
+            found = true;
+            break;
           }
         }
 
         if (!found) {
           addAsset({ name: acctName, category: 'Cash', currency: 'USD', localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
-          // Also store the Plaid account ID
           var newRows = sheet.getDataRange().getValues();
-          var lastRow = newRows.length;
-          sheet.getRange(lastRow, 14).setValue(acctId);
+          sheet.getRange(newRows.length, 14).setValue(acctId);
         }
         synced++;
       });
-    } catch(e) { console.error('Plaid sync error:', e); }
+    } catch(e) {
+      console.error('Plaid sync error:', e);
+    }
   });
 
   return { success: true, synced: synced };
 }
 
-// ── Install Triggers ──────────────────────────────────────────────────────────
+// ── Plaid UI Helpers ──────────────────────────────────────────────────────────
+
+function setPlaidCredentials() {
+  var ui       = SpreadsheetApp.getUi();
+  var clientId = ui.prompt('Plaid Setup', 'Enter your Plaid Client ID:', ui.ButtonSet.OK_CANCEL);
+  if (clientId.getSelectedButton() !== ui.Button.OK) return;
+  var secret   = ui.prompt('Plaid Setup', 'Enter your Plaid Secret:', ui.ButtonSet.OK_CANCEL);
+  if (secret.getSelectedButton() !== ui.Button.OK) return;
+  var env      = ui.prompt('Plaid Setup', 'Environment (sandbox / production):', ui.ButtonSet.OK_CANCEL);
+  if (env.getSelectedButton() !== ui.Button.OK) return;
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('PLAID_CLIENT_ID', clientId.getResponseText().trim());
+  props.setProperty('PLAID_SECRET',    secret.getResponseText().trim());
+  props.setProperty('PLAID_ENV',       env.getResponseText().trim() || 'sandbox');
+  ui.alert('Plaid credentials saved. You can now connect bank accounts.');
+}
+
+function openPlaidLink() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    var ui   = SpreadsheetApp.getUi();
+    var resp = ui.alert('Plaid Not Configured', 'Plaid credentials are not set. Would you like to set them now?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.YES) setPlaidCredentials();
+    return;
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLink')
+    .setTitle('Connect Bank Account')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function handlePlaidSuccess(publicToken) {
+  try {
+    var exchResult = exchangePlaidToken(publicToken);
+    if (!exchResult.success) return { success: false, message: exchResult.error };
+    var syncResult = syncPlaidAccounts();
+    return { success: true, message: 'Bank connected! ' + (syncResult.synced || 0) + ' account(s) synced to Assets tab.' };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
+function removePlaidConnection() {
+  var ui     = SpreadsheetApp.getUi();
+  var props  = PropertiesService.getScriptProperties();
+  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) { ui.alert('No Plaid connections to remove.'); return; }
+  var resp = ui.alert('Remove Plaid Connections',
+    'This will disconnect all ' + tokens.length + ' bank connection(s). Continue?',
+    ui.ButtonSet.YES_NO);
+  if (resp === ui.Button.YES) {
+    props.deleteProperty('PLAID_TOKENS');
+    ui.alert('All Plaid connections removed.');
+  }
+}
+
+// ── Triggers ──────────────────────────────────────────────────────────────────
 
 function installTriggers() {
-  // Remove old
   ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (['dailySync_', 'fetchExchangeRates'].indexOf(t.getHandlerFunction()) !== -1) {
-      ScriptApp.deleteTrigger(t);
-    }
+    if (t.getHandlerFunction() === 'dailySync_') ScriptApp.deleteTrigger(t);
   });
-  // Daily at 7 AM: refresh FX + property values + Plaid
   ScriptApp.newTrigger('dailySync_').timeBased().everyDays(1).atHour(7).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Daily sync scheduled for 7 AM', 'Trigger Installed', 5);
   return { success: true };
 }
 
