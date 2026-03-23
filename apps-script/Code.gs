@@ -707,19 +707,35 @@ function syncPlaidAccounts() {
         var rows     = sheet.getDataRange().getValues();
         var found    = false;
 
+        var matchRow = -1;
+        // First pass: exact match by Plaid Account ID or name+category
         for (var i = 1; i < rows.length; i++) {
           if (rows[i][13] === acctId || (rows[i][1] === acctName && rows[i][2] === 'Cash')) {
-            var oldUsd = Number(rows[i][7]) || 0;
-            sheet.getRange(i + 1, 6).setValue(balance);
-            sheet.getRange(i + 1, 7).setValue(1);
-            sheet.getRange(i + 1, 8).setValue(balance);
-            sheet.getRange(i + 1, 10).setValue(balance);
-            sheet.getRange(i + 1, 12).setValue(new Date());
-            sheet.getRange(i + 1, 14).setValue(acctId);
-            if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
-            found = true;
+            matchRow = i;
             break;
           }
+        }
+        // Second pass: claim any unlinked Cash asset (no Plaid ID set)
+        if (matchRow === -1) {
+          for (var i = 1; i < rows.length; i++) {
+            if (rows[i][2] === 'Cash' && !rows[i][13]) {
+              matchRow = i;
+              break;
+            }
+          }
+        }
+
+        if (matchRow !== -1) {
+          var oldUsd = Number(rows[matchRow][7]) || 0;
+          sheet.getRange(matchRow + 1, 2).setValue(acctName);   // update Name from Plaid
+          sheet.getRange(matchRow + 1, 6).setValue(balance);
+          sheet.getRange(matchRow + 1, 7).setValue(1);
+          sheet.getRange(matchRow + 1, 8).setValue(balance);
+          sheet.getRange(matchRow + 1, 10).setValue(balance);
+          sheet.getRange(matchRow + 1, 12).setValue(new Date());
+          sheet.getRange(matchRow + 1, 14).setValue(acctId);
+          if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
+          found = true;
         }
 
         if (!found) {
