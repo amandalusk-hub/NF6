@@ -198,6 +198,15 @@ function sheetToObjects_(key) {
 function getFullData() {
   ensureSheets_();
 
+  // Auto-assign IDs to any asset rows that were manually entered without one
+  var assetSheet = getSheet_('ASSETS');
+  var assetRows  = assetSheet.getDataRange().getValues();
+  for (var i = 1; i < assetRows.length; i++) {
+    if (!assetRows[i][0]) {
+      assetSheet.getRange(i + 1, 1).setValue(Utilities.getUuid());
+    }
+  }
+
   function clean(arr) {
     return arr.map(function(obj) {
       var out = {};

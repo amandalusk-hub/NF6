@@ -578,8 +578,17 @@ function saveAsset(){
   if(!data.name){toast('Asset name is required','error');return;}
   showLoading(true);
   closeModal('asset-modal');
-  const fn=id?google.script.run.withSuccessHandler(()=>{toast('Asset updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateAsset(data)
-              :google.script.run.withSuccessHandler(()=>{toast('Asset added');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).addAsset(data);
+  if(id){
+    google.script.run
+      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Update failed','error');}else{toast('Asset updated');loadData();}})
+      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+      .updateAsset(data);
+  }else{
+    google.script.run
+      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Asset added');loadData();}})
+      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
+      .addAsset(data);
+  }
 }
 
 function deleteAsset(id,name){
