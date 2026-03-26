@@ -585,7 +585,7 @@ function saveAsset(){
       .updateAsset(data);
   }else{
     google.script.run
-      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Asset added');loadData();}})
+      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Saved name: "' + (r.savedName||'EMPTY - name not received') + '"');loadData();}})
       .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
       .addAsset(data);
   }

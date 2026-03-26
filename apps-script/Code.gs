@@ -339,12 +339,13 @@ function addAsset(data) {
   var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
   var shareUsd = usdVal * sharePct / 100;
 
+  var nameToSave = data.name || '';
   sheet.appendRow([
-    id, data.name || '', data.category || '', data.entity || '',
+    id, nameToSave, data.category || '', data.entity || '',
     data.currency || 'USD', localVal, fxRate, usdVal,
     sharePct, shareUsd, now, now, data.notes || '', ''
   ]);
-  return { success: true, id: id };
+  return { success: true, id: id, savedName: nameToSave };
 }
 
 function updateAsset(data) {
