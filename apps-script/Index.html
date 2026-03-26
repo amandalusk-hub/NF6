@@ -566,16 +566,16 @@ function updateUSDPreview(){
 function saveAsset(){
   const id=document.getElementById('a-id').value;
   const data={
-    ID:id,
-    Name:document.getElementById('a-name').value.trim(),
-    Category:document.getElementById('a-category').value,
-    Entity:document.getElementById('a-entity').value,
-    Currency:document.getElementById('a-currency').value,
-    'My Share %':parseFloat(document.getElementById('a-share').value)||100,
-    'Local Value':parseFloat(document.getElementById('a-local').value)||0,
-    Notes:document.getElementById('a-notes').value.trim()
+    id:id,
+    name:document.getElementById('a-name').value.trim(),
+    category:document.getElementById('a-category').value,
+    entity:document.getElementById('a-entity').value,
+    currency:document.getElementById('a-currency').value,
+    mySharePct:parseFloat(document.getElementById('a-share').value)||100,
+    localValue:parseFloat(document.getElementById('a-local').value)||0,
+    notes:document.getElementById('a-notes').value.trim()
   };
-  if(!data.Name){toast('Asset name is required','error');return;}
+  if(!data.name){toast('Asset name is required','error');return;}
   showLoading(true);
   closeModal('asset-modal');
   const fn=id?google.script.run.withSuccessHandler(()=>{toast('Asset updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateAsset(data)
@@ -607,14 +607,14 @@ function openEntityModal(name){
 function saveEntity(){
   const origName=document.getElementById('e-orig-name').value;
   const data={
-    'Orig Name':origName,
-    Name:document.getElementById('e-name').value.trim(),
-    Type:document.getElementById('e-type').value,
-    Jurisdiction:document.getElementById('e-jurisdiction').value.trim(),
-    'Ownership %':parseFloat(document.getElementById('e-ownership').value)||100,
-    Notes:document.getElementById('e-notes').value.trim()
+    originalName:origName,
+    name:document.getElementById('e-name').value.trim(),
+    type:document.getElementById('e-type').value,
+    jurisdiction:document.getElementById('e-jurisdiction').value.trim(),
+    ownershipPct:parseFloat(document.getElementById('e-ownership').value)||100,
+    notes:document.getElementById('e-notes').value.trim()
   };
-  if(!data.Name){toast('Entity name is required','error');return;}
+  if(!data.name){toast('Entity name is required','error');return;}
   showLoading(true);
   closeModal('entity-modal');
   const fn=origName?google.script.run.withSuccessHandler(()=>{toast('Entity updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateEntity(data)
