@@ -166,7 +166,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
+        <button class="btn btn-secondary" onclick="diagnoseData()" style="opacity:.6;font-size:11px">Diagnose</button>
       </div>
+      <div id="data-warning" style="display:none;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px"></div>
       <div class="table-wrap">
         <table id="assets-table">
           <thead><tr>
@@ -354,12 +356,30 @@ function loadData(){
 }
 
 function onDataLoaded(d){
+  if(!d){toast('Server returned no data — check console','error');showLoading(false);return;}
   state.assets   = d.assets   || [];
   state.entities = d.entities || [];
   state.fxRates  = d.fxRates  || [];
   state.history  = d.history  || [];
   state.categories= d.categories||[];
   state.currencies= d.currencies||[];
+  console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
+  if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
+  // Show warning if raw rows exist but values are all 0 (likely header mismatch)
+  const warn=document.getElementById('data-warning');
+  if(d._debug){
+    const rc=d._debug.assetRowCount||0;
+    const hdr=d._debug.assetHeaders||[];
+    if(rc>0 && state.assets.every(a=>!num(a['My Share USD']))){
+      warn.style.display='block';
+      warn.innerHTML='<strong>Header mismatch detected!</strong> Sheet has '+rc+' asset row(s) but values are all $0. Current headers: <code>'+hdr.join(', ')+'</code>. <a href="#" onclick="fixHeaders();return false">Click here to fix headers</a>.';
+    }else if(rc===0){
+      warn.style.display='block';
+      warn.innerHTML='<strong>Assets sheet is empty.</strong> Add your first asset with the "+ Add Asset" button.';
+    }else{
+      warn.style.display='none';
+    }
+  }
   showLoading(false);
   buildCatFilter();
   renderDashboard();
@@ -698,7 +718,7 @@ function deleteEntity(name){
     .deleteEntity(name);
 }
 
-// ── Debug ───────────────────────────────────────────────────────────────────
+// ── Debug / Diagnose ─────────────────────────────────────────────────────────
 function debugHeaders(){
   google.script.run
     .withSuccessHandler(function(r){
@@ -706,6 +726,35 @@ function debugHeaders(){
     })
     .withFailureHandler(function(e){ alert('Error: ' + e.message); })
     .debugSheetHeaders();
+}
+
+function diagnoseData(){
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(r){
+      showLoading(false);
+      const lines=[
+        'Assets sheet row count: ' + (r._debug?r._debug.assetRowCount:'?'),
+        'Headers: ' + (r._debug?JSON.stringify(r._debug.assetHeaders):'?'),
+        '',
+        'Parsed assets: ' + r.assets.length,
+        'Entities: ' + r.entities.length,
+        'FX rates: ' + r.fxRates.length,
+        '',
+        r.assets.length>0?'First asset: '+JSON.stringify(r.assets[0]):'(no assets parsed)'
+      ];
+      alert(lines.join('\n'));
+    })
+    .withFailureHandler(function(e){showLoading(false);alert('Server error: '+e.message);})
+    .getFullData();
+}
+
+function fixHeaders(){
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(){showLoading(false);toast('Headers fixed — reloading…');setTimeout(loadData,800);})
+    .withFailureHandler(function(e){showLoading(false);toast('Error: '+e.message,'error');})
+    .fixSheetHeaders();
 }
 
 // ── FX Refresh ─────────────────────────────────────────────────────────────

@@ -219,6 +219,7 @@ function getFullData() {
     });
   }
 
+  var assetHeaderRow = assetSheet.getRange(1, 1, 1, Math.max(assetSheet.getLastColumn(), 1)).getValues()[0];
   return {
     assets:      clean(sheetToObjects_('ASSETS')),
     liabilities: clean(sheetToObjects_('LIABILITIES')),
@@ -226,7 +227,11 @@ function getFullData() {
     fxRates:     clean(sheetToObjects_('FX')),
     history:     clean(sheetToObjects_('HISTORY')),
     categories:  CATEGORIES,
-    currencies:  CURRENCIES
+    currencies:  CURRENCIES,
+    _debug: {
+      assetHeaders:  assetHeaderRow,
+      assetRowCount: Math.max(assetSheet.getLastRow() - 1, 0)
+    }
   };
 }
 
