@@ -252,7 +252,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-two">
-        <div class="form-row"><label>Entity</label><select id="a-entity"><option value="">— None —</option></select></div>
+        <div class="form-row"><label>Entity</label><select id="a-entity" onchange="onEntityChange()"><option value="">— None —</option></select></div>
         <div class="form-row"><label>Currency</label>
           <select id="a-currency" onchange="updateUSDPreview()">
             <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
@@ -262,10 +262,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-two">
-        <div class="form-row"><label>My Share %</label><input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()"></div>
-        <div class="form-row"><label>Local Value</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
+        <div class="form-row"><label>Mike's Share %</label><input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()"></div>
+        <div class="form-row"><label>Mike Paid (Local Curr.)</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
       </div>
-      <div class="usd-preview">Est. My Share USD: <span id="usd-preview">$0</span></div>
+      <div class="usd-preview">Est. Total Value: <span id="total-preview">$0</span> &nbsp;|&nbsp; Mike's Share: <span id="usd-preview">$0</span></div>
       <div class="form-row" id="a-address-row" style="display:none"><label>Address <span style="font-weight:400;color:#888">(US only — used for Rentcast auto-valuation)</span></label><input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001"></div>
       <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
     </div>
@@ -464,7 +464,7 @@ function renderAssetsTable(){
   if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No assets found</td></tr>`;return;}
   tb.innerHTML=rows.map(a=>`
     <tr>
-      <td>${esc(a.Name)}</td>
+      <td>${esc(a.Name)}${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}</td>
       <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
       <td>${esc(a.Entity||'')}</td>
       <td>${esc(a.Currency||'')}</td>
@@ -545,7 +545,8 @@ function openAssetModal(id){
   document.getElementById('a-category').value=asset?asset.Category:'Real Estate';
   document.getElementById('a-currency').value=asset?asset.Currency:'USD';
   document.getElementById('a-share').value=asset?asset['My Share %']:100;
-  document.getElementById('a-local').value=asset?asset['Local Value']:'';
+  const _lv=num(asset?asset['Local Value']:0), _sp=num(asset?asset['My Share %']:100)||100;
+  document.getElementById('a-local').value=asset?(_lv*(_sp/100)||''):'';
   document.getElementById('a-address').value=asset?asset.Address||'':'';
   document.getElementById('a-notes').value=asset?asset.Notes:'';
   // populate entity dropdown
@@ -562,26 +563,41 @@ function toggleAddressField(){
   document.getElementById('a-address-row').style.display=cat==='Real Estate'?'block':'none';
 }
 
+function onEntityChange(){
+  const entityName=document.getElementById('a-entity').value;
+  if(!entityName)return;
+  const entity=state.entities.find(e=>e.Name===entityName);
+  if(entity&&entity['Ownership %']!=null){
+    document.getElementById('a-share').value=num(entity['Ownership %']);
+    updateUSDPreview();
+  }
+}
+
 function updateUSDPreview(){
   const currency=document.getElementById('a-currency').value;
-  const local=parseFloat(document.getElementById('a-local').value)||0;
-  const share=parseFloat(document.getElementById('a-share').value)||0;
+  const mikePaid=parseFloat(document.getElementById('a-local').value)||0;
+  const share=parseFloat(document.getElementById('a-share').value)||100;
   const fx=state.fxRates.find(r=>r.Currency===currency);
   const rate=fx?num(fx['Rate to USD']):1;
-  const usd=local*rate*(share/100);
-  document.getElementById('usd-preview').textContent=fmtUSD(usd);
+  const mikeUsd=mikePaid*rate;
+  const totalUsd=share>0?mikeUsd/(share/100):mikeUsd;
+  document.getElementById('total-preview').textContent=fmtUSD(totalUsd);
+  document.getElementById('usd-preview').textContent=fmtUSD(mikeUsd);
 }
 
 function saveAsset(){
   const id=document.getElementById('a-id').value;
+  const _sharePct=parseFloat(document.getElementById('a-share').value)||100;
+  const _mikePaid=parseFloat(document.getElementById('a-local').value)||0;
+  const _localValue=_sharePct>0?_mikePaid/(_sharePct/100):_mikePaid;
   const data={
     id:id,
     name:document.getElementById('a-name').value.trim(),
     category:document.getElementById('a-category').value,
     entity:document.getElementById('a-entity').value,
     currency:document.getElementById('a-currency').value,
-    mySharePct:parseFloat(document.getElementById('a-share').value)||100,
-    localValue:parseFloat(document.getElementById('a-local').value)||0,
+    mySharePct:_sharePct,
+    localValue:_localValue,
     address:document.getElementById('a-address').value.trim(),
     notes:document.getElementById('a-notes').value.trim()
   };

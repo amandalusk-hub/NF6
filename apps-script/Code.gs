@@ -525,10 +525,11 @@ function refreshPropertyValues() {
     sheet.getRange(sheetRow, 10).setValue(newUsd * sharePct / 100);
     sheet.getRange(sheetRow, 12).setValue(new Date());
 
+    var existingNotes = String(rows[i][12] || '');
     var rangeNote = 'Rentcast ' + formatDate_(new Date()) +
                     ': $' + formatNumber_(result.lowValue) + '–$' + formatNumber_(result.highValue);
-    var newNotes = notes.replace(/Rentcast [^\|]*/g, rangeNote);
-    if (newNotes === notes) newNotes = notes ? notes + ' | ' + rangeNote : rangeNote;
+    var newNotes = existingNotes.replace(/Rentcast [^\|]*/g, rangeNote);
+    if (newNotes === existingNotes) newNotes = existingNotes ? existingNotes + ' | ' + rangeNote : rangeNote;
     sheet.getRange(sheetRow, 13).setValue(newNotes);
 
     if (Math.abs(newUsd - oldUsd) > 0.01) {
