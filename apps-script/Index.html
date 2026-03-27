@@ -244,7 +244,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="form-two">
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
-          <select id="a-category">
+          <select id="a-category" onchange="toggleAddressField()">
             <option>Real Estate</option><option>Private Equity</option><option>Public Equity</option>
             <option>Cash</option><option>Crypto</option><option>Auto</option>
             <option>Art/Jewelry</option><option>VIP Medical</option><option>Insurance</option><option>Other</option>
@@ -266,6 +266,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Local Value</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
       </div>
       <div class="usd-preview">Est. My Share USD: <span id="usd-preview">$0</span></div>
+      <div class="form-row" id="a-address-row" style="display:none"><label>Address <span style="font-weight:400;color:#888">(US only — used for Rentcast auto-valuation)</span></label><input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001"></div>
       <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
     </div>
     <div class="modal-footer">
@@ -545,13 +546,20 @@ function openAssetModal(id){
   document.getElementById('a-currency').value=asset?asset.Currency:'USD';
   document.getElementById('a-share').value=asset?asset['My Share %']:100;
   document.getElementById('a-local').value=asset?asset['Local Value']:'';
+  document.getElementById('a-address').value=asset?asset.Address||'':'';
   document.getElementById('a-notes').value=asset?asset.Notes:'';
   // populate entity dropdown
   const sel=document.getElementById('a-entity');
   sel.innerHTML='<option value="">— None —</option>';
   state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option${asset&&asset.Entity===e.Name?' selected':''}>${esc(e.Name)}</option>`));
+  toggleAddressField();
   updateUSDPreview();
   openModal('asset-modal');
+}
+
+function toggleAddressField(){
+  const cat=document.getElementById('a-category').value;
+  document.getElementById('a-address-row').style.display=cat==='Real Estate'?'block':'none';
 }
 
 function updateUSDPreview(){
@@ -574,6 +582,7 @@ function saveAsset(){
     currency:document.getElementById('a-currency').value,
     mySharePct:parseFloat(document.getElementById('a-share').value)||100,
     localValue:parseFloat(document.getElementById('a-local').value)||0,
+    address:document.getElementById('a-address').value.trim(),
     notes:document.getElementById('a-notes').value.trim()
   };
   if(!data.name){toast('Asset name is required','error');return;}

@@ -36,7 +36,7 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address'],
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
@@ -345,7 +345,7 @@ function addAsset(data) {
   sheet.appendRow([
     id, nameToSave, data.category || '', data.entity || '',
     data.currency || 'USD', localVal, fxRate, usdVal,
-    sharePct, shareUsd, now, now, data.notes || '', ''
+    sharePct, shareUsd, now, now, data.notes || '', '', data.address || ''
   ]);
   return { success: true, id: id, savedName: nameToSave };
 }
@@ -377,7 +377,8 @@ function updateAsset(data) {
       [9,  sharePct],
       [10, shareUsd],
       [12, now],
-      [13, data.notes !== undefined ? data.notes : rows[i][12]]
+      [13, data.notes   !== undefined ? data.notes   : rows[i][12]],
+      [15, data.address !== undefined ? data.address : rows[i][14]]
     ];
     updates.forEach(function(u) { sheet.getRange(i + 1, u[0]).setValue(u[1]); });
 
@@ -499,13 +500,9 @@ function refreshPropertyValues() {
   for (var i = 1; i < rows.length; i++) {
     var category = String(rows[i][2] || '').trim();
     var currency = String(rows[i][4] || '').trim();
-    var notes    = String(rows[i][12] || '').trim();
+    var address  = String(rows[i][14] || '').trim();
 
-    if (category !== 'Real Estate' || currency !== 'USD') continue;
-
-    var addrMatch = notes.match(/address:\s*([^\|]+?)(?:\s*\||$)/i);
-    if (!addrMatch) continue;
-    var address = addrMatch[1].trim();
+    if (category !== 'Real Estate' || currency !== 'USD' || !address) continue;
 
     if (!/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/i.test(address)) continue;
 
