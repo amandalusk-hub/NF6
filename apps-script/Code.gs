@@ -819,6 +819,16 @@ function removePlaidConnection() {
   }
 }
 
+function debugSheetHeaders() {
+  var sheet = getSheet_('ASSETS');
+  var data  = sheet.getDataRange().getValues();
+  return {
+    headers:  data[0]  || [],
+    firstRow: data[1]  || [],
+    rowCount: data.length - 1
+  };
+}
+
 // ── Triggers ──────────────────────────────────────────────────────────────────
 
 function installTriggers() {
