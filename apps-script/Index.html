@@ -241,6 +241,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     </div>
     <div class="modal-body">
       <input type="hidden" id="a-id">
+      <div id="a-current-value" style="display:none;background:#f0fff4;border:1px solid #b7ebc8;border-radius:6px;padding:10px 12px;font-size:13px;color:#155724;margin-bottom:14px">
+        Current Value on File: <strong id="a-cv-total"></strong> total &nbsp;|&nbsp; Mike's Share: <strong id="a-cv-share"></strong>
+      </div>
       <div class="form-two">
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
@@ -547,6 +550,15 @@ function openAssetModal(id){
   document.getElementById('a-share').value=asset?asset['My Share %']:100;
   const _lv=num(asset?asset['Local Value']:0), _sp=num(asset?asset['My Share %']:100)||100;
   document.getElementById('a-local').value=asset?(_lv*(_sp/100)||''):'';
+  // Show current stored value banner when editing
+  const cvDiv=document.getElementById('a-current-value');
+  if(asset && num(asset['USD Value'])>0){
+    cvDiv.style.display='block';
+    document.getElementById('a-cv-total').textContent=fmtUSD(num(asset['USD Value']));
+    document.getElementById('a-cv-share').textContent=fmtUSD(num(asset['My Share USD']));
+  }else{
+    cvDiv.style.display='none';
+  }
   document.getElementById('a-address').value=asset?asset.Address||'':'';
   document.getElementById('a-notes').value=asset?asset.Notes:'';
   // populate entity dropdown
