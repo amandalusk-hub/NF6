@@ -60,6 +60,8 @@ function onOpen() {
     .addItem('Remove Plaid Connection', 'removePlaidConnection')
     .addSeparator()
     .addItem('Install Daily Trigger', 'installTriggers')
+    .addSeparator()
+    .addItem('Fix Sheet Headers (run once)', 'fixSheetHeaders')
     .addToUi();
 }
 
@@ -817,6 +819,19 @@ function removePlaidConnection() {
     props.deleteProperty('PLAID_TOKENS');
     ui.alert('All Plaid connections removed.');
   }
+}
+
+function fixSheetHeaders() {
+  var sheet   = getSheet_('ASSETS');
+  var headers = COL.ASSETS;
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setBackground('#0d2137')
+    .setFontColor('#ffffff')
+    .setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Asset sheet headers fixed!', 'Done', 5);
+  return { success: true };
 }
 
 function debugSheetHeaders() {
