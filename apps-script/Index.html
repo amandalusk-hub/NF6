@@ -349,9 +349,10 @@ window.onload = function(){
 
 function loadData(){
   showLoading(true);
+  var _t=setTimeout(function(){showLoading(false);toast('Server took too long — try refreshing','error');},20000);
   google.script.run
-    .withSuccessHandler(onDataLoaded)
-    .withFailureHandler(e=>{showLoading(false);toast('Failed to load data: '+e.message,'error')})
+    .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
+    .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
     .getFullData();
 }
 
