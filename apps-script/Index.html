@@ -472,8 +472,8 @@ function renderAssetsTable(){
       <td>${fmtUSD(num(a['My Share USD']))}</td>
       <td>${fmtDate(a['Last Updated'])}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-secondary btn-sm" onclick="openAssetModal(${JSON.stringify(esc(a.ID))})">Edit</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteAsset(${JSON.stringify(esc(a.ID))},${JSON.stringify(esc(a.Name))})">Del</button>
+        <button class="btn btn-secondary btn-sm" onclick='openAssetModal(${JSON.stringify(a.ID)})'>Edit</button>
+        <button class="btn btn-danger btn-sm" onclick='deleteAsset(${JSON.stringify(a.ID)},${JSON.stringify(a.Name)})'>Del</button>
       </td>
     </tr>`).join('');
 }
@@ -505,8 +505,8 @@ function renderEntitiesTable(){
       <td>${num(e['Ownership %'])}%</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Notes||'')}</td>
       <td style="white-space:nowrap">
-        <button class="btn btn-secondary btn-sm" onclick="openEntityModal(${JSON.stringify(esc(e.Name))})">Edit</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteEntity(${JSON.stringify(esc(e.Name))})">Del</button>
+        <button class="btn btn-secondary btn-sm" onclick='openEntityModal(${JSON.stringify(e.Name)})'>Edit</button>
+        <button class="btn btn-danger btn-sm" onclick='deleteEntity(${JSON.stringify(e.Name)})'>Del</button>
       </td>
     </tr>`).join('');
 }
