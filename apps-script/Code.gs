@@ -575,37 +575,42 @@ function getPropertyValue(address) {
   if (!address) return { success: false, error: 'No address provided' };
   var props = PropertiesService.getScriptProperties();
 
-  // Try Estated first (free tier: 100 req/month — sign up at estated.com)
-  var estatedKey = props.getProperty('ESTATED_API_KEY');
-  if (estatedKey) return getEstatedEstimate_(address, estatedKey);
+  // API Ninjas — free tier: 3,000 req/month (api-ninjas.com)
+  var ninjasKey = props.getProperty('API_NINJAS_KEY');
+  if (ninjasKey) return getApiNinjasEstimate_(address, ninjasKey);
 
-  // Fall back to Rentcast if configured
+  // Rentcast fallback
   var rentcastKey = props.getProperty('RENTCAST_API_KEY');
   if (rentcastKey) return getRentcastEstimate_(address, rentcastKey);
 
-  return { success: false, error: 'No property API key set. Add ESTATED_API_KEY (free at estated.com) or RENTCAST_API_KEY in Apps Script > Project Settings > Script Properties' };
+  return { success: false, error: 'No API key set. Add API_NINJAS_KEY in Apps Script > Project Settings > Script Properties (get free key at api-ninjas.com)' };
 }
 
-function getEstatedEstimate_(address, apiKey) {
+function getApiNinjasEstimate_(address, apiKey) {
   try {
-    var url  = 'https://apis.estated.com/v4/property?token=' + encodeURIComponent(apiKey) +
-               '&combined_address=' + encodeURIComponent(address);
-    var resp = UrlFetchApp.fetch(url, { method: 'GET', muteHttpExceptions: true });
+    var url  = 'https://api.api-ninjas.com/v1/houseprice?address=' + encodeURIComponent(address);
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'GET',
+      headers: { 'X-Api-Key': apiKey },
+      muteHttpExceptions: true
+    });
     var code = resp.getResponseCode();
-    if (code === 401 || code === 403) return { success: false, error: 'Invalid Estated API key — check ESTATED_API_KEY in Script Properties' };
-    if (code === 404) return { success: false, error: 'Address not found in Estated database' };
-    if (code === 429) return { success: false, error: 'Estated rate limit hit (100 requests/month on free tier)' };
-    if (code !== 200) return { success: false, error: 'Estated HTTP ' + code + ': ' + resp.getContentText().substring(0, 100) };
-    var data = JSON.parse(resp.getContentText());
-    if (data.error) return { success: false, error: 'Estated: ' + (data.error.message || JSON.stringify(data.error)) };
-    var val = data.data && data.data.valuation;
-    if (!val || !val.value) return { success: false, error: 'No valuation returned — Estated may not have data for this address' };
-    var value = val.value;
+    if (code === 401 || code === 403) return { success: false, error: 'Invalid API Ninjas key — check API_NINJAS_KEY in Script Properties' };
+    if (code === 429) return { success: false, error: 'API Ninjas rate limit hit' };
+    if (code !== 200) return { success: false, error: 'API Ninjas HTTP ' + code + ': ' + resp.getContentText().substring(0, 120) };
+    var raw  = resp.getContentText();
+    var data = JSON.parse(raw);
+    // Response may be an array or a single object
+    var item = Array.isArray(data) ? data[0] : data;
+    if (!item) return { success: false, error: 'No data returned for this address' };
+    var value = item.price || item.value || item.estimated_value || item.zestimate || null;
+    if (!value) return { success: false, error: 'No price field in response — raw: ' + raw.substring(0, 200) };
+    value = Number(value);
     return {
       success:   true,
       value:     Math.round(value),
-      lowValue:  Math.round(val.low  || value * 0.95),
-      highValue: Math.round(val.high || value * 1.05)
+      lowValue:  Math.round(item.price_low  || item.low  || value * 0.95),
+      highValue: Math.round(item.price_high || item.high || value * 1.05)
     };
   } catch(e) {
     return { success: false, error: e.message };
