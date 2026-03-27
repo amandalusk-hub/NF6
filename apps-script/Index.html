@@ -278,12 +278,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div class="usd-preview">Mike's Share: <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
       <div class="form-row" id="a-address-row" style="display:none">
-        <label>Address <span style="font-weight:400;color:#888">(US only — Rentcast auto-valuation)</span></label>
-        <div style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="flex:1">
-          <button type="button" class="btn btn-secondary btn-sm" id="fetch-val-btn" onclick="fetchPropertyValue()" style="white-space:nowrap">Fetch Value</button>
-        </div>
-        <div id="fetch-val-result" style="font-size:12px;margin-top:5px;color:#555"></div>
+        <label>Address <span style="font-weight:400;color:#888">(saved for records — enter value manually below)</span></label>
+        <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="width:100%">
+        <div style="font-size:11px;color:#888;margin-top:4px">Tip: look up the value on Zillow or Redfin, then enter it in "Current Total Value" above.</div>
       </div>
       <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
     </div>
@@ -772,35 +769,6 @@ function refreshRates(){
     .fetchExchangeRates();
 }
 
-// ── Fetch single property value (Rentcast) ──────────────────────────────────
-function fetchPropertyValue(){
-  const address=document.getElementById('a-address').value.trim();
-  if(!address){toast('Enter an address first','error');return;}
-  const btn=document.getElementById('fetch-val-btn');
-  const result=document.getElementById('fetch-val-result');
-  btn.disabled=true;btn.textContent='Fetching…';
-  result.textContent='';
-  google.script.run
-    .withSuccessHandler(function(r){
-      btn.disabled=false;btn.textContent='Fetch Value';
-      if(!r||!r.success){
-        result.style.color='#c5221f';
-        result.textContent='Could not get value: '+(r?r.error:'no response');
-        return;
-      }
-      // Fill in Current Total Value directly from Rentcast
-      document.getElementById('a-local').value=r.value.toFixed(0);
-      updateUSDPreview();
-      result.style.color='#1e8e3e';
-      result.textContent='Rentcast estimate: $'+r.value.toLocaleString()+' (range $'+r.lowValue.toLocaleString()+'–$'+r.highValue.toLocaleString()+')';
-    })
-    .withFailureHandler(function(e){
-      btn.disabled=false;btn.textContent='Fetch Value';
-      result.style.color='#c5221f';
-      result.textContent='Error: '+e.message;
-    })
-    .getPropertyValue(address);
-}
 
 // ── Property Values ─────────────────────────────────────────────────────────
 function refreshProperties(){
