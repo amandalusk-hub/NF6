@@ -622,20 +622,25 @@ function onEntityChange(){
 }
 
 function updateUSDPreview(){
-  const currency=document.getElementById('a-currency').value;
-  const totalVal=parseFloat(document.getElementById('a-local').value)||0;
-  const share=parseFloat(document.getElementById('a-share').value)||100;
-  const costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
-  const fx=state.fxRates.find(r=>r.Currency===currency);
-  const rate=fx?num(fx['Rate to USD']):1;
-  const mikeShareUsd=totalVal*rate*(share/100);
-  const costBasisUsd=costBasis*rate;
-  const gainLoss=mikeShareUsd-costBasisUsd;
+  var currency=document.getElementById('a-currency').value;
+  var totalVal=parseFloat(document.getElementById('a-local').value)||0;
+  var share=parseFloat(document.getElementById('a-share').value)||100;
+  var costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
+  var fx=state.fxRates.find(function(r){return r.Currency===currency;});
+  var rate=fx?num(fx['Rate to USD']):1;
+  var mikeShareUsd=totalVal*rate*(share/100);
+  var costBasisUsd=costBasis*rate;
+  var gainLoss=mikeShareUsd-costBasisUsd;
   document.getElementById('usd-preview').textContent=fmtUSD(mikeShareUsd);
-  document.getElementById('basis-preview').textContent=fmtUSD(costBasisUsd);
-  const gEl=document.getElementById('gain-preview');
-  gEl.textContent=(gainLoss>=0?'+':'')+fmtUSD(gainLoss);
-  gEl.style.color=gainLoss>=0?'#1e8e3e':'#c5221f';
+  document.getElementById('basis-preview').textContent=costBasis>0?fmtUSD(costBasisUsd):'not set';
+  var gEl=document.getElementById('gain-preview');
+  if(costBasis<=0){
+    gEl.textContent='enter cost basis above';
+    gEl.style.color='#888';
+  }else{
+    gEl.textContent=(gainLoss>=0?'+':'')+fmtUSD(gainLoss);
+    gEl.style.color=gainLoss>=0?'#1e8e3e':'#c5221f';
+  }
 }
 
 function saveAsset(){

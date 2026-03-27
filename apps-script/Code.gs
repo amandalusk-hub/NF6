@@ -593,8 +593,9 @@ function getRentcastEstimate_(address, apiKey) {
       method: 'GET', headers: { 'X-Api-Key': apiKey }, muteHttpExceptions: true
     });
     var code = resp.getResponseCode();
-    if (code === 404) return { success: false, error: 'Address not found' };
-    if (code === 429) return { success: false, error: 'Rate limit (50/month on free tier)' };
+    if (code === 401) return { success: false, error: 'Invalid API key — go to Apps Script > Project Settings > Script Properties and check RENTCAST_API_KEY' };
+    if (code === 404) return { success: false, error: 'Address not found in Rentcast database' };
+    if (code === 429) return { success: false, error: 'Rate limit hit (50 requests/month on free tier)' };
     if (code !== 200) return { success: false, error: 'HTTP ' + code };
     var data  = JSON.parse(resp.getContentText());
     var value = data.price || data.value || data.priceRangeMid || null;
