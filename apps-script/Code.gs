@@ -36,7 +36,7 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis'],
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
@@ -341,11 +341,12 @@ function addAsset(data) {
   var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
   var shareUsd = usdVal * sharePct / 100;
 
+  var costBasis  = Number(data.costBasis) || 0;
   var nameToSave = data.name || '';
   sheet.appendRow([
     id, nameToSave, data.category || '', data.entity || '',
     data.currency || 'USD', localVal, fxRate, usdVal,
-    sharePct, shareUsd, now, now, data.notes || '', '', data.address || ''
+    sharePct, shareUsd, now, now, data.notes || '', '', data.address || '', costBasis
   ]);
   return { success: true, id: id, savedName: nameToSave };
 }
@@ -378,7 +379,8 @@ function updateAsset(data) {
       [10, shareUsd],
       [12, now],
       [13, data.notes   !== undefined ? data.notes   : rows[i][12]],
-      [15, data.address !== undefined ? data.address : rows[i][14]]
+      [15, data.address  !== undefined ? data.address  : rows[i][14]],
+      [16, data.costBasis !== undefined ? Number(data.costBasis) : (Number(rows[i][15]) || 0)]
     ];
     updates.forEach(function(u) { sheet.getRange(i + 1, u[0]).setValue(u[1]); });
 

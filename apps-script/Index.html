@@ -174,8 +174,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th onclick="sortTable('assets','Category')">Category <span class="sort-icon">↕</span></th>
             <th onclick="sortTable('assets','Entity')">Entity <span class="sort-icon">↕</span></th>
             <th onclick="sortTable('assets','Currency')">Currency <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','USD Value')">USD Value <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','My Share USD')">My Share USD <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','USD Value')">Total Value <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','My Share USD')">Mike's Share <span class="sort-icon">↕</span></th>
+            <th>Cost Basis</th>
+            <th>Gain/Loss</th>
             <th onclick="sortTable('assets','Last Updated')">Updated <span class="sort-icon">↕</span></th>
             <th>Actions</th>
           </tr></thead>
@@ -266,9 +268,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div class="form-two">
         <div class="form-row"><label>Mike's Share %</label><input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()"></div>
-        <div class="form-row"><label>Mike Paid (Local Curr.)</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
+        <div class="form-row"><label>Current Total Value</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
       </div>
-      <div class="usd-preview">Est. Total Value: <span id="total-preview">$0</span> &nbsp;|&nbsp; Mike's Share: <span id="usd-preview">$0</span></div>
+      <div class="form-row">
+        <label>Mike's Cost Basis <span style="font-weight:400;color:#888">(what Mike paid for his share)</span></label>
+        <input type="number" id="a-cost-basis" placeholder="0.00" min="0" oninput="updateUSDPreview()">
+      </div>
+      <div class="usd-preview">Mike's Share: <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
       <div class="form-row" id="a-address-row" style="display:none">
         <label>Address <span style="font-weight:400;color:#888">(US only — Rentcast auto-valuation)</span></label>
         <div style="display:flex;gap:8px;align-items:center">
@@ -471,7 +477,7 @@ function renderAssetsTable(){
   const {col,asc}=state.sort.assets;
   rows.sort((a,b)=>cmp(a[col],b[col],asc));
   const tb=document.getElementById('assets-tbody');
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No assets found</td></tr>`;return;}
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="10" class="no-data">No assets found</td></tr>`;return;}
   tb.innerHTML=rows.map(a=>`
     <tr>
       <td>${esc(a.Name)}${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}</td>
@@ -480,6 +486,8 @@ function renderAssetsTable(){
       <td>${esc(a.Currency||'')}</td>
       <td>${fmtUSD(num(a['USD Value']))}</td>
       <td>${fmtUSD(num(a['My Share USD']))}</td>
+      <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'—'}</td>
+      <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'—'})()}</td>
       <td>${fmtDate(a['Last Updated'])}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick='openAssetModal(${JSON.stringify(a.ID)})'>Edit</button>
@@ -555,8 +563,8 @@ function openAssetModal(id){
   document.getElementById('a-category').value=asset?asset.Category:'Real Estate';
   document.getElementById('a-currency').value=asset?asset.Currency:'USD';
   document.getElementById('a-share').value=asset?asset['My Share %']:100;
-  const _lv=num(asset?asset['Local Value']:0), _sp=num(asset?asset['My Share %']:100)||100;
-  document.getElementById('a-local').value=asset?(_lv*(_sp/100)||''):'';
+  document.getElementById('a-local').value=asset?(num(asset['Local Value'])||''):'';
+  document.getElementById('a-cost-basis').value=asset?(num(asset['Cost Basis'])||''):'';
   // Show current stored value banner when editing
   const cvDiv=document.getElementById('a-current-value');
   if(asset && num(asset['USD Value'])>0){
@@ -594,21 +602,26 @@ function onEntityChange(){
 
 function updateUSDPreview(){
   const currency=document.getElementById('a-currency').value;
-  const mikePaid=parseFloat(document.getElementById('a-local').value)||0;
+  const totalVal=parseFloat(document.getElementById('a-local').value)||0;
   const share=parseFloat(document.getElementById('a-share').value)||100;
+  const costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
   const fx=state.fxRates.find(r=>r.Currency===currency);
   const rate=fx?num(fx['Rate to USD']):1;
-  const mikeUsd=mikePaid*rate;
-  const totalUsd=share>0?mikeUsd/(share/100):mikeUsd;
-  document.getElementById('total-preview').textContent=fmtUSD(totalUsd);
-  document.getElementById('usd-preview').textContent=fmtUSD(mikeUsd);
+  const mikeShareUsd=totalVal*rate*(share/100);
+  const costBasisUsd=costBasis*rate;
+  const gainLoss=mikeShareUsd-costBasisUsd;
+  document.getElementById('usd-preview').textContent=fmtUSD(mikeShareUsd);
+  document.getElementById('basis-preview').textContent=fmtUSD(costBasisUsd);
+  const gEl=document.getElementById('gain-preview');
+  gEl.textContent=(gainLoss>=0?'+':'')+fmtUSD(gainLoss);
+  gEl.style.color=gainLoss>=0?'#1e8e3e':'#c5221f';
 }
 
 function saveAsset(){
   const id=document.getElementById('a-id').value;
   const _sharePct=parseFloat(document.getElementById('a-share').value)||100;
-  const _mikePaid=parseFloat(document.getElementById('a-local').value)||0;
-  const _localValue=_sharePct>0?_mikePaid/(_sharePct/100):_mikePaid;
+  const _localValue=parseFloat(document.getElementById('a-local').value)||0;
+  const _costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
   const data={
     id:id,
     name:document.getElementById('a-name').value.trim(),
@@ -617,6 +630,7 @@ function saveAsset(){
     currency:document.getElementById('a-currency').value,
     mySharePct:_sharePct,
     localValue:_localValue,
+    costBasis:_costBasis,
     address:document.getElementById('a-address').value.trim(),
     notes:document.getElementById('a-notes').value.trim()
   };
@@ -719,10 +733,8 @@ function fetchPropertyValue(){
         result.textContent='Could not get value: '+(r?r.error:'no response');
         return;
       }
-      // Fill in Mike Paid = total value * (Mike's share% / 100)
-      const share=parseFloat(document.getElementById('a-share').value)||100;
-      const mikePaid=r.value*(share/100);
-      document.getElementById('a-local').value=mikePaid.toFixed(0);
+      // Fill in Current Total Value directly from Rentcast
+      document.getElementById('a-local').value=r.value.toFixed(0);
       updateUSDPreview();
       result.style.color='#1e8e3e';
       result.textContent='Rentcast estimate: $'+r.value.toLocaleString()+' (range $'+r.lowValue.toLocaleString()+'–$'+r.highValue.toLocaleString()+')';
