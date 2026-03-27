@@ -269,7 +269,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Mike Paid (Local Curr.)</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
       </div>
       <div class="usd-preview">Est. Total Value: <span id="total-preview">$0</span> &nbsp;|&nbsp; Mike's Share: <span id="usd-preview">$0</span></div>
-      <div class="form-row" id="a-address-row" style="display:none"><label>Address <span style="font-weight:400;color:#888">(US only — used for Rentcast auto-valuation)</span></label><input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001"></div>
+      <div class="form-row" id="a-address-row" style="display:none">
+        <label>Address <span style="font-weight:400;color:#888">(US only — Rentcast auto-valuation)</span></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="flex:1">
+          <button type="button" class="btn btn-secondary btn-sm" id="fetch-val-btn" onclick="fetchPropertyValue()" style="white-space:nowrap">Fetch Value</button>
+        </div>
+        <div id="fetch-val-result" style="font-size:12px;margin-top:5px;color:#555"></div>
+      </div>
       <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
     </div>
     <div class="modal-footer">
@@ -694,6 +701,38 @@ function refreshRates(){
     .withSuccessHandler(()=>{showLoading(false);toast('FX rates refreshed');loadData()})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
     .fetchExchangeRates();
+}
+
+// ── Fetch single property value (Rentcast) ──────────────────────────────────
+function fetchPropertyValue(){
+  const address=document.getElementById('a-address').value.trim();
+  if(!address){toast('Enter an address first','error');return;}
+  const btn=document.getElementById('fetch-val-btn');
+  const result=document.getElementById('fetch-val-result');
+  btn.disabled=true;btn.textContent='Fetching…';
+  result.textContent='';
+  google.script.run
+    .withSuccessHandler(function(r){
+      btn.disabled=false;btn.textContent='Fetch Value';
+      if(!r||!r.success){
+        result.style.color='#c5221f';
+        result.textContent='Could not get value: '+(r?r.error:'no response');
+        return;
+      }
+      // Fill in Mike Paid = total value * (Mike's share% / 100)
+      const share=parseFloat(document.getElementById('a-share').value)||100;
+      const mikePaid=r.value*(share/100);
+      document.getElementById('a-local').value=mikePaid.toFixed(0);
+      updateUSDPreview();
+      result.style.color='#1e8e3e';
+      result.textContent='Rentcast estimate: $'+r.value.toLocaleString()+' (range $'+r.lowValue.toLocaleString()+'–$'+r.highValue.toLocaleString()+')';
+    })
+    .withFailureHandler(function(e){
+      btn.disabled=false;btn.textContent='Fetch Value';
+      result.style.color='#c5221f';
+      result.textContent='Error: '+e.message;
+    })
+    .getPropertyValue(address);
 }
 
 // ── Property Values ─────────────────────────────────────────────────────────

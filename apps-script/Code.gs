@@ -572,6 +572,13 @@ function lookupSingleProperty() {
   }
 }
 
+function getPropertyValue(address) {
+  var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
+  if (!apiKey) return { success: false, error: 'RENTCAST_API_KEY not set in Script Properties' };
+  if (!address) return { success: false, error: 'No address provided' };
+  return getRentcastEstimate_(address, apiKey);
+}
+
 function getRentcastEstimate_(address, apiKey) {
   try {
     var url  = 'https://api.rentcast.io/v1/avm/value?address=' + encodeURIComponent(address);
