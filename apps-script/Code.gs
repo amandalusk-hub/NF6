@@ -553,23 +553,15 @@ function refreshPropertyValues() {
   return { success: true, updated: updated, errors: errors };
 }
 
-/**
- * Prompt for a US address and show the Rentcast estimate interactively.
- */
 function lookupSingleProperty() {
-  var ui     = SpreadsheetApp.getUi();
-  var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
-  if (!apiKey) {
-    ui.alert('RENTCAST_API_KEY not set.\n\nGo to: Extensions > Apps Script > Project Settings > Script Properties\nAdd: RENTCAST_API_KEY = your key from rentcast.io');
-    return;
-  }
+  var ui = SpreadsheetApp.getUi();
   var resp = ui.prompt('Property Lookup', 'Enter full US address (e.g. 123 Main St, Houston, TX 77001):', ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   var address = resp.getResponseText().trim();
   if (!address) return;
-  var result = getRentcastEstimate_(address, apiKey);
+  var result = getPropertyValue(address);
   if (result.success) {
-    ui.alert('Rentcast Estimate',
+    ui.alert('Property Estimate',
       address + '\n\n' +
       'Value:  $' + formatNumber_(result.value) + '\n' +
       'Range:  $' + formatNumber_(result.lowValue) + ' – $' + formatNumber_(result.highValue),
@@ -580,10 +572,44 @@ function lookupSingleProperty() {
 }
 
 function getPropertyValue(address) {
-  var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
-  if (!apiKey) return { success: false, error: 'RENTCAST_API_KEY not set in Script Properties' };
   if (!address) return { success: false, error: 'No address provided' };
-  return getRentcastEstimate_(address, apiKey);
+  var props = PropertiesService.getScriptProperties();
+
+  // Try Estated first (free tier: 100 req/month — sign up at estated.com)
+  var estatedKey = props.getProperty('ESTATED_API_KEY');
+  if (estatedKey) return getEstatedEstimate_(address, estatedKey);
+
+  // Fall back to Rentcast if configured
+  var rentcastKey = props.getProperty('RENTCAST_API_KEY');
+  if (rentcastKey) return getRentcastEstimate_(address, rentcastKey);
+
+  return { success: false, error: 'No property API key set. Add ESTATED_API_KEY (free at estated.com) or RENTCAST_API_KEY in Apps Script > Project Settings > Script Properties' };
+}
+
+function getEstatedEstimate_(address, apiKey) {
+  try {
+    var url  = 'https://apis.estated.com/v4/property?token=' + encodeURIComponent(apiKey) +
+               '&combined_address=' + encodeURIComponent(address);
+    var resp = UrlFetchApp.fetch(url, { method: 'GET', muteHttpExceptions: true });
+    var code = resp.getResponseCode();
+    if (code === 401 || code === 403) return { success: false, error: 'Invalid Estated API key — check ESTATED_API_KEY in Script Properties' };
+    if (code === 404) return { success: false, error: 'Address not found in Estated database' };
+    if (code === 429) return { success: false, error: 'Estated rate limit hit (100 requests/month on free tier)' };
+    if (code !== 200) return { success: false, error: 'Estated HTTP ' + code + ': ' + resp.getContentText().substring(0, 100) };
+    var data = JSON.parse(resp.getContentText());
+    if (data.error) return { success: false, error: 'Estated: ' + (data.error.message || JSON.stringify(data.error)) };
+    var val = data.data && data.data.valuation;
+    if (!val || !val.value) return { success: false, error: 'No valuation returned — Estated may not have data for this address' };
+    var value = val.value;
+    return {
+      success:   true,
+      value:     Math.round(value),
+      lowValue:  Math.round(val.low  || value * 0.95),
+      highValue: Math.round(val.high || value * 1.05)
+    };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
 }
 
 function getRentcastEstimate_(address, apiKey) {
@@ -593,10 +619,10 @@ function getRentcastEstimate_(address, apiKey) {
       method: 'GET', headers: { 'X-Api-Key': apiKey }, muteHttpExceptions: true
     });
     var code = resp.getResponseCode();
-    if (code === 401) return { success: false, error: 'Invalid API key — go to Apps Script > Project Settings > Script Properties and check RENTCAST_API_KEY' };
+    if (code === 401) return { success: false, error: 'Rentcast API key inactive — subscription required at rentcast.io' };
     if (code === 404) return { success: false, error: 'Address not found in Rentcast database' };
-    if (code === 429) return { success: false, error: 'Rate limit hit (50 requests/month on free tier)' };
-    if (code !== 200) return { success: false, error: 'HTTP ' + code };
+    if (code === 429) return { success: false, error: 'Rentcast rate limit hit (50 requests/month on free tier)' };
+    if (code !== 200) return { success: false, error: 'Rentcast HTTP ' + code };
     var data  = JSON.parse(resp.getContentText());
     var value = data.price || data.value || data.priceRangeMid || null;
     if (!value) return { success: false, error: 'No valuation returned' };
