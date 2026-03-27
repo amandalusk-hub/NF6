@@ -545,7 +545,7 @@ function refreshPropertyValues() {
   var msg = updated + ' US propert' + (updated === 1 ? 'y' : 'ies') + ' updated.';
   if (errors.length) msg += '\n\nNot updated:\n' + errors.join('\n');
   SpreadsheetApp.getActiveSpreadsheet().toast(msg, 'Rentcast Update', 10);
-  return { success: true, updated: updated };
+  return { success: true, updated: updated, errors: errors };
 }
 
 /**
@@ -822,15 +822,20 @@ function removePlaidConnection() {
 }
 
 function fixSheetHeaders() {
-  var sheet   = getSheet_('ASSETS');
-  var headers = COL.ASSETS;
-  sheet.getRange(1, 1, 1, headers.length)
-    .setValues([headers])
-    .setBackground('#0d2137')
-    .setFontColor('#ffffff')
-    .setFontWeight('bold');
-  sheet.setFrozenRows(1);
-  SpreadsheetApp.getActiveSpreadsheet().toast('Asset sheet headers fixed!', 'Done', 5);
+  var ss = getSpreadsheet_();
+  Object.keys(COL).forEach(function(key) {
+    var sheetName = sheetName_(key);
+    var sheet     = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+    var headers = COL[key];
+    sheet.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#0d2137')
+      .setFontColor('#ffffff')
+      .setFontWeight('bold');
+    sheet.setFrozenRows(1);
+  });
+  SpreadsheetApp.getActiveSpreadsheet().toast('All sheet headers fixed!', 'Done', 5);
   return { success: true };
 }
 
