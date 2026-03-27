@@ -658,7 +658,7 @@ function getPlaidLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions', 'accounts']
+        products:      ['transactions']
       }),
       muteHttpExceptions: true
     });
