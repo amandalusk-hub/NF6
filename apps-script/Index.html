@@ -377,13 +377,14 @@ function loadData(){
 
 function onDataLoaded(d){
   if(!d){toast('Server returned no data — check console','error');showLoading(false);return;}
-  state.assets     = d.assets     || [];
-  state.entities   = d.entities   || [];
-  state.fxRates    = d.fxRates    || [];
-  state.history    = d.history    || [];
-  state.snapshots  = d.snapshots  || [];
-  state.categories = d.categories || [];
-  state.currencies = d.currencies || [];
+  state.assets      = d.assets      || [];
+  state.liabilities = d.liabilities || [];
+  state.entities    = d.entities    || [];
+  state.fxRates     = d.fxRates     || [];
+  state.history     = d.history     || [];
+  state.snapshots   = d.snapshots   || [];
+  state.categories  = d.categories  || [];
+  state.currencies  = d.currencies  || [];
   console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
   if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
   // Show warning if raw rows exist but values are all 0 (likely header mismatch)
@@ -418,8 +419,8 @@ function switchTab(name){
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
 function renderDashboard(){
-  const assets = state.assets;
-  const liabs  = state.liabilities;
+  const assets = state.assets      || [];
+  const liabs  = state.liabilities || [];
   const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
   const liabUSD  = liabs.reduce((s,l)=>s+num(l['USD Value']),0);
   const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
