@@ -99,7 +99,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .toast.error{background:#c5221f}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* Loading overlay */
-.loading-overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:150;align-items:center;justify-content:center;font-size:15px;color:#0d2137;font-weight:500;pointer-events:none}
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:150;align-items:center;justify-content:center;font-size:15px;color:#0d2137;font-weight:500}
 .loading-overlay.open{display:flex}
 /* Tab panels */
 .tab-panel{display:none}
@@ -116,7 +116,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
-    <button class="tab-btn" data-tab="loans">Loans</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
   </nav>
@@ -137,7 +136,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="metric-card"><div class="metric-label">Total Liabilities</div><div class="metric-value" id="m-liabilities">$0</div></div>
       <div class="metric-card"><div class="metric-label">Liquid Cash</div><div class="metric-value" id="m-cash">$0</div></div>
       <div class="metric-card"><div class="metric-label">Asset Count</div><div class="metric-value" id="m-count">0</div></div>
-      <div class="metric-card"><div class="metric-label">Outstanding Loans</div><div class="metric-value" id="m-loans">$0</div></div>
     </div>
     <div class="two-col">
       <div class="card">
@@ -149,7 +147,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div class="card">
         <div class="section-title">Top Holdings</div>
-        <div id="top-holdings" style="max-height:260px;overflow-y:auto"></div>
+        <div id="top-holdings"></div>
       </div>
     </div>
     <div class="card">
@@ -209,37 +207,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th>Actions</th>
           </tr></thead>
           <tbody id="entities-tbody"></tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <!-- Loans -->
-  <div class="tab-panel" id="tab-loans">
-    <div class="card">
-      <div class="toolbar">
-        <input type="text" id="loan-search" placeholder="Search loans…" oninput="renderLoansTable()">
-        <select id="loan-status-filter" onchange="renderLoansTable()">
-          <option value="">All Statuses</option>
-          <option>Active</option><option>Paid</option><option>Overdue</option><option>Partial</option>
-        </select>
-        <button class="btn btn-primary" onclick="openLoanModal()">+ Add Loan</button>
-      </div>
-      <div class="table-wrap">
-        <table id="loans-table">
-          <thead><tr>
-            <th onclick="sortTable('loans','Borrower')">Borrower <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('loans','Amount')">Amount <span class="sort-icon">↕</span></th>
-            <th>Interest Rate</th>
-            <th onclick="sortTable('loans','Start Date')">Start Date <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('loans','Due Date')">Due Date <span class="sort-icon">↕</span></th>
-            <th>Repaid</th>
-            <th onclick="sortTable('loans','Outstanding')">Outstanding <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('loans','Status')">Status <span class="sort-icon">↕</span></th>
-            <th>Notes</th>
-            <th>Actions</th>
-          </tr></thead>
-          <tbody id="loans-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -324,50 +291,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
-<!-- Loan Modal -->
-<div class="modal-overlay" id="loan-modal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="loan-modal-title">Add Loan</div>
-      <button class="modal-close" onclick="closeModal('loan-modal')">×</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="l-id">
-      <div class="form-two">
-        <div class="form-row"><label>Borrower</label><input type="text" id="l-borrower" placeholder="Borrower name"></div>
-        <div class="form-row"><label>Currency</label>
-          <select id="l-currency">
-            <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
-            <option>BRL</option><option>MXN</option><option>CAD</option><option>JPY</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-two">
-        <div class="form-row"><label>Loan Amount</label><input type="number" id="l-amount" placeholder="0.00" min="0" oninput="updateLoanPreview()"></div>
-        <div class="form-row"><label>Interest Rate %</label><input type="number" id="l-rate" placeholder="0.00" min="0" step="0.01"></div>
-      </div>
-      <div class="form-two">
-        <div class="form-row"><label>Start Date</label><input type="date" id="l-start"></div>
-        <div class="form-row"><label>Due Date</label><input type="date" id="l-due"></div>
-      </div>
-      <div class="form-two">
-        <div class="form-row"><label>Amount Repaid</label><input type="number" id="l-repaid" placeholder="0.00" min="0" oninput="updateLoanPreview()"></div>
-        <div class="form-row"><label>Status</label>
-          <select id="l-status">
-            <option>Active</option><option>Paid</option><option>Overdue</option><option>Partial</option>
-          </select>
-        </div>
-      </div>
-      <div class="usd-preview">Outstanding Balance: <span id="l-outstanding-preview" style="font-weight:700">$0</span></div>
-      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="Optional notes…"></textarea></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('loan-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveLoan()">Save Loan</button>
-    </div>
-  </div>
-</div>
-
 <!-- Entity Modal -->
 <div class="modal-overlay" id="entity-modal">
   <div class="modal">
@@ -402,8 +325,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  assets: [], entities: [], fxRates: [], history: [], loans: [], categories: [], currencies: [],
-  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true }, loans: { col: 'Borrower', asc: true } }
+  assets: [], entities: [], fxRates: [], history: [], categories: [], currencies: [],
+  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
 };
 
 // ── Category colors ────────────────────────────────────────────────────────
@@ -422,9 +345,11 @@ window.onload = function(){
 };
 
 function loadData(){
+  showLoading(true);
+  var _t=setTimeout(function(){showLoading(false);toast('Server took too long — try refreshing','error');},20000);
   google.script.run
-    .withSuccessHandler(function(d){showLoading(false);onDataLoaded(d);})
-    .withFailureHandler(function(e){showLoading(false);toast('Failed to load: '+e.message,'error');})
+    .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
+    .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
     .getFullData();
 }
 
@@ -434,10 +359,9 @@ function onDataLoaded(d){
   state.entities = d.entities || [];
   state.fxRates  = d.fxRates  || [];
   state.history  = d.history  || [];
-  state.loans    = d.loans    || [];
   state.categories= d.categories||[];
   state.currencies= d.currencies||[];
-  console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length+' loans='+state.loans.length);
+  console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
   if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
   // Show warning if raw rows exist but values are all 0 (likely header mismatch)
   const warn=document.getElementById('data-warning');
@@ -458,7 +382,6 @@ function onDataLoaded(d){
   buildCatFilter();
   renderDashboard();
   renderAssetsTable();
-  renderLoansTable();
   renderEntitiesTable();
   renderHistoryTable();
 }
@@ -474,13 +397,11 @@ function renderDashboard(){
   const assets = state.assets;
   const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
   const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
-  const loansOut = state.loans.filter(l=>l.Status!=='Paid').reduce((s,l)=>s+num(l.Outstanding),0);
   document.getElementById('net-worth').textContent   = fmtUSD(totalUSD);
   document.getElementById('m-assets').textContent    = fmtUSD(totalUSD);
   document.getElementById('m-liabilities').textContent = fmtUSD(0);
   document.getElementById('m-cash').textContent      = fmtUSD(cashUSD);
   document.getElementById('m-count').textContent     = assets.length;
-  document.getElementById('m-loans').textContent     = fmtUSD(loansOut);
   renderDonut();
   renderTopHoldings();
   renderRecentChanges();
@@ -521,7 +442,7 @@ function renderDonut(){
 }
 
 function renderTopHoldings(){
-  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD']));
+  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).slice(0,8);
   const el=document.getElementById('top-holdings');
   if(!sorted.length){el.innerHTML='<div class="no-data">No assets yet</div>';return;}
   el.innerHTML=sorted.map(a=>`
@@ -598,7 +519,6 @@ function sortTable(tbl,col){
   s.asc=s.col===col?!s.asc:true;
   s.col=col;
   if(tbl==='assets')renderAssetsTable();
-  else if(tbl==='loans')renderLoansTable();
   else renderEntitiesTable();
 }
 
@@ -799,108 +719,6 @@ function deleteEntity(name){
     .withSuccessHandler(()=>{toast('Entity deleted');loadData()})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
     .deleteEntity(name);
-}
-
-// ── Loans Table ────────────────────────────────────────────────────────────
-function renderLoansTable(){
-  const q=(document.getElementById('loan-search').value||'').toLowerCase();
-  const status=document.getElementById('loan-status-filter').value;
-  let rows=[...state.loans].filter(l=>{
-    if(status&&l.Status!==status)return false;
-    if(q){
-      const hay=((l.Borrower||'')+(l.Status||'')+(l.Notes||'')).toLowerCase();
-      if(!hay.includes(q))return false;
-    }
-    return true;
-  });
-  const s=state.sort.loans||{col:'Borrower',asc:true};
-  rows.sort((a,b)=>cmp(a[s.col],b[s.col],s.asc));
-  const tb=document.getElementById('loans-tbody');
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="10" class="no-data">No loans found</td></tr>`;return;}
-  const statusColor={Active:'#1a73e8',Paid:'#1e8e3e',Overdue:'#c5221f',Partial:'#fb8c00'};
-  tb.innerHTML=rows.map(l=>{
-    const outstanding=num(l.Outstanding);
-    const color=statusColor[l.Status]||'#78909c';
-    return`<tr>
-      <td><strong>${esc(l.Borrower||'')}</strong></td>
-      <td>${fmtUSD(num(l['USD Value']||l.Amount))}</td>
-      <td>${num(l['Interest Rate %'])>0?num(l['Interest Rate %'])+'%':'—'}</td>
-      <td>${fmtDate(l['Start Date'])}</td>
-      <td>${fmtDate(l['Due Date'])}</td>
-      <td>${num(l['Amount Repaid'])>0?fmtUSD(num(l['Amount Repaid'])):'—'}</td>
-      <td style="font-weight:600;color:${outstanding>0?'#c5221f':'#1e8e3e'}">${fmtUSD(outstanding)}</td>
-      <td><span class="badge" style="background:${color}22;color:${color}">${esc(l.Status||'')}</span></td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.Notes||'')}</td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-secondary btn-sm" onclick='openLoanModal(${JSON.stringify(l.ID)})'>Edit</button>
-        <button class="btn btn-danger btn-sm" onclick='deleteLoan(${JSON.stringify(l.ID)},${JSON.stringify(l.Borrower)})'>Del</button>
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-// ── Loan Modal ──────────────────────────────────────────────────────────────
-function openLoanModal(id){
-  const loan=id?state.loans.find(l=>l.ID==id):null;
-  document.getElementById('loan-modal-title').textContent=loan?'Edit Loan':'Add Loan';
-  document.getElementById('l-id').value=loan?loan.ID:'';
-  document.getElementById('l-borrower').value=loan?loan.Borrower:'';
-  document.getElementById('l-currency').value=loan?(loan.Currency||'USD'):'USD';
-  document.getElementById('l-amount').value=loan?(num(loan.Amount)||''):'';
-  document.getElementById('l-rate').value=loan?(num(loan['Interest Rate %'])||''):'';
-  document.getElementById('l-start').value=loan&&loan['Start Date']?toDateInput(loan['Start Date']):'';
-  document.getElementById('l-due').value=loan&&loan['Due Date']?toDateInput(loan['Due Date']):'';
-  document.getElementById('l-repaid').value=loan?(num(loan['Amount Repaid'])||''):'';
-  document.getElementById('l-status').value=loan?(loan.Status||'Active'):'Active';
-  document.getElementById('l-notes').value=loan?loan.Notes||'':'';
-  updateLoanPreview();
-  openModal('loan-modal');
-}
-
-function toDateInput(d){
-  if(!d)return'';
-  try{const dt=new Date(d);if(isNaN(dt))return'';return dt.toISOString().split('T')[0];}catch(e){return'';}
-}
-
-function updateLoanPreview(){
-  const amount=parseFloat(document.getElementById('l-amount').value)||0;
-  const repaid=parseFloat(document.getElementById('l-repaid').value)||0;
-  const outstanding=Math.max(0,amount-repaid);
-  document.getElementById('l-outstanding-preview').textContent=fmtUSD(outstanding);
-}
-
-function saveLoan(){
-  const id=document.getElementById('l-id').value;
-  const amount=parseFloat(document.getElementById('l-amount').value)||0;
-  const repaid=parseFloat(document.getElementById('l-repaid').value)||0;
-  const data={
-    id:id,
-    borrower:document.getElementById('l-borrower').value.trim(),
-    currency:document.getElementById('l-currency').value,
-    amount:amount,
-    interestRate:parseFloat(document.getElementById('l-rate').value)||0,
-    startDate:document.getElementById('l-start').value,
-    dueDate:document.getElementById('l-due').value,
-    amountRepaid:repaid,
-    outstanding:Math.max(0,amount-repaid),
-    status:document.getElementById('l-status').value,
-    notes:document.getElementById('l-notes').value.trim()
-  };
-  if(!data.borrower){toast('Borrower name is required','error');return;}
-  if(!data.amount){toast('Loan amount is required','error');return;}
-  showLoading(true);
-  closeModal('loan-modal');
-  const fn=id?google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Update failed','error');}else{toast('Loan updated');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateLoan(data)
-              :google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Loan added');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).addLoan(data);
-}
-
-function deleteLoan(id,borrower){
-  if(!confirm(`Delete loan for "${borrower}"?`))return;
-  showLoading(true);
-  google.script.run
-    .withSuccessHandler(()=>{toast('Loan deleted');loadData()})
-    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
-    .deleteLoan(id);
 }
 
 // ── Debug / Diagnose ─────────────────────────────────────────────────────────

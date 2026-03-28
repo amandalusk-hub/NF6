@@ -40,8 +40,7 @@ var COL = {
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
-  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
-  LOANS:       ['ID','Borrower','Amount','Currency','USD Value','Interest Rate %','Start Date','Due Date','Amount Repaid','Outstanding','Status','Notes']
+  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
 };
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
@@ -171,7 +170,7 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', LOANS: 'Loans' }[key];
+  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History' }[key];
 }
 
 function getSpreadsheet_() {
@@ -227,7 +226,6 @@ function getFullData() {
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
     history:     clean(sheetToObjects_('HISTORY')),
-    loans:       clean(sheetToObjects_('LOANS')),
     categories:  CATEGORIES,
     currencies:  CURRENCIES,
     _debug: {
@@ -476,68 +474,6 @@ function updateLiability(data) {
 
 function deleteLiability(id) {
   var sheet = getSheet_('LIABILITIES');
-  var rows  = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
-  }
-  return { success: false, error: 'Not found' };
-}
-
-// ── Loans CRUD ────────────────────────────────────────────────────────────────
-
-function addLoan(data) {
-  var sheet    = getSheet_('LOANS');
-  var id       = Utilities.getUuid();
-  var fxRate   = getFxRate_(data.currency || 'USD');
-  var amount   = Number(data.amount) || 0;
-  var usdValue = amount * fxRate;
-  var repaid   = Number(data.amountRepaid) || 0;
-  var outstanding = Number(data.outstanding) || Math.max(0, amount - repaid);
-
-  sheet.appendRow([
-    id,
-    data.borrower    || '',
-    amount,
-    data.currency    || 'USD',
-    usdValue,
-    Number(data.interestRate) || 0,
-    data.startDate   || '',
-    data.dueDate     || '',
-    repaid,
-    outstanding,
-    data.status      || 'Active',
-    data.notes       || ''
-  ]);
-  return { success: true, id: id };
-}
-
-function updateLoan(data) {
-  var sheet = getSheet_('LOANS');
-  var rows  = sheet.getDataRange().getValues();
-  for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] !== data.id) continue;
-    var fxRate      = getFxRate_(data.currency || rows[i][3]);
-    var amount      = data.amount !== undefined ? Number(data.amount) : Number(rows[i][2]);
-    var repaid      = data.amountRepaid !== undefined ? Number(data.amountRepaid) : Number(rows[i][8]);
-    var outstanding = Math.max(0, amount - repaid);
-    sheet.getRange(i + 1, 2).setValue(data.borrower     !== undefined ? data.borrower     : rows[i][1]);
-    sheet.getRange(i + 1, 3).setValue(amount);
-    sheet.getRange(i + 1, 4).setValue(data.currency     !== undefined ? data.currency     : rows[i][3]);
-    sheet.getRange(i + 1, 5).setValue(amount * fxRate);
-    sheet.getRange(i + 1, 6).setValue(data.interestRate !== undefined ? Number(data.interestRate) : rows[i][5]);
-    sheet.getRange(i + 1, 7).setValue(data.startDate    !== undefined ? data.startDate    : rows[i][6]);
-    sheet.getRange(i + 1, 8).setValue(data.dueDate      !== undefined ? data.dueDate      : rows[i][7]);
-    sheet.getRange(i + 1, 9).setValue(repaid);
-    sheet.getRange(i + 1, 10).setValue(outstanding);
-    sheet.getRange(i + 1, 11).setValue(data.status      !== undefined ? data.status       : rows[i][10]);
-    sheet.getRange(i + 1, 12).setValue(data.notes       !== undefined ? data.notes        : rows[i][11]);
-    return { success: true };
-  }
-  return { success: false, error: 'Loan not found' };
-}
-
-function deleteLoan(id) {
-  var sheet = getSheet_('LOANS');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
