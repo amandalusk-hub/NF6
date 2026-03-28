@@ -175,6 +175,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-primary" onclick="openAssetModal()">+ Add Asset</button>
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
+        <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
         <button class="btn btn-secondary" onclick="diagnoseData()" style="opacity:.6;font-size:11px">Diagnose</button>
       </div>
@@ -886,6 +887,21 @@ function refreshRates(){
 
 
 // ── Property Values ─────────────────────────────────────────────────────────
+function syncAccounts(){
+  showLoading(true);
+  toast('Syncing bank accounts…','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      showLoading(false);
+      if(r&&r.success===false){toast(r.error||'Sync failed','error');return;}
+      const updated=r&&r.updated!=null?r.updated:0;
+      toast('Accounts synced — '+updated+' account(s) updated');
+      loadData();
+    })
+    .withFailureHandler(function(e){showLoading(false);toast('Sync error: '+e.message,'error');})
+    .syncPlaidAccounts();
+}
+
 function refreshProperties(){
   showLoading(true);
   google.script.run
