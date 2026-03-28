@@ -40,7 +40,8 @@ var COL = {
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
-  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes']
+  HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
+  SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD']
 };
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
@@ -170,7 +171,7 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History' }[key];
+  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots' }[key];
 }
 
 function getSpreadsheet_() {
@@ -226,6 +227,7 @@ function getFullData() {
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
     history:     clean(sheetToObjects_('HISTORY')),
+    snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
     currencies:  CURRENCIES,
     _debug: {
@@ -676,6 +678,47 @@ function getHistory(filters) {
   return data;
 }
 
+// ── Monthly Snapshots ─────────────────────────────────────────────────────────
+
+function takeMonthlySnapshot() {
+  var now      = new Date();
+  var monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+  // Deduplicate — only one snapshot per calendar month
+  var snapSheet = getSheet_('SNAPSHOTS');
+  var existing  = snapSheet.getDataRange().getValues();
+  for (var i = 1; i < existing.length; i++) {
+    if (existing[i][1] === monthKey) {
+      return { success: false, alreadyDone: true, msg: 'Snapshot already taken for ' + monthKey };
+    }
+  }
+
+  var assets = sheetToObjects_('ASSETS');
+  if (!assets.length) return { success: false, alreadyDone: false, msg: 'No assets to snapshot' };
+
+  var rows = assets.map(function(a) {
+    return [now, monthKey, a['Name'] || '', a['Category'] || '', a['Currency'] || 'USD', Number(a['My Share USD']) || 0];
+  });
+  snapSheet.getRange(snapSheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  return { success: true, alreadyDone: false, count: rows.length, monthKey: monthKey };
+}
+
+function getSnapshotTrend() {
+  var data = sheetToObjects_('SNAPSHOTS');
+  var byMonth = {};
+  data.forEach(function(row) {
+    var mk = row['Month Key'] || '';
+    if (!mk) return;
+    if (!byMonth[mk]) byMonth[mk] = 0;
+    byMonth[mk] += Number(row['My Share USD']) || 0;
+  });
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return Object.keys(byMonth).sort().map(function(mk) {
+    var parts = mk.split('-');
+    return { monthKey: mk, label: months[parseInt(parts[1]) - 1] + ' ' + parts[0], total: byMonth[mk] };
+  });
+}
+
 // ── Plaid Integration ─────────────────────────────────────────────────────────
 
 function getPlaidConfig_() {
@@ -908,4 +951,5 @@ function dailySync_() {
   fetchExchangeRates();
   syncPlaidAccounts();
   refreshPropertyValues();
+  if (new Date().getDate() === 1) takeMonthlySnapshot();
 }

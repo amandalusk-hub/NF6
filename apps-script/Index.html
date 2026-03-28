@@ -224,9 +224,20 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
   <!-- History -->
   <div class="tab-panel" id="tab-history">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div class="section-title">Portfolio Value Over Time</div>
+        <button class="btn btn-secondary btn-sm" onclick="takeSnapshot()">Take Monthly Snapshot</button>
+      </div>
+      <div id="trend-empty" class="no-data" style="display:none">No snapshots yet — click "Take Monthly Snapshot" to record today's values and start tracking trends.</div>
+      <div id="trend-chart" style="overflow-x:auto">
+        <svg id="trend-svg" height="200" style="width:100%;min-width:300px;display:block"></svg>
+        <div id="trend-labels" style="display:flex;justify-content:space-between;font-size:11px;color:#888;padding:2px 8px 0"></div>
+      </div>
+    </div>
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="history-search" placeholder="Search history…" oninput="renderHistoryTable()">
+        <input type="text" id="history-search" placeholder="Search change log…" oninput="renderHistoryTable()">
       </div>
       <div class="table-wrap">
         <table>
@@ -335,7 +346,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
-  assets: [], entities: [], fxRates: [], history: [], categories: [], currencies: [],
+  assets: [], entities: [], fxRates: [], history: [], snapshots: [], categories: [], currencies: [],
   sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
 };
 
@@ -365,12 +376,13 @@ function loadData(){
 
 function onDataLoaded(d){
   if(!d){toast('Server returned no data — check console','error');showLoading(false);return;}
-  state.assets   = d.assets   || [];
-  state.entities = d.entities || [];
-  state.fxRates  = d.fxRates  || [];
-  state.history  = d.history  || [];
-  state.categories= d.categories||[];
-  state.currencies= d.currencies||[];
+  state.assets     = d.assets     || [];
+  state.entities   = d.entities   || [];
+  state.fxRates    = d.fxRates    || [];
+  state.history    = d.history    || [];
+  state.snapshots  = d.snapshots  || [];
+  state.categories = d.categories || [];
+  state.currencies = d.currencies || [];
   console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
   if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
   // Show warning if raw rows exist but values are all 0 (likely header mismatch)
@@ -394,6 +406,7 @@ function onDataLoaded(d){
   renderAssetsTable();
   renderEntitiesTable();
   renderHistoryTable();
+  renderTrendChart();
 }
 
 // ── Tabs ───────────────────────────────────────────────────────────────────
@@ -598,6 +611,58 @@ function renderEntitiesTable(){
 }
 
 // ── History Table ──────────────────────────────────────────────────────────
+function fmtUSDShort(n){
+  if(Math.abs(n)>=1e6)return'$'+(n/1e6).toFixed(2)+'M';
+  if(Math.abs(n)>=1e3)return'$'+(n/1e3).toFixed(0)+'K';
+  return'$'+Math.round(n);
+}
+
+function renderTrendChart(){
+  const snaps=state.snapshots||[];
+  const empty=document.getElementById('trend-empty');
+  const chart=document.getElementById('trend-chart');
+  const svg=document.getElementById('trend-svg');
+  const labelsEl=document.getElementById('trend-labels');
+  if(!snaps.length){
+    empty.style.display='block';chart.style.display='none';return;
+  }
+  empty.style.display='none';chart.style.display='block';
+  const W=svg.getBoundingClientRect().width||700,H=200;
+  const pad={t:24,r:16,b:8,l:72};
+  const vals=snaps.map(s=>s.total);
+  const maxV=Math.max(...vals)*1.08||1;
+  const minV=0;
+  const range=maxV-minV;
+  const n=snaps.length;
+  const xs=snaps.map((_,i)=>pad.l+(W-pad.l-pad.r)*(n>1?i/(n-1):0.5));
+  const ys=vals.map(v=>pad.t+(H-pad.t-pad.b)*(1-v/range));
+  const pts=xs.map((x,i)=>x+','+ys[i]).join(' ');
+  const areaD='M'+xs[0]+','+(H-pad.b)+' '+xs.map((x,i)=>'L'+x+','+ys[i]).join(' ')+' L'+xs[n-1]+','+(H-pad.b)+' Z';
+  let grid='';
+  [0,0.25,0.5,0.75,1].forEach(p=>{
+    const y=pad.t+(H-pad.t-pad.b)*(1-p);
+    const v=maxV*p;
+    grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="#f0f0f0" stroke-width="1"/>`;
+    grid+=`<text x="${pad.l-6}" y="${y+4}" text-anchor="end" font-size="10" fill="#999">${fmtUSDShort(v)}</text>`;
+  });
+  const dots=xs.map((x,i)=>`<circle cx="${x}" cy="${ys[i]}" r="4.5" fill="#1a73e8" stroke="#fff" stroke-width="1.5"><title>${snaps[i].label}: ${fmtUSD(vals[i])}</title></circle>`).join('');
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.innerHTML=grid+`<path d="${areaD}" fill="#1a73e8" opacity=".08"/><polyline points="${pts}" fill="none" stroke="#1a73e8" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`+dots;
+  labelsEl.innerHTML=snaps.map(s=>`<span>${s.label}</span>`).join('');
+}
+
+function takeSnapshot(){
+  toast('Taking snapshot…','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r.alreadyDone){toast(r.msg,'error');return;}
+      toast('Snapshot saved — '+r.count+' assets recorded for '+r.monthKey,'success');
+      loadData();
+    })
+    .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
+    .takeMonthlySnapshot();
+}
+
 function renderHistoryTable(){
   const q=(document.getElementById('history-search').value||'').toLowerCase();
   let rows=[...state.history].reverse().filter(h=>{
