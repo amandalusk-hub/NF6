@@ -152,7 +152,9 @@ function doGet() {
 
 // ── Sheet Bootstrapping ───────────────────────────────────────────────────────
 
+var _sheetsReady = false;
 function ensureSheets_() {
+  if (_sheetsReady) return;
   var ss = getSpreadsheet_();
   Object.keys(COL).forEach(function(key) {
     var name  = sheetName_(key);
@@ -168,6 +170,7 @@ function ensureSheets_() {
       sheet.setColumnWidth(1, 220);
     }
   });
+  _sheetsReady = true;
 }
 
 function sheetName_(key) {

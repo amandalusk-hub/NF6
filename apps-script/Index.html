@@ -894,7 +894,7 @@ function syncAccounts(){
     .withSuccessHandler(function(r){
       showLoading(false);
       if(r&&r.success===false){toast(r.error||'Sync failed','error');return;}
-      const updated=r&&r.updated!=null?r.updated:0;
+      const updated=r&&r.synced!=null?r.synced:0;
       toast('Accounts synced — '+updated+' account(s) updated');
       loadData();
     })
