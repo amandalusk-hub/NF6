@@ -415,7 +415,7 @@ function renderDashboard(){
   document.getElementById('m-cash').textContent         = fmtUSD(cashUSD);
   document.getElementById('m-count').textContent        = assets.length;
   renderDonut();
-  renderLiabDonut();
+  try{renderLiabDonut();}catch(e){console.warn('liabDonut:',e);}
   renderTopHoldings();
   renderRecentChanges();
 }
@@ -463,6 +463,7 @@ function renderLiabDonut(){
   const total=Object.values(totByType).reduce((s,v)=>s+v,0);
   const wrap=document.getElementById('liab-chart-wrap');
   const empty=document.getElementById('liab-empty');
+  if(!wrap||!empty) return;
   if(!total){wrap.style.display='none';empty.style.display='block';return;}
   wrap.style.display='flex';empty.style.display='none';
   const entries=Object.entries(totByType).sort((a,b)=>b[1]-a[1]);
