@@ -139,20 +139,30 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     </div>
     <div class="two-col">
       <div class="card">
-        <div class="section-title">Allocation by Category</div>
+        <div class="section-title">Assets by Category</div>
         <div class="chart-wrap">
           <svg id="donut-svg" width="160" height="160" viewBox="0 0 160 160"></svg>
           <div class="legend" id="donut-legend"></div>
         </div>
       </div>
       <div class="card">
-        <div class="section-title">Top Holdings</div>
-        <div id="top-holdings"></div>
+        <div class="section-title">Liabilities by Type</div>
+        <div class="chart-wrap" id="liab-chart-wrap">
+          <svg id="liab-donut-svg" width="160" height="160" viewBox="0 0 160 160"></svg>
+          <div class="legend" id="liab-donut-legend"></div>
+        </div>
+        <div id="liab-empty" style="display:none" class="no-data">No liabilities recorded</div>
       </div>
     </div>
-    <div class="card">
-      <div class="section-title">Recent Changes</div>
-      <div id="recent-changes"></div>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title">Top Holdings</div>
+        <div id="top-holdings" style="max-height:340px;overflow-y:auto"></div>
+      </div>
+      <div class="card">
+        <div class="section-title">Recent Changes</div>
+        <div id="recent-changes" style="max-height:340px;overflow-y:auto"></div>
+      </div>
     </div>
   </div>
 
@@ -395,14 +405,17 @@ function switchTab(name){
 // ── Dashboard ──────────────────────────────────────────────────────────────
 function renderDashboard(){
   const assets = state.assets;
+  const liabs  = state.liabilities;
   const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
+  const liabUSD  = liabs.reduce((s,l)=>s+num(l['USD Value']),0);
   const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
-  document.getElementById('net-worth').textContent   = fmtUSD(totalUSD);
-  document.getElementById('m-assets').textContent    = fmtUSD(totalUSD);
-  document.getElementById('m-liabilities').textContent = fmtUSD(0);
-  document.getElementById('m-cash').textContent      = fmtUSD(cashUSD);
-  document.getElementById('m-count').textContent     = assets.length;
+  document.getElementById('net-worth').textContent      = fmtUSD(totalUSD - liabUSD);
+  document.getElementById('m-assets').textContent       = fmtUSD(totalUSD);
+  document.getElementById('m-liabilities').textContent  = fmtUSD(liabUSD);
+  document.getElementById('m-cash').textContent         = fmtUSD(cashUSD);
+  document.getElementById('m-count').textContent        = assets.length;
   renderDonut();
+  renderLiabDonut();
   renderTopHoldings();
   renderRecentChanges();
 }
@@ -441,8 +454,44 @@ function renderDonut(){
     </div>`).join('');
 }
 
+const LIAB_COLORS=['#e53935','#f4511e','#fb8c00','#fdd835','#8d6e63','#78909c','#d81b60','#00897b'];
+
+function renderLiabDonut(){
+  const liabs=state.liabilities;
+  const totByType={};
+  liabs.forEach(l=>{const t=l.Type||'Other';totByType[t]=(totByType[t]||0)+num(l['USD Value']);});
+  const total=Object.values(totByType).reduce((s,v)=>s+v,0);
+  const wrap=document.getElementById('liab-chart-wrap');
+  const empty=document.getElementById('liab-empty');
+  if(!total){wrap.style.display='none';empty.style.display='block';return;}
+  wrap.style.display='flex';empty.style.display='none';
+  const entries=Object.entries(totByType).sort((a,b)=>b[1]-a[1]);
+  const cx=80,cy=80,r=60,ri=36;
+  let angle=-Math.PI/2,paths='';
+  entries.forEach(([type,val],idx)=>{
+    const pct=val/total;
+    const a2=angle+pct*2*Math.PI;
+    if(pct<0.001){angle=a2;return;}
+    const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
+    const x2=cx+r*Math.cos(a2),  y2=cy+r*Math.sin(a2);
+    const xi1=cx+ri*Math.cos(angle),yi1=cy+ri*Math.sin(angle);
+    const xi2=cx+ri*Math.cos(a2),  yi2=cy+ri*Math.sin(a2);
+    const large=pct>0.5?1:0;
+    const color=LIAB_COLORS[idx%LIAB_COLORS.length];
+    paths+=`<path d="M${xi1},${yi1} A${ri},${ri} 0 ${large} 1 ${xi2},${yi2} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x1},${y1} Z" fill="${color}" opacity=".9"/>`;
+    angle=a2;
+  });
+  document.getElementById('liab-donut-svg').innerHTML=paths;
+  document.getElementById('liab-donut-legend').innerHTML=entries.map(([type,val],idx)=>`
+    <div class="legend-item">
+      <div class="legend-dot" style="background:${LIAB_COLORS[idx%LIAB_COLORS.length]}"></div>
+      <span>${esc(type)}</span>
+      <span class="legend-pct">${((val/total)*100).toFixed(1)}%</span>
+    </div>`).join('');
+}
+
 function renderTopHoldings(){
-  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).slice(0,8);
+  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD']));
   const el=document.getElementById('top-holdings');
   if(!sorted.length){el.innerHTML='<div class="no-data">No assets yet</div>';return;}
   el.innerHTML=sorted.map(a=>`
