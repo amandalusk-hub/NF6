@@ -99,7 +99,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .toast.error{background:#c5221f}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* Loading overlay */
-.loading-overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:150;align-items:center;justify-content:center;font-size:15px;color:#0d2137;font-weight:500}
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(255,255,255,.7);z-index:150;align-items:center;justify-content:center;font-size:15px;color:#0d2137;font-weight:500;pointer-events:none}
 .loading-overlay.open{display:flex}
 /* Tab panels */
 .tab-panel{display:none}
@@ -422,11 +422,9 @@ window.onload = function(){
 };
 
 function loadData(){
-  showLoading(true);
-  var _t=setTimeout(function(){showLoading(false);toast('Server took too long — try refreshing','error');},20000);
   google.script.run
-    .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
-    .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
+    .withSuccessHandler(function(d){showLoading(false);onDataLoaded(d);})
+    .withFailureHandler(function(e){showLoading(false);toast('Failed to load: '+e.message,'error');})
     .getFullData();
 }
 
