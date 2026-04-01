@@ -549,18 +549,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
       <div class="detail-section">
         <div class="detail-section-title">Who We Worked With</div>
-        <div class="form-two">
-          <div class="form-row"><label>Broker / Agent</label><input type="text" id="d-broker" placeholder="Name, firm, phone"></div>
-          <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-attorney" placeholder="Name, firm, phone"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Lender / Bank</label><input type="text" id="d-lender" placeholder="Name, institution"></div>
-          <div class="form-row"><label>Property Manager</label><input type="text" id="d-property-manager" placeholder="Name, firm, phone"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Contractor</label><input type="text" id="d-contractor" placeholder="Name, firm, phone"></div>
-          <div class="form-row"><label>Other Contacts</label><input type="text" id="d-other-contacts" placeholder="Any other key contacts"></div>
-        </div>
+        <div id="d-contacts-list"></div>
+        <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:13px;" onclick="addContactRow()">+ Add Contact</button>
       </div>
       </div><!-- end d-re-section -->
 
@@ -1396,6 +1386,24 @@ function deleteAsset(id,name){
     .deleteAsset(id);
 }
 
+// ── Contact Rows (Who We Worked With) ─────────────────────────────────────
+const CONTACT_TYPES = ['Broker / Agent','Attorney / Legal','Lender / Bank','Property Manager','Contractor','Accountant','Insurance Agent','Notary / Title','Other'];
+function addContactRow(type, name){
+  const list = document.getElementById('d-contacts-list');
+  const row  = document.createElement('div');
+  row.className = 'contact-row';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+  const opts = CONTACT_TYPES.map(t=>`<option value="${t}"${t===type?' selected':''}>${t}</option>`).join('');
+  row.innerHTML = `
+    <select class="contact-type" style="flex:0 0 180px;padding:6px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:6px;">
+      <option value="">-- Type --</option>${opts}
+    </select>
+    <input type="text" class="contact-name" value="${(name||'').replace(/"/g,'&quot;')}" placeholder="Name, firm, phone / email" style="flex:1;padding:6px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:6px;">
+    <button type="button" onclick="this.parentElement.remove()" style="background:transparent;border:none;color:#e57373;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
+  `;
+  list.appendChild(row);
+}
+
 // ── Asset Detail View ─────────────────────────────────────────────────────
 function openAssetDetail(id){
   const asset=state.assets.find(a=>a.ID==id);
@@ -1441,12 +1449,12 @@ function openAssetDetail(id){
   sv('d-utilities',    det.utilities||'');
   sv('d-loan',         det.loan||'');
   sv('d-fin-notes',    det.finNotes||'');
-  sv('d-broker',       det.broker||'');
-  sv('d-attorney',     det.attorney||'');
-  sv('d-lender',       det.lender||'');
-  sv('d-property-manager',det.propertyManager||'');
-  sv('d-contractor',   det.contractor||'');
-  sv('d-other-contacts',det.otherContacts||'');
+
+  // Dynamic contact rows
+  const contactsList = document.getElementById('d-contacts-list');
+  contactsList.innerHTML = '';
+  const contacts = det.contacts && det.contacts.length ? det.contacts : [{type:'',name:''}];
+  contacts.forEach(function(c){ addContactRow(c.type||'', c.name||''); });
 
   // Loan receivable fields
   sv('d-borrower',         det.borrower||'');
@@ -1520,12 +1528,12 @@ function saveAssetDetails(){
     utilities:       gv('d-utilities'),
     loan:            gv('d-loan'),
     finNotes:        gv('d-fin-notes'),
-    broker:          gv('d-broker'),
-    attorney:        gv('d-attorney'),
-    lender:          gv('d-lender'),
-    propertyManager: gv('d-property-manager'),
-    contractor:      gv('d-contractor'),
-    otherContacts:   gv('d-other-contacts'),
+    contacts: Array.from(document.querySelectorAll('#d-contacts-list .contact-row')).map(function(row){
+      return {
+        type: row.querySelector('.contact-type').value,
+        name: row.querySelector('.contact-name').value.trim()
+      };
+    }).filter(function(c){ return c.type || c.name; }),
     // Loan receivable fields
     borrower:        gv('d-borrower'),
     borrowerContact: gv('d-borrower-contact'),

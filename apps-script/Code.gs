@@ -194,17 +194,25 @@ function ensureSheets_() {
   if (_sheetsReady) return;
   var ss = getSpreadsheet_();
   Object.keys(COL).forEach(function(key) {
-    var name  = sheetName_(key);
-    var sheet = ss.getSheetByName(name);
+    var name    = sheetName_(key);
+    var headers = COL[key];
+    var sheet   = ss.getSheetByName(name);
     if (!sheet) {
       sheet = ss.insertSheet(name);
-      var headers = COL[key];
       sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-        .setBackground('#0d2137')
-        .setFontColor('#ffffff')
-        .setFontWeight('bold');
+        .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
       sheet.setFrozenRows(1);
       sheet.setColumnWidth(1, 220);
+    } else {
+      // Add any columns that exist in COL but are missing from the sheet
+      var lastCol = sheet.getLastColumn();
+      var existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+      var missing = headers.filter(function(h) { return existing.indexOf(h) === -1; });
+      if (missing.length) {
+        var startCol = lastCol + 1;
+        sheet.getRange(1, startCol, 1, missing.length).setValues([missing])
+          .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+      }
     }
   });
   _sheetsReady = true;
@@ -442,12 +450,15 @@ function updateAsset(data) {
 }
 
 function saveAssetDetails(id, detailsJson) {
-  var sheet = getSheet_('ASSETS');
-  var rows  = sheet.getDataRange().getValues();
+  var sheet      = getSheet_('ASSETS');
+  var rows       = sheet.getDataRange().getValues();
+  var detailsCol = rows[0].indexOf('Details') + 1;
+  var lastUpdCol = rows[0].indexOf('Last Updated') + 1;
+  if (detailsCol < 1) return { success: false, error: 'Details column missing — redeploy to add it' };
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) {
-      sheet.getRange(i + 1, 17).setValue(detailsJson || '');
-      sheet.getRange(i + 1, 12).setValue(new Date()); // update Last Updated
+    if (String(rows[i][0]) === String(id)) {
+      sheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
+      if (lastUpdCol > 0) sheet.getRange(i + 1, lastUpdCol).setValue(new Date());
       return { success: true };
     }
   }
@@ -532,12 +543,15 @@ function updateLiability(data) {
 }
 
 function saveLiabilityDetails(id, detailsJson) {
-  var sheet = getSheet_('LIABILITIES');
-  var rows  = sheet.getDataRange().getValues();
+  var sheet      = getSheet_('LIABILITIES');
+  var rows       = sheet.getDataRange().getValues();
+  var detailsCol = rows[0].indexOf('Details') + 1;
+  var lastUpdCol = rows[0].indexOf('Last Updated') + 1;
+  if (detailsCol < 1) return { success: false, error: 'Details column missing — redeploy to add it' };
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) {
-      sheet.getRange(i + 1, 11).setValue(detailsJson || '');
-      sheet.getRange(i + 1, 8).setValue(new Date());
+    if (String(rows[i][0]) === String(id)) {
+      sheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
+      if (lastUpdCol > 0) sheet.getRange(i + 1, lastUpdCol).setValue(new Date());
       return { success: true };
     }
   }
