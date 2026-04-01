@@ -338,9 +338,18 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
           <select id="a-category" onchange="toggleAddressField()">
-            <option>Real Estate</option><option>Private Equity</option><option>Public Equity</option>
-            <option>Cash</option><option>Crypto</option><option>Auto</option>
-            <option>Art/Jewelry</option><option>VIP Medical</option><option>Insurance</option><option>Other</option>
+            <option>Real Estate</option>
+            <option>Cash - Personal</option>
+            <option>Cash - Business</option>
+            <option>Private Equity</option>
+            <option>Public Equity (Dividends)</option>
+            <option>Public Equity (Growth)</option>
+            <option>Automobile</option>
+            <option>Art/Jewelry/Other</option>
+            <option>Crypto</option>
+            <option>VIP Medical</option>
+            <option>Insurance</option>
+            <option>Other</option>
           </select>
         </div>
       </div>
@@ -551,9 +560,18 @@ const state = {
 
 // ── Category colors ────────────────────────────────────────────────────────
 const CAT_COLORS = {
-  'Real Estate':'#1a73e8','Private Equity':'#7c4dff','Public Equity':'#00897b',
-  'Cash':'#43a047','Crypto':'#f4511e','Auto':'#fb8c00',
-  'Art/Jewelry':'#e91e63','VIP Medical':'#00acc1','Insurance':'#8d6e63','Other':'#78909c'
+  'Real Estate':              '#1a73e8',
+  'Cash - Personal':          '#43a047',
+  'Cash - Business':          '#2e7d32',
+  'Private Equity':           '#7c4dff',
+  'Public Equity (Dividends)':'#00897b',
+  'Public Equity (Growth)':   '#00acc1',
+  'Automobile':               '#fb8c00',
+  'Art/Jewelry/Other':        '#e91e63',
+  'Crypto':                   '#f4511e',
+  'VIP Medical':              '#0288d1',
+  'Insurance':                '#8d6e63',
+  'Other':                    '#78909c'
 };
 function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 

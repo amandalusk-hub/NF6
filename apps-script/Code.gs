@@ -14,9 +14,18 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 var CATEGORIES = [
-  'Real Estate', 'Private Equity', 'Public Equity',
-  'Cash', 'Crypto', 'Auto', 'Art/Jewelry',
-  'VIP Medical', 'Insurance', 'Other'
+  'Real Estate',
+  'Cash - Personal',
+  'Cash - Business',
+  'Private Equity',
+  'Public Equity (Dividends)',
+  'Public Equity (Growth)',
+  'Automobile',
+  'Art/Jewelry/Other',
+  'Crypto',
+  'VIP Medical',
+  'Insurance',
+  'Other'
 ];
 
 var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP','PYG'];
