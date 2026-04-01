@@ -92,6 +92,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .usd-preview{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:6px;padding:10px 12px;font-size:13px;color:#1a3a5c;margin-bottom:14px}
 .usd-preview span{font-weight:700}
 .modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end}
+/* Detail sections */
+.detail-section{margin-bottom:22px;padding-bottom:22px;border-bottom:1px solid #f0f0f0}
+.detail-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+.detail-section-title{font-size:12px;font-weight:700;color:#0d2137;text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #e8f0fe}
+.detail-meta{font-size:13px;color:#666;margin-top:3px}
 /* Toast */
 #toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center}
 .toast{padding:10px 20px;border-radius:6px;color:#fff;font-size:13px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,.2);animation:fadeIn .2s}
@@ -309,6 +314,104 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('asset-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveAsset()">Save Asset</button>
+    </div>
+  </div>
+</div>
+
+<!-- Asset Detail Modal -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal" style="max-width:780px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="detail-modal-title">Asset Details</div>
+        <div class="detail-meta" id="detail-asset-meta"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-secondary btn-sm" id="detail-edit-btn" onclick="openAssetModal(state._detailId)">Edit Core Fields</button>
+        <button class="modal-close" onclick="closeModal('detail-modal')">×</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="detail-id">
+
+      <div class="detail-section">
+        <div class="detail-section-title">Overview</div>
+        <div class="form-two">
+          <div class="form-row"><label>Status</label>
+            <select id="d-status"><option>Active</option><option>In Progress</option><option>Sold</option><option>Monitoring</option><option>Under Contract</option></select>
+          </div>
+          <div class="form-row"><label>Last Updated By</label><input type="text" id="d-updated-by" placeholder="e.g. Amanda Lusk"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Project Leader</label><input type="text" id="d-project-leader" placeholder="Name"></div>
+          <div class="form-row"><label>Occupancy Status</label>
+            <select id="d-occupancy"><option value="">—</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
+          </div>
+        </div>
+        <div class="form-row"><label>Description</label><textarea id="d-description" placeholder="Brief description of this asset…"></textarea></div>
+        <div class="form-two">
+          <div class="form-row"><label>Location</label><input type="text" id="d-location" placeholder="City, Country/State"></div>
+          <div class="form-row"><label>Type</label><input type="text" id="d-type" placeholder="e.g. Residential, Commercial, SFR"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Square Footage</label><input type="text" id="d-sqft" placeholder="e.g. 5,200 sq ft"></div>
+          <div class="form-row"><label>Google Drive Folder</label><input type="text" id="d-folder" placeholder="Paste Drive link here"></div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Financial Breakdown</div>
+        <div class="form-two">
+          <div class="form-row"><label>Purchase Price</label><input type="number" id="d-purchase-price" placeholder="0"></div>
+          <div class="form-row"><label>Purchase Date</label><input type="date" id="d-purchase-date"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Closing Costs</label><input type="number" id="d-closing-costs" placeholder="0"></div>
+          <div class="form-row"><label>Permits &amp; Licenses</label><input type="number" id="d-permits" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Revenue / Month</label><input type="number" id="d-revenue" placeholder="0"></div>
+          <div class="form-row"><label>Operating Expenses / Month</label><input type="number" id="d-opex" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Property Taxes / Year</label><input type="number" id="d-taxes" placeholder="0"></div>
+          <div class="form-row"><label>Insurance Premiums / Year</label><input type="number" id="d-insurance" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>HOA Fees / Month</label><input type="number" id="d-hoa" placeholder="0"></div>
+          <div class="form-row"><label>Maintenance &amp; Repairs / Month</label><input type="number" id="d-maintenance" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Utilities / Month</label><input type="number" id="d-utilities" placeholder="0"></div>
+          <div class="form-row"><label>Loan Details</label><input type="text" id="d-loan" placeholder="e.g. $1.4M at 6.5% Oriental Bank"></div>
+        </div>
+        <div class="form-row"><label>Additional Financial Notes</label><textarea id="d-fin-notes" placeholder="Revenue details, deal terms, etc."></textarea></div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Who We Worked With</div>
+        <div class="form-two">
+          <div class="form-row"><label>Broker / Agent</label><input type="text" id="d-broker" placeholder="Name, firm, phone"></div>
+          <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-attorney" placeholder="Name, firm, phone"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Lender / Bank</label><input type="text" id="d-lender" placeholder="Name, institution"></div>
+          <div class="form-row"><label>Property Manager</label><input type="text" id="d-property-manager" placeholder="Name, firm, phone"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Contractor</label><input type="text" id="d-contractor" placeholder="Name, firm, phone"></div>
+          <div class="form-row"><label>Other Contacts</label><input type="text" id="d-other-contacts" placeholder="Any other key contacts"></div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Value History</div>
+        <div id="detail-history"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('detail-modal')">Close</button>
+      <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
     </div>
   </div>
 </div>
@@ -562,8 +665,11 @@ function renderAssetsTable(){
   const tb=document.getElementById('assets-tbody');
   if(!rows.length){tb.innerHTML=`<tr><td colspan="10" class="no-data">No assets found</td></tr>`;return;}
   tb.innerHTML=rows.map(a=>`
-    <tr>
-      <td>${esc(a.Name)}${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}</td>
+    <tr style="cursor:pointer" onclick="openAssetDetail(${JSON.stringify(a.ID)})">
+      <td>
+        <span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
+        ${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}
+      </td>
       <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
       <td>${esc(a.Entity||'')}</td>
       <td>${esc(a.Currency||'')}</td>
@@ -572,7 +678,7 @@ function renderAssetsTable(){
       <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'—'}</td>
       <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'—'})()}</td>
       <td>${fmtDate(a['Last Updated'])}</td>
-      <td style="white-space:nowrap">
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-sm" onclick='openAssetModal(${JSON.stringify(a.ID)})'>Edit</button>
         <button class="btn btn-danger btn-sm" onclick='deleteAsset(${JSON.stringify(a.ID)},${JSON.stringify(a.Name)})'>Del</button>
       </td>
@@ -797,6 +903,119 @@ function deleteAsset(id,name){
     .withSuccessHandler(()=>{toast('Asset deleted');loadData()})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
     .deleteAsset(id);
+}
+
+// ── Asset Detail View ─────────────────────────────────────────────────────
+function openAssetDetail(id){
+  const asset=state.assets.find(a=>a.ID==id);
+  if(!asset)return;
+  state._detailId=id;
+  document.getElementById('detail-id').value=id;
+  document.getElementById('detail-modal-title').textContent=asset.Name;
+  document.getElementById('detail-asset-meta').textContent=
+    (asset.Category||'')+(asset.Entity?' · '+asset.Entity:'')+' · '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
+
+  let det={};
+  try{det=JSON.parse(asset.Details||'{}');}catch(e){det={};}
+
+  const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
+  sv('d-status',       det.status||'Active');
+  sv('d-updated-by',   det.updatedBy||'');
+  sv('d-project-leader',det.projectLeader||'');
+  sv('d-occupancy',    det.occupancy||'');
+  sv('d-description',  det.description||'');
+  sv('d-location',     det.location||'');
+  sv('d-type',         det.type||'');
+  sv('d-sqft',         det.sqft||'');
+  sv('d-folder',       det.folder||'');
+  sv('d-purchase-price',det.purchasePrice||'');
+  sv('d-purchase-date',det.purchaseDate||'');
+  sv('d-closing-costs',det.closingCosts||'');
+  sv('d-permits',      det.permits||'');
+  sv('d-revenue',      det.revenue||'');
+  sv('d-opex',         det.opex||'');
+  sv('d-taxes',        det.taxes||'');
+  sv('d-insurance',    det.insurance||'');
+  sv('d-hoa',          det.hoa||'');
+  sv('d-maintenance',  det.maintenance||'');
+  sv('d-utilities',    det.utilities||'');
+  sv('d-loan',         det.loan||'');
+  sv('d-fin-notes',    det.finNotes||'');
+  sv('d-broker',       det.broker||'');
+  sv('d-attorney',     det.attorney||'');
+  sv('d-lender',       det.lender||'');
+  sv('d-property-manager',det.propertyManager||'');
+  sv('d-contractor',   det.contractor||'');
+  sv('d-other-contacts',det.otherContacts||'');
+
+  // Asset-specific history
+  const hist=(state.history||[]).filter(h=>h['Asset Name']===asset.Name);
+  const hDiv=document.getElementById('detail-history');
+  if(!hist.length){
+    hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">No value changes recorded yet.</p>';
+  }else{
+    hDiv.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="background:#f8f9ff">
+        <th style="padding:7px 10px;text-align:left;font-weight:600">Date</th>
+        <th style="padding:7px 10px;text-align:right;font-weight:600">Old Value</th>
+        <th style="padding:7px 10px;text-align:right;font-weight:600">New Value</th>
+        <th style="padding:7px 10px;text-align:right;font-weight:600">Change</th>
+        <th style="padding:7px 10px;text-align:left;font-weight:600">Notes</th>
+      </tr></thead>
+      <tbody>${[...hist].reverse().slice(0,25).map(h=>{
+        const d=num(h['New Value USD'])-num(h['Old Value USD']);
+        return`<tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:7px 10px">${fmtDate(h.Date)}</td>
+          <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['Old Value USD']))}</td>
+          <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['New Value USD']))}</td>
+          <td style="padding:7px 10px;text-align:right;font-weight:600;color:${d>=0?'#1e8e3e':'#c5221f'}">${d>=0?'+':''}${fmtUSD(d)}</td>
+          <td style="padding:7px 10px;color:#666;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.Notes||'')}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  }
+  openModal('detail-modal');
+}
+
+function saveAssetDetails(){
+  const id=document.getElementById('detail-id').value;
+  const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
+  const details={
+    status:          gv('d-status'),
+    updatedBy:       gv('d-updated-by'),
+    projectLeader:   gv('d-project-leader'),
+    occupancy:       gv('d-occupancy'),
+    description:     gv('d-description'),
+    location:        gv('d-location'),
+    type:            gv('d-type'),
+    sqft:            gv('d-sqft'),
+    folder:          gv('d-folder'),
+    purchasePrice:   gv('d-purchase-price'),
+    purchaseDate:    gv('d-purchase-date'),
+    closingCosts:    gv('d-closing-costs'),
+    permits:         gv('d-permits'),
+    revenue:         gv('d-revenue'),
+    opex:            gv('d-opex'),
+    taxes:           gv('d-taxes'),
+    insurance:       gv('d-insurance'),
+    hoa:             gv('d-hoa'),
+    maintenance:     gv('d-maintenance'),
+    utilities:       gv('d-utilities'),
+    loan:            gv('d-loan'),
+    finNotes:        gv('d-fin-notes'),
+    broker:          gv('d-broker'),
+    attorney:        gv('d-attorney'),
+    lender:          gv('d-lender'),
+    propertyManager: gv('d-property-manager'),
+    contractor:      gv('d-contractor'),
+    otherContacts:   gv('d-other-contacts')
+  };
+  showLoading(true);
+  closeModal('detail-modal');
+  google.script.run
+    .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
+    .saveAssetDetails(id,JSON.stringify(details));
 }
 
 // ── Entity Modal ───────────────────────────────────────────────────────────

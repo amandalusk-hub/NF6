@@ -36,7 +36,7 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details'],
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
@@ -144,6 +144,29 @@ function deploymentReadinessCheck() {
 // ── Web App Entry Point ───────────────────────────────────────────────────────
 
 function doGet() {
+  var email = Session.getActiveUser().getEmail();
+  if (!email || !email.toLowerCase().endsWith('@nf6capital.com')) {
+    var display = email ? email : 'not signed in';
+    return HtmlService.createHtmlOutput(
+      '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+      '<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f0f2f5;display:flex;align-items:center;justify-content:center;min-height:100vh}' +
+      '.box{background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.12);padding:48px 40px;max-width:400px;width:100%;text-align:center}' +
+      '.logo{font-size:28px;font-weight:700;color:#0d2137;margin-bottom:8px}' +
+      '.sub{font-size:14px;color:#666;margin-bottom:32px}' +
+      '.icon{font-size:48px;margin-bottom:20px}' +
+      'h2{font-size:20px;color:#0d2137;margin-bottom:10px}' +
+      'p{font-size:14px;color:#666;line-height:1.6;margin-bottom:8px}' +
+      '.account{background:#fce8e6;border-radius:6px;padding:10px 14px;font-size:13px;color:#c5221f;margin-top:20px}' +
+      '</style></head><body>' +
+      '<div class="box"><div class="logo">NF6</div><div class="sub">Family Office Wealth Tracker</div>' +
+      '<div class="icon">🔒</div>' +
+      '<h2>Access Restricted</h2>' +
+      '<p>This application is only available to NF6 Capital team members.</p>' +
+      '<p>Please sign in with your <strong>@nf6capital.com</strong> account.</p>' +
+      '<div class="account">Currently signed in as: <strong>' + display + '</strong></div>' +
+      '</div></body></html>'
+    ).setTitle('Access Restricted');
+  }
   ensureSheets_();
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('Family Office — Wealth Tracker')
@@ -356,7 +379,8 @@ function addAsset(data) {
   sheet.appendRow([
     id, nameToSave, data.category || '', data.entity || '',
     data.currency || 'USD', localVal, fxRate, usdVal,
-    sharePct, shareUsd, now, now, data.notes || '', '', data.address || '', costBasis
+    sharePct, shareUsd, now, now, data.notes || '', '', data.address || '', costBasis,
+    data.details || ''
   ]);
   return { success: true, id: id, savedName: nameToSave };
 }
@@ -390,7 +414,8 @@ function updateAsset(data) {
       [12, now],
       [13, data.notes   !== undefined ? data.notes   : rows[i][12]],
       [15, data.address  !== undefined ? data.address  : rows[i][14]],
-      [16, data.costBasis !== undefined ? Number(data.costBasis) : (Number(rows[i][15]) || 0)]
+      [16, data.costBasis !== undefined ? Number(data.costBasis) : (Number(rows[i][15]) || 0)],
+      [17, data.details   !== undefined ? data.details           : (rows[i][16] || '')]
     ];
     updates.forEach(function(u) { sheet.getRange(i + 1, u[0]).setValue(u[1]); });
 
@@ -398,6 +423,19 @@ function updateAsset(data) {
       logHistory_(data.name || rows[i][1], oldUsd, usdVal, currency, data.notes || 'Manual update');
     }
     return { success: true };
+  }
+  return { success: false, error: 'Asset not found' };
+}
+
+function saveAssetDetails(id, detailsJson) {
+  var sheet = getSheet_('ASSETS');
+  var rows  = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === id) {
+      sheet.getRange(i + 1, 17).setValue(detailsJson || '');
+      sheet.getRange(i + 1, 12).setValue(new Date()); // update Last Updated
+      return { success: true };
+    }
   }
   return { success: false, error: 'Asset not found' };
 }
