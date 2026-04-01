@@ -92,6 +92,22 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .usd-preview{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:6px;padding:10px 12px;font-size:13px;color:#1a3a5c;margin-bottom:14px}
 .usd-preview span{font-weight:700}
 .modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end}
+/* MNW4-style grouped list */
+.mnw-section-hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.mnw-section-hdr.assets{background:#0d2137;color:#fff}
+.mnw-section-hdr.liabs{background:#7f1d1d;color:#fff}
+.mnw-cat-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.mnw-cat-hdr.assets{background:#1a3a5c;color:#fff}
+.mnw-cat-hdr.liabs{background:#c62828;color:#fff}
+.mnw-cat-hdr-right{display:flex;align-items:center;gap:20px}
+.mnw-cat-hdr-updated{font-weight:400;opacity:.75;font-size:11px}
+.mnw-row{display:flex;justify-content:space-between;align-items:center;padding:6px 14px 6px 22px;border-bottom:1px solid #f4f4f4;cursor:pointer}
+.mnw-row:hover{background:#f0f7ff}
+.mnw-row-name{font-size:13px;font-style:italic;color:#1a2e44;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px}
+.mnw-row-right{display:flex;align-items:center;gap:20px;flex-shrink:0}
+.mnw-row-age{font-size:11px;color:#999;min-width:80px;text-align:right}
+.mnw-row-val{font-size:13px;font-weight:600;color:#0d2137;min-width:90px;text-align:right}
+.mnw-col{max-height:520px;overflow-y:auto}
 /* Detail sections */
 .detail-section{margin-bottom:22px;padding-bottom:22px;border-bottom:1px solid #f0f0f0}
 .detail-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
@@ -132,16 +148,38 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <main>
   <!-- Dashboard -->
   <div class="tab-panel active" id="tab-dashboard">
-    <div class="banner">
-      <div class="banner-label">Total Net Worth</div>
-      <div class="banner-value" id="net-worth">$0</div>
+    <!-- Net Worth Banner -->
+    <div class="banner" style="text-align:center;padding:20px 24px">
+      <div class="banner-label" style="font-size:12px;letter-spacing:1px;text-transform:uppercase">NET WORTH</div>
+      <div class="banner-value" id="net-worth" style="font-size:42px">$0</div>
     </div>
+    <!-- Summary metrics -->
     <div class="metrics-grid">
       <div class="metric-card"><div class="metric-label">Total Assets</div><div class="metric-value" id="m-assets">$0</div></div>
       <div class="metric-card"><div class="metric-label">Total Liabilities</div><div class="metric-value" id="m-liabilities">$0</div></div>
       <div class="metric-card"><div class="metric-label">Liquid Cash</div><div class="metric-value" id="m-cash">$0</div></div>
       <div class="metric-card"><div class="metric-label">Asset Count</div><div class="metric-value" id="m-count">0</div></div>
     </div>
+    <!-- MNW4-style grouped two-column list -->
+    <div class="two-col" style="margin-bottom:20px">
+      <!-- Assets column -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
+        <div class="mnw-section-hdr assets">
+          <span>Assets</span>
+          <span id="mnw-assets-total">$0</span>
+        </div>
+        <div class="mnw-col" id="mnw-assets-list"></div>
+      </div>
+      <!-- Liabilities column -->
+      <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
+        <div class="mnw-section-hdr liabs">
+          <span>Liabilities</span>
+          <span id="mnw-liab-total">$0</span>
+        </div>
+        <div class="mnw-col" id="mnw-liab-list"></div>
+      </div>
+    </div>
+    <!-- Pie charts -->
     <div class="two-col">
       <div class="card">
         <div class="section-title">Assets by Category</div>
@@ -157,16 +195,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="legend" id="liab-donut-legend"></div>
         </div>
         <div id="liab-empty" style="display:none" class="no-data">No liabilities recorded</div>
-      </div>
-    </div>
-    <div class="two-col">
-      <div class="card">
-        <div class="section-title">Top Holdings</div>
-        <div id="top-holdings" style="max-height:340px;overflow-y:auto"></div>
-      </div>
-      <div class="card">
-        <div class="section-title">Recent Changes</div>
-        <div id="recent-changes" style="max-height:340px;overflow-y:auto"></div>
       </div>
     </div>
   </div>
@@ -534,8 +562,7 @@ function renderDashboard(){
   document.getElementById('m-count').textContent        = assets.length;
   renderDonut();
   try{renderLiabDonut();}catch(e){console.warn('liabDonut:',e);}
-  renderTopHoldings();
-  renderRecentChanges();
+  renderMNWList();
 }
 
 function renderDonut(){
@@ -609,36 +636,93 @@ function renderLiabDonut(){
     </div>`).join('');
 }
 
-function renderTopHoldings(){
-  const sorted=[...state.assets].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD']));
-  const el=document.getElementById('top-holdings');
-  if(!sorted.length){el.innerHTML='<div class="no-data">No assets yet</div>';return;}
-  el.innerHTML=sorted.map(a=>`
-    <div class="list-item">
-      <div>
-        <div class="list-name">${esc(a.Name)}</div>
-        <div style="font-size:11px;color:#888">${esc(a.Category||'')} · ${esc(a.Entity||'')}</div>
-      </div>
-      <div class="list-val">${fmtUSD(num(a['My Share USD']))}</div>
-    </div>`).join('');
+function daysSince(dateVal){
+  if(!dateVal)return'—';
+  const d=new Date(dateVal);
+  if(isNaN(d))return'—';
+  const n=Math.floor((Date.now()-d.getTime())/86400000);
+  if(n===0)return'today';
+  if(n===1)return'1 day ago';
+  return n+' days ago';
 }
 
-function renderRecentChanges(){
-  const hist=[...state.history].reverse().slice(0,8);
-  const el=document.getElementById('recent-changes');
-  if(!hist.length){el.innerHTML='<div class="no-data">No history yet</div>';return;}
-  el.innerHTML=hist.map(h=>{
-    const d=num(h['Delta USD']);
-    const cls=d>=0?'pos':'neg';
-    const sign=d>=0?'+':'';
-    return`<div class="list-item">
-      <div>
-        <div class="list-name">${esc(h['Asset Name']||'')}</div>
-        <div style="font-size:11px;color:#888">${fmtDate(h.Date)}</div>
-      </div>
-      <div class="list-val ${cls}">${sign}${fmtUSD(d)}</div>
-    </div>`;
-  }).join('');
+function renderMNWList(){
+  const assets=state.assets||[];
+  const liabs=state.liabilities||[];
+
+  // — Assets grouped by category —
+  const aCats={};
+  assets.forEach(a=>{
+    const c=a.Category||'Other';
+    if(!aCats[c])aCats[c]=[];
+    aCats[c].push(a);
+  });
+  const aSorted=Object.entries(aCats)
+    .map(([c,items])=>[c,items,items.reduce((s,a)=>s+num(a['My Share USD']),0)])
+    .sort((a,b)=>b[2]-a[2]);
+
+  let aHtml='';
+  if(!assets.length){
+    aHtml='<div class="no-data" style="padding:32px">No assets yet</div>';
+  }else{
+    aSorted.forEach(([cat,items,total])=>{
+      aHtml+=`<div class="mnw-cat-hdr assets">
+        <span>${esc(cat)}</span>
+        <div class="mnw-cat-hdr-right">
+          <span class="mnw-cat-hdr-updated">Updated</span>
+          <span>${fmtUSD(total)}</span>
+        </div>
+      </div>`;
+      [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
+        aHtml+=`<div class="mnw-row" onclick="openAssetDetail(${JSON.stringify(a.ID)})">
+          <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</span>
+          <div class="mnw-row-right">
+            <span class="mnw-row-age">${daysSince(a['Last Updated'])}</span>
+            <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>
+          </div>
+        </div>`;
+      });
+    });
+  }
+  document.getElementById('mnw-assets-list').innerHTML=aHtml;
+  document.getElementById('mnw-assets-total').textContent=fmtUSD(assets.reduce((s,a)=>s+num(a['My Share USD']),0));
+
+  // — Liabilities grouped by type —
+  const lTypes={};
+  liabs.forEach(l=>{
+    const t=l.Type||'Other';
+    if(!lTypes[t])lTypes[t]=[];
+    lTypes[t].push(l);
+  });
+  const lSorted=Object.entries(lTypes)
+    .map(([t,items])=>[t,items,items.reduce((s,l)=>s+num(l['USD Value']),0)])
+    .sort((a,b)=>b[2]-a[2]);
+
+  let lHtml='';
+  if(!liabs.length){
+    lHtml='<div class="no-data" style="padding:32px">No liabilities recorded</div>';
+  }else{
+    lSorted.forEach(([type,items,total])=>{
+      lHtml+=`<div class="mnw-cat-hdr liabs">
+        <span>${esc(type)}</span>
+        <div class="mnw-cat-hdr-right">
+          <span class="mnw-cat-hdr-updated">Updated</span>
+          <span>${fmtUSD(total)}</span>
+        </div>
+      </div>`;
+      [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
+        lHtml+=`<div class="mnw-row" style="cursor:default">
+          <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}</span>
+          <div class="mnw-row-right">
+            <span class="mnw-row-age">${daysSince(l['Last Updated'])}</span>
+            <span class="mnw-row-val">${fmtUSD(num(l['USD Value']))}</span>
+          </div>
+        </div>`;
+      });
+    });
+  }
+  document.getElementById('mnw-liab-list').innerHTML=lHtml;
+  document.getElementById('mnw-liab-total').textContent=fmtUSD(liabs.reduce((s,l)=>s+num(l['USD Value']),0));
 }
 
 // ── Assets Table ───────────────────────────────────────────────────────────
