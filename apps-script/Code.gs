@@ -24,6 +24,7 @@ var CATEGORIES = [
   'Private Equity',
   'Public Equity (Dividends)',
   'Public Equity (Growth)',
+  'Loans Receivable',
   'Automobile',
   'Art/Jewelry/Other',
   'Crypto',

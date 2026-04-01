@@ -391,6 +391,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <option>Private Equity</option>
             <option>Public Equity (Dividends)</option>
             <option>Public Equity (Growth)</option>
+            <option>Loans Receivable</option>
             <option>Automobile</option>
             <option>Art/Jewelry/Other</option>
             <option>Crypto</option>
@@ -474,7 +475,50 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
 
-      <div class="detail-section">
+      <!-- Loan Details — only shown for Loans Receivable -->
+      <div class="detail-section" id="d-loan-section" style="display:none">
+        <div class="detail-section-title">Loan Details</div>
+        <div class="form-two">
+          <div class="form-row"><label>Borrower Name</label><input type="text" id="d-borrower" placeholder="Full name or company"></div>
+          <div class="form-row"><label>Borrower Contact</label><input type="text" id="d-borrower-contact" placeholder="Phone, email"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Original Loan Amount</label><input type="number" id="d-loan-original" placeholder="0"></div>
+          <div class="form-row"><label>Current Balance Owed</label><input type="number" id="d-loan-balance" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Interest Rate</label><input type="text" id="d-loan-rate" placeholder="e.g. 5%, 8% annual"></div>
+          <div class="form-row"><label>Status</label>
+            <select id="d-loan-status">
+              <option value="">—</option>
+              <option>Active</option><option>Late</option><option>Paid Off</option><option>Default</option><option>Refinanced</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Loan Date</label><input type="date" id="d-loan-date"></div>
+          <div class="form-row"><label>Due / Maturity Date</label><input type="date" id="d-loan-due" placeholder="When is it due back?"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Payment Terms</label>
+            <select id="d-loan-terms">
+              <option value="">—</option>
+              <option>Monthly</option><option>Quarterly</option><option>Semi-Annual</option>
+              <option>Annual</option><option>Lump Sum at Maturity</option><option>Interest Only</option><option>Other</option>
+            </select>
+          </div>
+          <div class="form-row"><label>Payment Amount</label><input type="number" id="d-loan-payment" placeholder="0 per period"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Total Received to Date</label><input type="number" id="d-loan-received" placeholder="0"></div>
+          <div class="form-row"><label>Collateral</label><input type="text" id="d-loan-collateral" placeholder="e.g. Real estate, equity stake"></div>
+        </div>
+        <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="url" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
+        <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-loan-attorney" placeholder="Name, firm, contact"></div>
+        <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history…"></textarea></div>
+      </div>
+
+      <div class="detail-section" id="d-re-section">
         <div class="detail-section-title">Financial Breakdown</div>
         <div class="form-two">
           <div class="form-row"><label>Purchase Price</label><input type="number" id="d-purchase-price" placeholder="0"></div>
@@ -518,6 +562,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Other Contacts</label><input type="text" id="d-other-contacts" placeholder="Any other key contacts"></div>
         </div>
       </div>
+      </div><!-- end d-re-section -->
 
       <div class="detail-section">
         <div class="detail-section-title">Value History</div>
@@ -726,6 +771,7 @@ const CAT_COLORS = {
   'Private Equity':                   '#7c4dff',
   'Public Equity (Dividends)':        '#00897b',
   'Public Equity (Growth)':           '#00acc1',
+  'Loans Receivable':                 '#f57c00',
   'Automobile':                       '#fb8c00',
   'Art/Jewelry/Other':                '#e91e63',
   'Crypto':                           '#f4511e',
@@ -921,8 +967,26 @@ function renderMNWList(){
         </div>
       </div>`;
       [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
+        // Parse due date + borrower for Loans Receivable
+        let loanTag='';
+        if(a.Category==='Loans Receivable'&&a.Details){
+          try{
+            const ld=JSON.parse(a.Details);
+            const parts=[];
+            if(ld.borrower) parts.push(esc(ld.borrower));
+            if(ld.loanDue){
+              const due=new Date(ld.loanDue);
+              const daysLeft=Math.ceil((due-Date.now())/86400000);
+              const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+              const color=daysLeft<0?'#c5221f':daysLeft<30?'#f57c00':'#666';
+              const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
+              parts.push(`<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`);
+            }
+            if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join(' · ')}</div>`;
+          }catch(e){}
+        }
         aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
-          <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</span>
+          <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}${loanTag}</span>
           <div class="mnw-row-right">
             <span class="mnw-row-age">${daysSince(a['Last Updated'])}</span>
             <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>
@@ -1346,7 +1410,14 @@ function openAssetDetail(id){
   try{det=JSON.parse(asset.Details||'{}');}catch(e){det={};}
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
-  sv('d-status',       det.status||'Active');
+
+  // Show/hide sections based on category
+  const isLoan=asset.Category==='Loans Receivable';
+  document.getElementById('d-loan-section').style.display=isLoan?'block':'none';
+  document.getElementById('d-re-section').style.display=isLoan?'none':'block';
+
+  // Overview fields
+  sv('d-status',       det.status||(isLoan?'Active':'Active'));
   sv('d-updated-by',   det.updatedBy||'');
   sv('d-project-leader',det.projectLeader||'');
   sv('d-occupancy',    det.occupancy||'');
@@ -1355,6 +1426,8 @@ function openAssetDetail(id){
   sv('d-type',         det.type||'');
   sv('d-sqft',         det.sqft||'');
   sv('d-folder',       det.folder||'');
+
+  // Real estate fields
   sv('d-purchase-price',det.purchasePrice||'');
   sv('d-purchase-date',det.purchaseDate||'');
   sv('d-closing-costs',det.closingCosts||'');
@@ -1374,6 +1447,23 @@ function openAssetDetail(id){
   sv('d-property-manager',det.propertyManager||'');
   sv('d-contractor',   det.contractor||'');
   sv('d-other-contacts',det.otherContacts||'');
+
+  // Loan receivable fields
+  sv('d-borrower',         det.borrower||'');
+  sv('d-borrower-contact', det.borrowerContact||'');
+  sv('d-loan-original',    det.loanOriginal||'');
+  sv('d-loan-balance',     det.loanBalance||'');
+  sv('d-loan-rate',        det.loanRate||'');
+  sv('d-loan-status',      det.loanStatus||'');
+  sv('d-loan-date',        det.loanDate||'');
+  sv('d-loan-due',         det.loanDue||'');
+  sv('d-loan-terms',       det.loanTerms||'');
+  sv('d-loan-payment',     det.loanPayment||'');
+  sv('d-loan-received',    det.loanReceived||'');
+  sv('d-loan-collateral',  det.loanCollateral||'');
+  sv('d-loan-drive',       det.loanDrive||'');
+  sv('d-loan-attorney',    det.loanAttorney||'');
+  sv('d-loan-notes',       det.loanNotes||'');
 
   // Asset-specific history
   const hist=(state.history||[]).filter(h=>h['Asset Name']===asset.Name);
@@ -1435,7 +1525,23 @@ function saveAssetDetails(){
     lender:          gv('d-lender'),
     propertyManager: gv('d-property-manager'),
     contractor:      gv('d-contractor'),
-    otherContacts:   gv('d-other-contacts')
+    otherContacts:   gv('d-other-contacts'),
+    // Loan receivable fields
+    borrower:        gv('d-borrower'),
+    borrowerContact: gv('d-borrower-contact'),
+    loanOriginal:    gv('d-loan-original'),
+    loanBalance:     gv('d-loan-balance'),
+    loanRate:        gv('d-loan-rate'),
+    loanStatus:      gv('d-loan-status'),
+    loanDate:        gv('d-loan-date'),
+    loanDue:         gv('d-loan-due'),
+    loanTerms:       gv('d-loan-terms'),
+    loanPayment:     gv('d-loan-payment'),
+    loanReceived:    gv('d-loan-received'),
+    loanCollateral:  gv('d-loan-collateral'),
+    loanDrive:       gv('d-loan-drive'),
+    loanAttorney:    gv('d-loan-attorney'),
+    loanNotes:       gv('d-loan-notes')
   };
   showLoading(true);
   closeModal('detail-modal');
