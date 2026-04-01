@@ -243,12 +243,17 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <select id="liab-type-filter" onchange="renderLiabilitiesTable()">
           <option value="">All Types</option>
           <option>Credit Card</option>
-          <option>Real Estate - Colombia</option>
-          <option>Real Estate - Puerto Rico</option>
-          <option>Real Estate - Dominican Republic</option>
-          <option>Real Estate - United States</option>
-          <option>Real Estate - Europe</option>
-          <option>Mortgage</option><option>Auto Loan</option>
+          <option>Mortgage - United States</option>
+          <option>Mortgage - Puerto Rico</option>
+          <option>Mortgage - Colombia</option>
+          <option>Mortgage - Dominican Republic</option>
+          <option>Mortgage - Europe</option>
+          <option>Real Estate - Colombia (Liability)</option>
+          <option>Real Estate - Puerto Rico (Liability)</option>
+          <option>Real Estate - Dominican Republic (Liability)</option>
+          <option>Real Estate - United States (Liability)</option>
+          <option>Real Estate - Europe (Liability)</option>
+          <option>Auto Loan</option>
           <option>Business Loan</option><option>Student Loan</option><option>Other</option>
         </select>
         <button class="btn btn-primary" onclick="openLiabModal()">+ Add Liability</button>
@@ -539,14 +544,29 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Name</label><input type="text" id="l-name" placeholder="e.g. Chase Mortgage, AMEX Black Card"></div>
         <div class="form-row"><label>Type</label>
           <select id="l-type">
-            <option>Credit Card</option>
-            <option>Real Estate - Colombia</option>
-            <option>Real Estate - Puerto Rico</option>
-            <option>Real Estate - Dominican Republic</option>
-            <option>Real Estate - United States</option>
-            <option>Real Estate - Europe</option>
-            <option>Mortgage</option><option>Auto Loan</option>
-            <option>Business Loan</option><option>Student Loan</option><option>Other</option>
+            <optgroup label="Credit Cards">
+              <option>Credit Card</option>
+            </optgroup>
+            <optgroup label="Mortgages">
+              <option>Mortgage - United States</option>
+              <option>Mortgage - Puerto Rico</option>
+              <option>Mortgage - Colombia</option>
+              <option>Mortgage - Dominican Republic</option>
+              <option>Mortgage - Europe</option>
+            </optgroup>
+            <optgroup label="Real Estate Loans">
+              <option>Real Estate - Colombia (Liability)</option>
+              <option>Real Estate - Puerto Rico (Liability)</option>
+              <option>Real Estate - Dominican Republic (Liability)</option>
+              <option>Real Estate - United States (Liability)</option>
+              <option>Real Estate - Europe (Liability)</option>
+            </optgroup>
+            <optgroup label="Other">
+              <option>Auto Loan</option>
+              <option>Business Loan</option>
+              <option>Student Loan</option>
+              <option>Other</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -559,7 +579,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="form-row"><label>Amount Owed</label><input type="number" id="l-amount" placeholder="0.00" min="0"></div>
       </div>
-      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="e.g. xxxx1234, interest rate, lender name…"></textarea></div>
+      <div class="form-row"><label>Location / Property Address</label><input type="text" id="l-location" placeholder="e.g. 1405 Plantation Vlg, Dorado, PR 00646"></div>
+      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="e.g. interest rate, lender, account xxxx1234…"></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('liab-modal')">Cancel</button>
@@ -851,7 +872,7 @@ function renderMNWList(){
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
         lHtml+=`<div class="mnw-row" style="cursor:default">
-          <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}</span>
+          <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${l.Location?`<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>`:''}</span>
           <div class="mnw-row-right">
             <span class="mnw-row-age">${daysSince(l['Last Updated'])}</span>
             <span class="mnw-row-val">${fmtUSD(num(l['USD Value']))}</span>
@@ -1352,7 +1373,10 @@ function renderLiabilitiesTable(){
   if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No liabilities found</td></tr>`;return;}
   tb.innerHTML=rows.map(l=>`
     <tr>
-      <td style="font-weight:500">${esc(l.Name||'')}</td>
+      <td style="font-weight:500">
+        ${esc(l.Name||'')}
+        ${l.Location?`<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic">${esc(l.Location)}</div>`:''}
+      </td>
       <td><span class="badge" style="background:#fce8e622;color:#c5221f">${esc(l.Type||'')}</span></td>
       <td>${esc(l.Currency||'USD')}</td>
       <td>${fmtUSD(num(l.Amount))}</td>
@@ -1381,7 +1405,8 @@ function openLiabModal(id){
   document.getElementById('l-type').value=liab?liab.Type:'Mortgage';
   document.getElementById('l-currency').value=liab?liab.Currency:'USD';
   document.getElementById('l-amount').value=liab?(num(liab.Amount)||''):'';
-  document.getElementById('l-notes').value=liab?liab.Notes:'';
+  document.getElementById('l-location').value=liab?liab.Location||''  :'';
+  document.getElementById('l-notes').value=liab?liab.Notes||''        :'';
   openModal('liab-modal');
 }
 
@@ -1393,6 +1418,7 @@ function saveLiability(){
     type:document.getElementById('l-type').value,
     currency:document.getElementById('l-currency').value,
     amount:parseFloat(document.getElementById('l-amount').value)||0,
+    location:document.getElementById('l-location').value.trim(),
     notes:document.getElementById('l-notes').value.trim()
   };
   if(!data.name){toast('Name is required','error');return;}
