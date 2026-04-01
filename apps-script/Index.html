@@ -589,6 +589,93 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- Liability Detail Modal -->
+<div class="modal-overlay" id="liab-detail-modal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <div>
+        <div class="modal-title" id="liab-detail-title">Liability Details</div>
+        <div class="detail-meta" id="liab-detail-meta"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-secondary btn-sm" id="liab-detail-edit-btn">Edit Core Fields</button>
+        <button class="modal-close" onclick="closeModal('liab-detail-modal')">×</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ld-id">
+
+      <div class="detail-section">
+        <div class="detail-section-title">Loan Information</div>
+        <div class="form-two">
+          <div class="form-row"><label>Bank / Lender</label><input type="text" id="ld-bank" placeholder="e.g. Chase, Oriental Bank, BTG Pactual"></div>
+          <div class="form-row"><label>Loan / Account Number</label><input type="text" id="ld-account" placeholder="e.g. xxxx1234"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Interest Rate</label><input type="text" id="ld-rate" placeholder="e.g. 6.5% fixed, 5.88% ARM"></div>
+          <div class="form-row"><label>Loan Type</label>
+            <select id="ld-loan-type">
+              <option value="">—</option>
+              <option>Fixed Rate</option><option>Adjustable Rate (ARM)</option>
+              <option>Interest Only</option><option>Balloon</option><option>Line of Credit</option><option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Original Loan Amount</label><input type="number" id="ld-original" placeholder="0"></div>
+          <div class="form-row"><label>Current Balance</label><input type="number" id="ld-balance" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Start Date</label><input type="date" id="ld-start-date"></div>
+          <div class="form-row"><label>Maturity / Payoff Date</label><input type="date" id="ld-maturity"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Term</label><input type="text" id="ld-term" placeholder="e.g. 30 years, 15 years, 5/1 ARM"></div>
+          <div class="form-row"><label>Remaining Term</label><input type="text" id="ld-remaining" placeholder="e.g. 22 years 4 months"></div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Monthly Payment Breakdown</div>
+        <div class="form-two">
+          <div class="form-row"><label>Total Monthly Payment</label><input type="number" id="ld-payment" placeholder="0"></div>
+          <div class="form-row"><label>Principal Portion</label><input type="number" id="ld-principal" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Interest Portion</label><input type="number" id="ld-interest-pmt" placeholder="0"></div>
+          <div class="form-row"><label>Escrow (Taxes + Insurance)</label><input type="number" id="ld-escrow" placeholder="0"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Property Tax / Year</label><input type="number" id="ld-tax" placeholder="0"></div>
+          <div class="form-row"><label>Insurance / Year</label><input type="number" id="ld-insurance" placeholder="0"></div>
+        </div>
+        <div class="form-row"><label>HOA / Month</label><input type="number" id="ld-hoa" placeholder="0"></div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Key Contacts</div>
+        <div class="form-two">
+          <div class="form-row"><label>Loan Officer</label><input type="text" id="ld-officer" placeholder="Name, phone, email"></div>
+          <div class="form-row"><label>Attorney / Title</label><input type="text" id="ld-attorney" placeholder="Name, firm"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Insurance Agent</label><input type="text" id="ld-ins-agent" placeholder="Name, firm"></div>
+          <div class="form-row"><label>Other Contacts</label><input type="text" id="ld-contacts" placeholder="Any other key contacts"></div>
+        </div>
+      </div>
+
+      <div class="detail-section">
+        <div class="detail-section-title">Additional Notes</div>
+        <div class="form-row"><textarea id="ld-notes" placeholder="Refinance plans, special terms, prepayment penalties, etc." style="min-height:80px"></textarea></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('liab-detail-modal')">Close</button>
+      <button class="btn btn-primary" onclick="saveLiabilityDetails()">Save Details</button>
+    </div>
+  </div>
+</div>
+
 <!-- Entity Modal -->
 <div class="modal-overlay" id="entity-modal">
   <div class="modal">
@@ -1372,9 +1459,9 @@ function renderLiabilitiesTable(){
   const tb=document.getElementById('liab-tbody');
   if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No liabilities found</td></tr>`;return;}
   tb.innerHTML=rows.map(l=>`
-    <tr>
+    <tr style="cursor:pointer" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
       <td style="font-weight:500">
-        ${esc(l.Name||'')}
+        <span style="color:#c5221f">${esc(l.Name||'')}</span>
         ${l.Location?`<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic">${esc(l.Location)}</div>`:''}
       </td>
       <td><span class="badge" style="background:#fce8e622;color:#c5221f">${esc(l.Type||'')}</span></td>
@@ -1382,8 +1469,8 @@ function renderLiabilitiesTable(){
       <td>${fmtUSD(num(l.Amount))}</td>
       <td style="font-weight:600;color:#c5221f">${fmtUSD(num(l['USD Value']))}</td>
       <td>${fmtDate(l['Last Updated'])}</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666">${esc(l.Notes||'')}</td>
-      <td style="white-space:nowrap">
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666">${esc(l.Notes||'')}</td>
+      <td style="white-space:nowrap" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-sm" onclick='openLiabModal(${JSON.stringify(l.ID)})'>Edit</button>
         <button class="btn btn-danger btn-sm" onclick='deleteLiab(${JSON.stringify(l.ID)},${JSON.stringify(l.Name)})'>Del</button>
       </td>
@@ -1435,6 +1522,81 @@ function deleteLiab(id,name){
     .withSuccessHandler(()=>{toast('Liability deleted');loadData();})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
     .deleteLiability(id);
+}
+
+// ── Liability Detail View ─────────────────────────────────────────────────
+function openLiabDetail(id){
+  const liab=(state.liabilities||[]).find(l=>l.ID==id);
+  if(!liab)return;
+  state._liabDetailId=id;
+  document.getElementById('ld-id').value=id;
+  document.getElementById('liab-detail-title').textContent=liab.Name;
+  document.getElementById('liab-detail-meta').textContent=
+    (liab.Type||'')+(liab.Location?' · '+liab.Location:'')+' · '+fmtUSD(num(liab['USD Value']));
+  document.getElementById('liab-detail-edit-btn').onclick=()=>openLiabModal(id);
+
+  let det={};
+  try{det=JSON.parse(liab.Details||'{}');}catch(e){det={};}
+
+  const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
+  sv('ld-bank',       det.bank||'');
+  sv('ld-account',    det.account||'');
+  sv('ld-rate',       det.rate||'');
+  sv('ld-loan-type',  det.loanType||'');
+  sv('ld-original',   det.original||'');
+  sv('ld-balance',    det.balance||'');
+  sv('ld-start-date', det.startDate||'');
+  sv('ld-maturity',   det.maturity||'');
+  sv('ld-term',       det.term||'');
+  sv('ld-remaining',  det.remaining||'');
+  sv('ld-payment',    det.payment||'');
+  sv('ld-principal',  det.principal||'');
+  sv('ld-interest-pmt',det.interestPmt||'');
+  sv('ld-escrow',     det.escrow||'');
+  sv('ld-tax',        det.tax||'');
+  sv('ld-insurance',  det.insurance||'');
+  sv('ld-hoa',        det.hoa||'');
+  sv('ld-officer',    det.officer||'');
+  sv('ld-attorney',   det.attorney||'');
+  sv('ld-ins-agent',  det.insAgent||'');
+  sv('ld-contacts',   det.contacts||'');
+  sv('ld-notes',      det.notes||'');
+  openModal('liab-detail-modal');
+}
+
+function saveLiabilityDetails(){
+  const id=document.getElementById('ld-id').value;
+  const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
+  const details={
+    bank:        gv('ld-bank'),
+    account:     gv('ld-account'),
+    rate:        gv('ld-rate'),
+    loanType:    gv('ld-loan-type'),
+    original:    gv('ld-original'),
+    balance:     gv('ld-balance'),
+    startDate:   gv('ld-start-date'),
+    maturity:    gv('ld-maturity'),
+    term:        gv('ld-term'),
+    remaining:   gv('ld-remaining'),
+    payment:     gv('ld-payment'),
+    principal:   gv('ld-principal'),
+    interestPmt: gv('ld-interest-pmt'),
+    escrow:      gv('ld-escrow'),
+    tax:         gv('ld-tax'),
+    insurance:   gv('ld-insurance'),
+    hoa:         gv('ld-hoa'),
+    officer:     gv('ld-officer'),
+    attorney:    gv('ld-attorney'),
+    insAgent:    gv('ld-ins-agent'),
+    contacts:    gv('ld-contacts'),
+    notes:       gv('ld-notes')
+  };
+  showLoading(true);
+  closeModal('liab-detail-modal');
+  google.script.run
+    .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
+    .saveLiabilityDetails(id,JSON.stringify(details));
 }
 
 // ── Entity Modal ───────────────────────────────────────────────────────────

@@ -50,7 +50,7 @@ var SUPPORTED_CURRENCIES = {
 
 var COL = {
   ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
@@ -505,7 +505,7 @@ function addLiability(data) {
   var now    = new Date();
   var fxRate = getFxRate_(data.currency || 'USD');
   var amount = Number(data.amount) || 0;
-  sheet.appendRow([id, data.name || '', data.type || '', data.currency || 'USD', amount, amount * fxRate, now, now, data.notes || '', data.location || '']);
+  sheet.appendRow([id, data.name || '', data.type || '', data.currency || 'USD', amount, amount * fxRate, now, now, data.notes || '', data.location || '', data.details || '']);
   return { success: true, id: id };
 }
 
@@ -523,8 +523,22 @@ function updateLiability(data) {
     sheet.getRange(i + 1, 6).setValue(amount * fxRate);
     sheet.getRange(i + 1, 8).setValue(new Date());
     sheet.getRange(i + 1, 9).setValue(data.notes    !== undefined ? data.notes    : rows[i][8]);
-    sheet.getRange(i + 1, 10).setValue(data.location !== undefined ? data.location : (rows[i][9] || ''));
+    sheet.getRange(i + 1, 10).setValue(data.location !== undefined ? data.location : (rows[i][9]  || ''));
+    sheet.getRange(i + 1, 11).setValue(data.details  !== undefined ? data.details  : (rows[i][10] || ''));
     return { success: true };
+  }
+  return { success: false, error: 'Liability not found' };
+}
+
+function saveLiabilityDetails(id, detailsJson) {
+  var sheet = getSheet_('LIABILITIES');
+  var rows  = sheet.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === id) {
+      sheet.getRange(i + 1, 11).setValue(detailsJson || '');
+      sheet.getRange(i + 1, 8).setValue(new Date());
+      return { success: true };
+    }
   }
   return { success: false, error: 'Liability not found' };
 }
