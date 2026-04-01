@@ -137,6 +137,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
+    <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
   </nav>
@@ -228,6 +229,36 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th>Actions</th>
           </tr></thead>
           <tbody id="assets-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Liabilities -->
+  <div class="tab-panel" id="tab-liabilities">
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="liab-search" placeholder="Search liabilities…" oninput="renderLiabilitiesTable()">
+        <select id="liab-type-filter" onchange="renderLiabilitiesTable()">
+          <option value="">All Types</option>
+          <option>Mortgage</option><option>Credit Card</option><option>Auto Loan</option>
+          <option>Business Loan</option><option>Real Estate</option><option>Student Loan</option><option>Other</option>
+        </select>
+        <button class="btn btn-primary" onclick="openLiabModal()">+ Add Liability</button>
+      </div>
+      <div class="table-wrap">
+        <table id="liabilities-table">
+          <thead><tr>
+            <th onclick="sortLiabTable('Name')">Name <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('Type')">Type <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('Currency')">Currency <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('Amount')">Amount <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('USD Value')">USD Value <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('Last Updated')">Updated <span class="sort-icon">↕</span></th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr></thead>
+          <tbody id="liab-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -444,6 +475,42 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- Liability Modal -->
+<div class="modal-overlay" id="liab-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="liab-modal-title">Add Liability</div>
+      <button class="modal-close" onclick="closeModal('liab-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="l-id">
+      <div class="form-two">
+        <div class="form-row"><label>Name</label><input type="text" id="l-name" placeholder="e.g. Chase Mortgage, AMEX Black Card"></div>
+        <div class="form-row"><label>Type</label>
+          <select id="l-type">
+            <option>Mortgage</option><option>Credit Card</option><option>Auto Loan</option>
+            <option>Business Loan</option><option>Real Estate</option><option>Student Loan</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Currency</label>
+          <select id="l-currency">
+            <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
+            <option>BRL</option><option>MXN</option><option>CAD</option><option>DOP</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Amount Owed</label><input type="number" id="l-amount" placeholder="0.00" min="0"></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="e.g. xxxx1234, interest rate, lender name…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('liab-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLiability()">Save Liability</button>
+    </div>
+  </div>
+</div>
+
 <!-- Entity Modal -->
 <div class="modal-overlay" id="entity-modal">
   <div class="modal">
@@ -479,7 +546,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 // ── State ──────────────────────────────────────────────────────────────────
 const state = {
   assets: [], entities: [], fxRates: [], history: [], snapshots: [], categories: [], currencies: [],
-  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true } }
+  sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true }, liabilities: { col: 'Name', asc: true } }
 };
 
 // ── Category colors ────────────────────────────────────────────────────────
@@ -537,6 +604,7 @@ function onDataLoaded(d){
   buildCatFilter();
   renderDashboard();
   renderAssetsTable();
+  renderLiabilitiesTable();
   renderEntitiesTable();
   renderHistoryTable();
   renderTrendChart();
@@ -674,7 +742,7 @@ function renderMNWList(){
         </div>
       </div>`;
       [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
-        aHtml+=`<div class="mnw-row" onclick="openAssetDetail(${JSON.stringify(a.ID)})">
+        aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
           <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</span>
           <div class="mnw-row-right">
             <span class="mnw-row-age">${daysSince(a['Last Updated'])}</span>
@@ -749,7 +817,7 @@ function renderAssetsTable(){
   const tb=document.getElementById('assets-tbody');
   if(!rows.length){tb.innerHTML=`<tr><td colspan="10" class="no-data">No assets found</td></tr>`;return;}
   tb.innerHTML=rows.map(a=>`
-    <tr style="cursor:pointer" onclick="openAssetDetail(${JSON.stringify(a.ID)})">
+    <tr style="cursor:pointer" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
       <td>
         <span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
         ${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}
@@ -1100,6 +1168,80 @@ function saveAssetDetails(){
     .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
     .saveAssetDetails(id,JSON.stringify(details));
+}
+
+// ── Liabilities Table & Modal ─────────────────────────────────────────────
+function renderLiabilitiesTable(){
+  const q=(document.getElementById('liab-search').value||'').toLowerCase();
+  const tf=document.getElementById('liab-type-filter').value;
+  let rows=[...(state.liabilities||[])].filter(l=>{
+    if(tf&&l.Type!==tf)return false;
+    if(q&&!(l.Name+l.Type+l.Notes).toLowerCase().includes(q))return false;
+    return true;
+  });
+  const {col,asc}=state.sort.liabilities;
+  rows.sort((a,b)=>cmp(a[col],b[col],asc));
+  const tb=document.getElementById('liab-tbody');
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="8" class="no-data">No liabilities found</td></tr>`;return;}
+  tb.innerHTML=rows.map(l=>`
+    <tr>
+      <td style="font-weight:500">${esc(l.Name||'')}</td>
+      <td><span class="badge" style="background:#fce8e622;color:#c5221f">${esc(l.Type||'')}</span></td>
+      <td>${esc(l.Currency||'USD')}</td>
+      <td>${fmtUSD(num(l.Amount))}</td>
+      <td style="font-weight:600;color:#c5221f">${fmtUSD(num(l['USD Value']))}</td>
+      <td>${fmtDate(l['Last Updated'])}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666">${esc(l.Notes||'')}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick='openLiabModal(${JSON.stringify(l.ID)})'>Edit</button>
+        <button class="btn btn-danger btn-sm" onclick='deleteLiab(${JSON.stringify(l.ID)},${JSON.stringify(l.Name)})'>Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+function sortLiabTable(col){
+  const s=state.sort.liabilities;
+  s.asc=s.col===col?!s.asc:true;
+  s.col=col;
+  renderLiabilitiesTable();
+}
+
+function openLiabModal(id){
+  const liab=id?(state.liabilities||[]).find(l=>l.ID==id):null;
+  document.getElementById('liab-modal-title').textContent=liab?'Edit Liability':'Add Liability';
+  document.getElementById('l-id').value=liab?liab.ID:'';
+  document.getElementById('l-name').value=liab?liab.Name:'';
+  document.getElementById('l-type').value=liab?liab.Type:'Mortgage';
+  document.getElementById('l-currency').value=liab?liab.Currency:'USD';
+  document.getElementById('l-amount').value=liab?(num(liab.Amount)||''):'';
+  document.getElementById('l-notes').value=liab?liab.Notes:'';
+  openModal('liab-modal');
+}
+
+function saveLiability(){
+  const id=document.getElementById('l-id').value;
+  const data={
+    id,
+    name:document.getElementById('l-name').value.trim(),
+    type:document.getElementById('l-type').value,
+    currency:document.getElementById('l-currency').value,
+    amount:parseFloat(document.getElementById('l-amount').value)||0,
+    notes:document.getElementById('l-notes').value.trim()
+  };
+  if(!data.name){toast('Name is required','error');return;}
+  showLoading(true);
+  closeModal('liab-modal');
+  const fn=id?google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Update failed','error');}else{toast('Liability updated');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error');}).updateLiability(data)
+              :google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Liability added');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error');}).addLiability(data);
+}
+
+function deleteLiab(id,name){
+  if(!confirm(`Delete "${name}"?`))return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(()=>{toast('Liability deleted');loadData();})
+    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
+    .deleteLiability(id);
 }
 
 // ── Entity Modal ───────────────────────────────────────────────────────────
