@@ -138,6 +138,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
+    <button class="tab-btn" data-tab="balance">Balance History</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
   </nav>
@@ -241,8 +242,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <input type="text" id="liab-search" placeholder="Search liabilities…" oninput="renderLiabilitiesTable()">
         <select id="liab-type-filter" onchange="renderLiabilitiesTable()">
           <option value="">All Types</option>
-          <option>Mortgage</option><option>Credit Card</option><option>Auto Loan</option>
-          <option>Business Loan</option><option>Real Estate</option><option>Student Loan</option><option>Other</option>
+          <option>Credit Card</option>
+          <option>Real Estate - Colombia</option>
+          <option>Real Estate - Puerto Rico</option>
+          <option>Real Estate - Dominican Republic</option>
+          <option>Real Estate - United States</option>
+          <option>Real Estate - Europe</option>
+          <option>Mortgage</option><option>Auto Loan</option>
+          <option>Business Loan</option><option>Student Loan</option><option>Other</option>
         </select>
         <button class="btn btn-primary" onclick="openLiabModal()">+ Add Liability</button>
       </div>
@@ -282,6 +289,37 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th>Actions</th>
           </tr></thead>
           <tbody id="entities-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Balance History -->
+  <div class="tab-panel" id="tab-balance">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="font-size:20px;font-weight:700;color:#0d2137">Net Balance</div>
+          <div style="font-size:13px;color:#888;margin-top:2px">Net Worth Trends Analysis — up to 12 months</div>
+        </div>
+        <div style="font-size:30px;font-weight:700;color:#0d2137" id="bal-net-worth">$0</div>
+      </div>
+      <div id="bal-chart-wrap">
+        <svg id="bal-svg" height="200" style="width:100%;display:block;overflow:visible"></svg>
+        <div id="bal-labels" style="display:flex;justify-content:space-between;font-size:11px;color:#888;padding:4px 0 0"></div>
+      </div>
+      <div style="display:flex;gap:20px;justify-content:center;margin-top:10px;font-size:12px;color:#555">
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:18px;height:3px;background:#1a73e8;border-radius:2px"></div>Assets</div>
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:18px;height:3px;background:#c5221f;border-radius:2px"></div>Liabilities</div>
+        <div style="display:flex;align-items:center;gap:6px"><div style="width:18px;height:3px;background:#1e8e3e;border-radius:2px"></div>Net Worth</div>
+      </div>
+    </div>
+    <div class="card" style="padding:0">
+      <div id="bal-empty" class="no-data" style="display:none;padding:40px">No snapshots yet — click "Take Monthly Snapshot" in the History tab to start tracking.</div>
+      <div style="overflow-x:auto">
+        <table id="bal-table" style="min-width:600px">
+          <thead><tr id="bal-header"></tr></thead>
+          <tbody id="bal-tbody"></tbody>
         </table>
       </div>
     </div>
@@ -338,7 +376,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
           <select id="a-category" onchange="toggleAddressField()">
-            <option>Real Estate</option>
+            <option>Real Estate - United States</option>
+            <option>Real Estate - Colombia</option>
+            <option>Real Estate - Puerto Rico</option>
+            <option>Real Estate - Dominican Republic</option>
+            <option>Real Estate - Europe</option>
             <option>Cash - Personal</option>
             <option>Cash - Business</option>
             <option>Private Equity</option>
@@ -347,7 +389,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <option>Automobile</option>
             <option>Art/Jewelry/Other</option>
             <option>Crypto</option>
-            <option>VIP Medical</option>
+            <option>VIP Medical Group</option>
             <option>Insurance</option>
             <option>Other</option>
           </select>
@@ -497,8 +539,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Name</label><input type="text" id="l-name" placeholder="e.g. Chase Mortgage, AMEX Black Card"></div>
         <div class="form-row"><label>Type</label>
           <select id="l-type">
-            <option>Mortgage</option><option>Credit Card</option><option>Auto Loan</option>
-            <option>Business Loan</option><option>Real Estate</option><option>Student Loan</option><option>Other</option>
+            <option>Credit Card</option>
+            <option>Real Estate - Colombia</option>
+            <option>Real Estate - Puerto Rico</option>
+            <option>Real Estate - Dominican Republic</option>
+            <option>Real Estate - United States</option>
+            <option>Real Estate - Europe</option>
+            <option>Mortgage</option><option>Auto Loan</option>
+            <option>Business Loan</option><option>Student Loan</option><option>Other</option>
           </select>
         </div>
       </div>
@@ -560,18 +608,22 @@ const state = {
 
 // ── Category colors ────────────────────────────────────────────────────────
 const CAT_COLORS = {
-  'Real Estate':              '#1a73e8',
-  'Cash - Personal':          '#43a047',
-  'Cash - Business':          '#2e7d32',
-  'Private Equity':           '#7c4dff',
-  'Public Equity (Dividends)':'#00897b',
-  'Public Equity (Growth)':   '#00acc1',
-  'Automobile':               '#fb8c00',
-  'Art/Jewelry/Other':        '#e91e63',
-  'Crypto':                   '#f4511e',
-  'VIP Medical':              '#0288d1',
-  'Insurance':                '#8d6e63',
-  'Other':                    '#78909c'
+  'Real Estate - United States':      '#1a73e8',
+  'Real Estate - Colombia':           '#1557b0',
+  'Real Estate - Puerto Rico':        '#1976d2',
+  'Real Estate - Dominican Republic': '#0d47a1',
+  'Real Estate - Europe':             '#2196f3',
+  'Cash - Personal':                  '#43a047',
+  'Cash - Business':                  '#2e7d32',
+  'Private Equity':                   '#7c4dff',
+  'Public Equity (Dividends)':        '#00897b',
+  'Public Equity (Growth)':           '#00acc1',
+  'Automobile':                       '#fb8c00',
+  'Art/Jewelry/Other':                '#e91e63',
+  'Crypto':                           '#f4511e',
+  'VIP Medical Group':                '#0288d1',
+  'Insurance':                        '#8d6e63',
+  'Other':                            '#78909c'
 };
 function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 
@@ -632,6 +684,7 @@ function onDataLoaded(d){
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+  if(name==='balance') renderBalanceHistory();
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -941,6 +994,102 @@ function takeSnapshot(){
     .takeMonthlySnapshot();
 }
 
+// ── Balance History Tab ────────────────────────────────────────────────────
+function renderBalanceHistory(){
+  google.script.run
+    .withSuccessHandler(renderBalanceData)
+    .withFailureHandler(e=>console.warn('Balance history error:',e))
+    .getSnapshotMatrix();
+}
+
+function renderBalanceData(data){
+  if(!data||!data.months||!data.months.length){
+    document.getElementById('bal-empty').style.display='block';
+    document.getElementById('bal-table').style.display='none';
+    return;
+  }
+  document.getElementById('bal-empty').style.display='none';
+  document.getElementById('bal-table').style.display='';
+
+  const months=data.months;
+  const fmtMo=m=>{const[y,mo]=m.split('-');return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'short',year:'2-digit'});};
+
+  // Update net worth header
+  const latestNW=data.netWorthTotals[data.netWorthTotals.length-1]||0;
+  document.getElementById('bal-net-worth').textContent=fmtUSD(latestNW);
+
+  // Chart
+  renderBalanceChart(data);
+
+  // Header row
+  const stickyHdr='padding:8px 14px;white-space:nowrap;font-weight:600';
+  document.getElementById('bal-header').innerHTML=
+    `<th style="${stickyHdr};text-align:left;background:#0d2137;color:#fff;position:sticky;left:0;z-index:2">Asset</th>`+
+    months.map(m=>`<th style="${stickyHdr};background:#0d2137;color:#fff;text-align:right;font-size:12px">${fmtMo(m)}</th>`).join('');
+
+  let html='';
+  const cell=(v,bold,color)=>`<td style="padding:7px 14px;text-align:right;font-weight:${bold?700:400};${color?'color:'+color:''}">${v!==null?fmtUSD(v):'—'}</td>`;
+  const stickyCell=(txt,bg,color,indent)=>`<td style="padding:7px 14px ${indent?'7px 22px':'7px 14px'};white-space:nowrap;position:sticky;left:0;background:${bg||'#fff'};border-right:1px solid #ddd;font-weight:600;color:${color||'#0d2137'};font-size:13px;${indent?'font-style:italic;font-weight:400':''}">${txt}</td>`;
+
+  // NET WORTH row
+  html+=`<tr style="background:#f8f9ff">${stickyCell('NET WORTH','#f8f9ff','#0d2137')}${data.netWorthTotals.map(v=>cell(v,true)).join('')}</tr>`;
+
+  // % Change
+  html+=`<tr>${stickyCell('% Change','#fff','#888')}${data.netWorthTotals.map((v,i)=>{
+    if(!i)return'<td style="padding:4px 14px;text-align:right;color:#888">—</td>';
+    const prev=data.netWorthTotals[i-1];
+    const pct=prev?((v-prev)/Math.abs(prev)*100).toFixed(1):0;
+    return`<td style="padding:4px 14px;text-align:right;font-size:12px;color:${pct>=0?'#1e8e3e':'#c5221f'}">${pct>=0?'+':''}${pct}%</td>`;
+  }).join('')}</tr>`;
+
+  // Spacer
+  html+=`<tr><td colspan="${months.length+1}" style="height:6px;background:#e8eaed"></td></tr>`;
+
+  // ASSET total
+  html+=`<tr style="background:#1a3a5c;color:#fff">${stickyCell('ASSET','#1a3a5c','#fff')}${data.assetTotals.map(v=>cell(v,true)).join('')}</tr>`;
+
+  // By category
+  const byCat={};
+  data.assets.forEach(a=>{if(!byCat[a.category])byCat[a.category]=[];byCat[a.category].push(a);});
+  Object.entries(byCat).forEach(([cat,assets])=>{
+    const catTotals=months.map((_,mi)=>assets.reduce((s,a)=>s+(a.values[mi]||0),0));
+    html+=`<tr style="background:#0d2137;color:#fff">${stickyCell(cat.toUpperCase(),'#0d2137','#fff')}${catTotals.map(v=>cell(v,true)).join('')}</tr>`;
+    assets.forEach(a=>{
+      html+=`<tr style="border-bottom:1px solid #f0f0f0" onmouseover="this.style.background='#f0f7ff'" onmouseout="this.style.background=''">${stickyCell(a.name,'#fff','#1a2e44',true)}${a.values.map(v=>cell(v>0?v:null,false,'#444')).join('')}</tr>`;
+    });
+  });
+
+  document.getElementById('bal-tbody').innerHTML=html;
+}
+
+function renderBalanceChart(data){
+  const svg=document.getElementById('bal-svg');
+  const W=svg.getBoundingClientRect().width||800;
+  const H=200,padT=15,padB=25,padL=65,padR=20;
+  const all=[...data.assetTotals,...data.liabTotals,...data.netWorthTotals].filter(v=>v>0);
+  if(!all.length){svg.innerHTML='';return;}
+  const minV=Math.min(...all)*0.97,maxV=Math.max(...all)*1.03;
+  const n=data.months.length;
+  const xs=i=>padL+(n>1?i/(n-1):0.5)*(W-padL-padR);
+  const ys=v=>padT+(1-(v-minV)/(maxV-minV))*(H-padT-padB);
+  const polyline=(vals,color,dash)=>{
+    const pts=vals.map((v,i)=>`${xs(i)},${ys(v)}`).join(' ');
+    return`<polyline fill="none" stroke="${color}" stroke-width="2.5" ${dash?'stroke-dasharray="5,3"':''} stroke-linejoin="round" points="${pts}"/>`;
+  };
+  // Y-axis labels
+  let yLabels='';
+  [minV,(minV+maxV)/2,maxV].forEach(v=>{
+    yLabels+=`<text x="${padL-6}" y="${ys(v)+4}" text-anchor="end" font-size="10" fill="#888">${fmtUSDShort(v)}</text>`;
+  });
+  // X-axis labels
+  const months=data.months;
+  const fmtMo=m=>{const[y,mo]=m.split('-');return new Date(+y,+mo-1,1).toLocaleDateString('en-US',{month:'short'});};
+  let xLabels='';
+  months.forEach((m,i)=>{xLabels+=`<text x="${xs(i)}" y="${H-4}" text-anchor="middle" font-size="10" fill="#888">${fmtMo(m)}</text>`;});
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  svg.innerHTML=yLabels+xLabels+polyline(data.assetTotals,'#1a73e8')+polyline(data.liabTotals,'#c5221f',true)+polyline(data.netWorthTotals,'#1e8e3e');
+}
+
 function renderHistoryTable(){
   const q=(document.getElementById('history-search').value||'').toLowerCase();
   let rows=[...state.history].reverse().filter(h=>{
@@ -998,7 +1147,7 @@ function openAssetModal(id){
 
 function toggleAddressField(){
   const cat=document.getElementById('a-category').value;
-  document.getElementById('a-address-row').style.display=cat==='Real Estate'?'block':'none';
+  document.getElementById('a-address-row').style.display=cat.startsWith('Real Estate')?'block':'none';
 }
 
 function onEntityChange(){

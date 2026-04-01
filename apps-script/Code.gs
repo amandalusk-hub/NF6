@@ -14,7 +14,11 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 var CATEGORIES = [
-  'Real Estate',
+  'Real Estate - United States',
+  'Real Estate - Colombia',
+  'Real Estate - Puerto Rico',
+  'Real Estate - Dominican Republic',
+  'Real Estate - Europe',
   'Cash - Personal',
   'Cash - Business',
   'Private Equity',
@@ -23,7 +27,7 @@ var CATEGORIES = [
   'Automobile',
   'Art/Jewelry/Other',
   'Crypto',
-  'VIP Medical',
+  'VIP Medical Group',
   'Insurance',
   'Other'
 ];
@@ -767,6 +771,49 @@ function getSnapshotTrend() {
     var parts = mk.split('-');
     return { monthKey: mk, label: months[parseInt(parts[1]) - 1] + ' ' + parts[0], total: byMonth[mk] };
   });
+}
+
+function getSnapshotMatrix() {
+  var snapRows = sheetToObjects_('SNAPSHOTS');
+  var monthSet  = {};
+  var assetData = {}; // name -> { category, monthKey -> value }
+
+  snapRows.forEach(function(row) {
+    var mk   = row['Month Key'] || '';
+    var name = row['Asset Name'] || '';
+    if (!mk || !name) return;
+    monthSet[mk] = true;
+    if (!assetData[name]) assetData[name] = { category: row['Category'] || 'Other' };
+    assetData[name][mk] = Number(row['My Share USD']) || 0;
+  });
+
+  var months = Object.keys(monthSet).sort().slice(-12);
+  if (!months.length) return { months: [], assetTotals: [], liabTotals: [], netWorthTotals: [], assets: [] };
+
+  var assetNames = Object.keys(assetData);
+  var assets = assetNames.map(function(name) {
+    return {
+      name:     name,
+      category: assetData[name].category,
+      values:   months.map(function(m) { return assetData[name][m] || 0; })
+    };
+  });
+  assets.sort(function(a, b) {
+    if (a.category !== b.category) return a.category.localeCompare(b.category);
+    return (b.values[b.values.length - 1] || 0) - (a.values[a.values.length - 1] || 0);
+  });
+
+  var assetTotals = months.map(function(m) {
+    return assetNames.reduce(function(s, n) { return s + (assetData[n][m] || 0); }, 0);
+  });
+
+  // Use current liabilities total for all months (history accumulates over time)
+  var liabs     = sheetToObjects_('LIABILITIES');
+  var liabTotal = liabs.reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
+  var liabTotals      = months.map(function() { return liabTotal; });
+  var netWorthTotals  = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
+
+  return { months: months, assetTotals: assetTotals, liabTotals: liabTotals, netWorthTotals: netWorthTotals, assets: assets };
 }
 
 // ── Plaid Integration ─────────────────────────────────────────────────────────
