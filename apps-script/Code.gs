@@ -57,7 +57,8 @@ var COL = {
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
   SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD'],
   ASSET_DETAILS:     ['Asset ID','Asset Name','Updated By','Project Leader','Occupancy','Description','Location','Type','Sqft','Drive Folder','Purchase Price','Purchase Date','Closing Costs','Permits','Revenue','OpEx','Property Tax','Insurance','HOA','Maintenance','Utilities','Loan Info','Financial Notes','Contact 1 Type','Contact 1 Name','Contact 2 Type','Contact 2 Name','Contact 3 Type','Contact 3 Name','Contact 4 Type','Contact 4 Name','Borrower Name','Borrower Contact','Original Amount','Outstanding Balance','Interest Rate','Loan Status','Loan Date','Due Date','Loan Terms','Payment Schedule','Received To Date','Collateral','Drive Link','Attorney','Loan Notes'],
-  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes']
+  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
+  ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
 };
 
 // Maps JS field names ↔ Asset Details sheet column names
@@ -249,7 +250,7 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots', ASSET_DETAILS: 'Asset Details', LIABILITY_DETAILS: 'Liability Details' }[key];
+  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots', ASSET_DETAILS: 'Asset Details', LIABILITY_DETAILS: 'Liability Details', ORG_CHART: 'Org Chart' }[key];
 }
 
 function getSpreadsheet_() {
@@ -360,6 +361,7 @@ function getFullData() {
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
     currencies:  CURRENCIES,
+    orgChart:    getOrgChart(),
     _debug: {
       assetHeaders:  assetHeaderRow,
       assetRowCount: Math.max(assetSheet.getLastRow() - 1, 0)
@@ -703,6 +705,94 @@ function deleteLiability(id) {
     if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
   }
   return { success: false, error: 'Not found' };
+}
+
+// ── Org Chart ─────────────────────────────────────────────────────────────────
+
+function getOrgChart() {
+  ensureSheets_();
+  var sheet = getSheet_('ORG_CHART');
+  var data  = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var headers = data[0];
+  return data.slice(1).map(function(row) {
+    var obj = {};
+    headers.forEach(function(h, j) { obj[h] = row[j] instanceof Date ? row[j].toISOString() : row[j]; });
+    // Parse Parents from comma-separated string to array
+    obj.parents = obj['Parents'] ? String(obj['Parents']).split(',').map(function(s){ return s.trim(); }).filter(Boolean) : [];
+    return obj;
+  });
+}
+
+function saveOrgNode(nodeJson) {
+  var node  = JSON.parse(nodeJson);
+  var sheet = getSheet_('ORG_CHART');
+  var data  = sheet.getDataRange().getValues();
+  var headers = data[0];
+
+  var parentsStr = Array.isArray(node.parents) ? node.parents.join(',') : (node.parents || '');
+  var rowMap = {
+    'ID':          node.id || Utilities.getUuid(),
+    'Name':        node.name || '',
+    'Parents':     parentsStr,
+    'Node Type':   node.nodeType || '',
+    'Tax ID':      node.taxId || '',
+    'Jurisdiction':node.jurisdiction || '',
+    'Date Created':node.dateCreated || '',
+    'Ownership':   node.ownership || '',
+    'Color':       node.color || '#1a5c6b',
+    'Text Color':  node.textColor || '#ffffff',
+    'Notes':       node.notes || '',
+    'Structure':   node.structure || 'both',
+    'X':           node.x || 100,
+    'Y':           node.y || 100
+  };
+  var rowData = headers.map(function(h) { return rowMap[h] !== undefined ? rowMap[h] : ''; });
+
+  // Update existing row or append
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(rowMap['ID'])) {
+      sheet.getRange(i + 1, 1, 1, rowData.length).setValues([rowData]);
+      return { success: true, id: rowMap['ID'] };
+    }
+  }
+  sheet.appendRow(rowData);
+  return { success: true, id: rowMap['ID'] };
+}
+
+function deleteOrgNode(id) {
+  var sheet = getSheet_('ORG_CHART');
+  var data  = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Node not found' };
+}
+
+function saveOrgPositions(positionsJson) {
+  // positionsJson: [{id, x, y}, ...]
+  var positions = JSON.parse(positionsJson);
+  var sheet = getSheet_('ORG_CHART');
+  var data  = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var xCol = headers.indexOf('X') + 1;
+  var yCol = headers.indexOf('Y') + 1;
+  if (xCol < 1 || yCol < 1) return { success: false, error: 'X/Y columns missing' };
+
+  var posMap = {};
+  positions.forEach(function(p) { posMap[String(p.id)] = p; });
+
+  for (var i = 1; i < data.length; i++) {
+    var id = String(data[i][0]);
+    if (posMap[id]) {
+      sheet.getRange(i + 1, xCol).setValue(posMap[id].x);
+      sheet.getRange(i + 1, yCol).setValue(posMap[id].y);
+    }
+  }
+  return { success: true };
 }
 
 // ── Property Valuation (Rentcast) ─────────────────────────────────────────────

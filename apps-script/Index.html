@@ -141,6 +141,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <button class="tab-btn" data-tab="balance">Balance History</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
+    <button class="tab-btn" data-tab="orgchart">Org Chart</button>
   </nav>
 </header>
 
@@ -363,7 +364,124 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
     </div>
   </div>
+
+  <!-- Org Chart -->
+  <div class="tab-panel" id="tab-orgchart">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0;font-size:16px;color:#e0e8f0">Entity Structure</h2>
+        <div style="display:flex;gap:4px;background:#0d2137;border-radius:8px;padding:3px">
+          <button id="oc-btn-current" class="btn btn-primary btn-sm" onclick="setOCView('current')" style="font-size:12px">Current</button>
+          <button id="oc-btn-post" class="btn btn-secondary btn-sm" onclick="setOCView('post')" style="font-size:12px">Post (2026 Trust)</button>
+          <button id="oc-btn-both" class="btn btn-secondary btn-sm" onclick="setOCView('both')" style="font-size:12px">All</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary btn-sm" onclick="ocFitView()" style="font-size:12px">Fit View</button>
+        <button class="btn btn-primary" onclick="openOCNodeModal(null)" style="font-size:13px">+ Add Entity</button>
+      </div>
+    </div>
+    <div id="oc-canvas-wrap" style="width:100%;height:calc(100vh - 200px);background:#060f1a;border-radius:12px;border:1px solid #1a3050;overflow:hidden;position:relative;cursor:grab">
+      <svg id="oc-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">
+        <defs>
+          <marker id="oc-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4a90d9" opacity="0.8"/>
+          </marker>
+        </defs>
+        <g id="oc-viewport">
+          <g id="oc-edges"></g>
+          <g id="oc-nodes-layer"></g>
+        </g>
+      </svg>
+      <div style="position:absolute;bottom:12px;right:12px;display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(1.25)" style="font-size:16px;line-height:1;padding:4px 10px">+</button>
+        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(0.8)" style="font-size:16px;line-height:1;padding:4px 10px">−</button>
+      </div>
+      <div style="position:absolute;top:10px;left:12px;font-size:11px;color:#4a90d9;opacity:0.6">Drag canvas to pan · Scroll to zoom · Drag nodes to reposition · Click node to edit</div>
+    </div>
+  </div>
 </main>
+
+<!-- Org Chart Node Modal -->
+<div class="modal-overlay" id="oc-node-modal">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <div class="modal-title" id="oc-modal-title">Add Entity</div>
+      <button class="modal-close" onclick="closeModal('oc-node-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ocn-id">
+      <div class="form-two">
+        <div class="form-row"><label>Name *</label><input type="text" id="ocn-name" placeholder="e.g. NF6 Joint MGMT LLC"></div>
+        <div class="form-row"><label>Entity Type</label>
+          <select id="ocn-node-type">
+            <option value="">-- Select --</option>
+            <option>Individual</option>
+            <option>LLC</option>
+            <option>LP (Limited Partnership)</option>
+            <option>Trust (Revocable)</option>
+            <option>Trust (Irrevocable)</option>
+            <option>Corporation</option>
+            <option>S-Corporation</option>
+            <option>Holding Company</option>
+            <option>Investment Group</option>
+            <option>Geographic Region</option>
+            <option>Investment Category</option>
+            <option>Brokerage Account</option>
+            <option>Real Estate</option>
+            <option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Tax ID / EIN</label><input type="text" id="ocn-tax-id" placeholder="XX-XXXXXXX"></div>
+        <div class="form-row"><label>Jurisdiction</label><input type="text" id="ocn-jurisdiction" placeholder="e.g. USA, Puerto Rico"></div>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Date Created</label><input type="text" id="ocn-date-created" placeholder="MM/DD/YYYY"></div>
+        <div class="form-row"><label>Show In</label>
+          <select id="ocn-structure">
+            <option value="both">Both views</option>
+            <option value="current">Current only</option>
+            <option value="post">Post (2026 Trust) only</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row"><label>Ownership / Members</label><textarea id="ocn-ownership" rows="3" placeholder="e.g. 33.34% Michelle Lam&#10;33.33% Nancy Nguyen&#10;33.33% David Nguyen"></textarea></div>
+      <div class="form-row"><label>Parent Entities (who owns/controls this node)</label>
+        <div id="ocn-parents-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <select id="ocn-parent-select" onchange="ocAddParent()" style="width:100%">
+          <option value="">-- Add a parent entity --</option>
+        </select>
+      </div>
+      <div class="form-two">
+        <div class="form-row"><label>Node Color</label>
+          <select id="ocn-color" onchange="document.getElementById('ocn-color-preview').style.background=this.value">
+            <option value="#0e4d5c">Teal — Holding / LLC</option>
+            <option value="#1e3a5c">Dark Blue — Main Entity</option>
+            <option value="#1e6e3b">Green — Operating Company</option>
+            <option value="#b5521a">Orange — Geographic Region</option>
+            <option value="#8b6914">Gold — RE Investment</option>
+            <option value="#7a1f1f">Red — Real Estate Property</option>
+            <option value="#5b2c87">Purple — Brokerage / Investments</option>
+            <option value="#1a4f7a">Blue — Individual / Person</option>
+            <option value="#2d6a4f">Teal Green — Trust</option>
+            <option value="#4a5568">Gray — Inactive / Other</option>
+          </select>
+        </div>
+        <div class="form-row"><label>Preview</label>
+          <div id="ocn-color-preview" style="height:36px;border-radius:6px;background:#0e4d5c;border:1px solid #2a4060"></div>
+        </div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="ocn-notes" rows="2" placeholder="Additional info…"></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-danger" id="ocn-delete-btn" onclick="deleteOCNode()" style="display:none">Delete</button>
+      <button class="btn btn-secondary" onclick="closeModal('oc-node-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveOCNode()">Save Entity</button>
+    </div>
+  </div>
+</div>
 
 <!-- Asset Modal -->
 <div class="modal-overlay" id="asset-modal">
@@ -797,7 +915,8 @@ function onDataLoaded(d){
   state.snapshots   = d.snapshots   || [];
   state.categories  = d.categories  || [];
   state.currencies  = d.currencies  || [];
-  console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
+  oc.nodes = d.orgChart || [];
+  console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length+' orgNodes='+oc.nodes.length);
   if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
   // Show warning if raw rows exist but values are all 0 (likely header mismatch)
   const warn=document.getElementById('data-warning');
@@ -829,6 +948,347 @@ function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
   if(name==='balance') renderBalanceHistory();
+  if(name==='orgchart') renderOrgChart();
+}
+
+// ── Org Chart ──────────────────────────────────────────────────────────────
+const oc = {
+  nodes: [],
+  view: 'current',    // 'current' | 'post' | 'both'
+  vp: {x:60, y:60, s:1},
+  drag: null,         // {nodeId, startNodeX, startNodeY, startMX, startMY}
+  pan:  null,         // {startPanX, startPanY, startMX, startMY}
+  NODE_W: 190
+};
+
+const OC_NODE_TYPES = {
+  'Individual':          {color:'#1a4f7a',icon:'👤'},
+  'Trust (Revocable)':   {color:'#2d6a4f',icon:'🏛'},
+  'Trust (Irrevocable)': {color:'#2d6a4f',icon:'🏛'},
+  'LLC':                 {color:'#0e4d5c',icon:'🏢'},
+  'LP (Limited Partnership)':{color:'#0e4d5c',icon:'🏢'},
+  'Corporation':         {color:'#1e3a5c',icon:'🏭'},
+  'S-Corporation':       {color:'#1e3a5c',icon:'🏭'},
+  'Holding Company':     {color:'#0e4d5c',icon:'🏢'},
+  'Investment Group':    {color:'#5b2c87',icon:'💼'},
+  'Geographic Region':   {color:'#b5521a',icon:'🌎'},
+  'Investment Category': {color:'#8b6914',icon:'📊'},
+  'Brokerage Account':   {color:'#5b2c87',icon:'📈'},
+  'Real Estate':         {color:'#7a1f1f',icon:'🏠'},
+  'Other':               {color:'#4a5568',icon:'•'},
+  '':                    {color:'#1e3a5c',icon:''}
+};
+
+function ocNodeHeight(node) {
+  let lines = 1;
+  if (node['Node Type'] || node['Tax ID'])             lines++;
+  if (node['Jurisdiction'] || node['Date Created'])    lines++;
+  if (node['Ownership']) lines += Math.min(node['Ownership'].split('\n').filter(Boolean).length, 3);
+  return Math.max(76, 12 + lines * 17 + 12);
+}
+
+function ocVisibleNodes() {
+  const v = oc.view;
+  return oc.nodes.filter(n => {
+    const s = n['Structure'] || 'both';
+    return s === 'both' || s === v || v === 'both';
+  });
+}
+
+function renderOrgChart() {
+  const W = oc.NODE_W;
+  const vp = document.getElementById('oc-viewport');
+  vp.setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+
+  const visible = ocVisibleNodes();
+  const visibleIds = new Set(visible.map(n => n['ID']));
+
+  // ── Edges ──
+  let edgeSVG = '';
+  visible.forEach(node => {
+    const parents = node.parents || [];
+    const H = ocNodeHeight(node);
+    const cx = node['X'] + W / 2;
+    const cy = node['Y'];
+    parents.forEach(pid => {
+      const parent = visible.find(n => n['ID'] === pid);
+      if (!parent) return;
+      const pH = ocNodeHeight(parent);
+      const px = parent['X'] + W / 2;
+      const py = parent['Y'] + pH;
+      const midY = (py + cy) / 2;
+      edgeSVG += `<path d="M${px},${py} C${px},${midY} ${cx},${midY} ${cx},${cy}"
+        fill="none" stroke="#4a90d9" stroke-width="1.5" opacity="0.65" marker-end="url(#oc-arrow)"/>`;
+    });
+  });
+  document.getElementById('oc-edges').innerHTML = edgeSVG;
+
+  // ── Nodes ──
+  let nodesSVG = '';
+  visible.forEach(node => {
+    const H  = ocNodeHeight(node);
+    const x  = node['X'];
+    const y  = node['Y'];
+    const bg = node['Color'] || OC_NODE_TYPES[node['Node Type'] || '']?.color || '#1e3a5c';
+    const tc = node['Text Color'] || '#ffffff';
+    const ntype = node['Node Type'] || '';
+    const owLines = node['Ownership'] ? node['Ownership'].split('\n').filter(Boolean).slice(0,3) : [];
+
+    // Build text rows
+    let metaLine = [ntype, node['Jurisdiction']].filter(Boolean).join(' · ');
+    let dateLine = node['Date Created'] ? 'Est. ' + node['Date Created'] : '';
+    let taxLine  = node['Tax ID'] ? 'EIN: ' + node['Tax ID'] : '';
+
+    const escX = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    // Build tspan lines inside text
+    let textRows = `<text font-family="inherit" fill="${escX(tc)}">
+      <tspan x="${x+10}" y="${y+24}" font-size="13" font-weight="700">${escX(node['Name']||'')}</tspan>`;
+    let ty = y + 24 + 16;
+    if (metaLine) { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.8">${escX(metaLine)}</tspan>`; ty += 15; }
+    if (dateLine)  { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.75">${escX(dateLine)}</tspan>`; ty += 15; }
+    if (taxLine)   { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.75">${escX(taxLine)}</tspan>`; ty += 15; }
+    owLines.forEach(l => { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10" opacity="0.7">${escX(l)}</tspan>`; ty += 14; });
+    textRows += '</text>';
+
+    const id = escX(node['ID']);
+    nodesSVG += `<g class="oc-node" data-id="${id}"
+        onmousedown="ocNodeDown(event,'${id}')"
+        ondblclick="openOCNodeModal('${id}')"
+        style="cursor:pointer">
+      <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8"
+        fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+      <rect x="${x}" y="${y}" width="4" height="${H}" rx="2"
+        fill="rgba(255,255,255,0.3)"/>
+      ${textRows}
+    </g>`;
+  });
+  document.getElementById('oc-nodes-layer').innerHTML = nodesSVG;
+}
+
+function setOCView(v) {
+  oc.view = v;
+  ['current','post','both'].forEach(k => {
+    const btn = document.getElementById('oc-btn-'+k);
+    if (btn) { btn.className = k===v ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm'; btn.style.fontSize='12px'; }
+  });
+  renderOrgChart();
+}
+
+function ocFitView() {
+  const visible = ocVisibleNodes();
+  if (!visible.length) return;
+  const W = oc.NODE_W;
+  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  visible.forEach(n => {
+    const H = ocNodeHeight(n);
+    minX = Math.min(minX, n['X']);
+    minY = Math.min(minY, n['Y']);
+    maxX = Math.max(maxX, n['X'] + W);
+    maxY = Math.max(maxY, n['Y'] + H);
+  });
+  const wrap = document.getElementById('oc-canvas-wrap');
+  const cw = wrap.clientWidth  || 800;
+  const ch = wrap.clientHeight || 600;
+  const pad = 60;
+  const scaleX = (cw - pad*2) / (maxX - minX);
+  const scaleY = (ch - pad*2) / (maxY - minY);
+  oc.vp.s = Math.min(scaleX, scaleY, 1.4);
+  oc.vp.x = pad - minX * oc.vp.s;
+  oc.vp.y = pad - minY * oc.vp.s;
+  document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+}
+
+function ocZoomBy(factor) {
+  const wrap = document.getElementById('oc-canvas-wrap');
+  const cx = (wrap.clientWidth  || 800) / 2;
+  const cy = (wrap.clientHeight || 600) / 2;
+  oc.vp.x = cx - (cx - oc.vp.x) * factor;
+  oc.vp.y = cy - (cy - oc.vp.y) * factor;
+  oc.vp.s *= factor;
+  document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+}
+
+// ── Mouse events ──
+function ocNodeDown(e, id) {
+  e.stopPropagation();
+  const node = oc.nodes.find(n => n['ID'] == id);
+  if (!node) return;
+  oc.drag = { id, startNodeX: node['X'], startNodeY: node['Y'], startMX: e.clientX, startMY: e.clientY };
+}
+
+(function initOCMouse() {
+  document.addEventListener('DOMContentLoaded', function() {
+    const svg = document.getElementById('oc-svg');
+    if (!svg) return;
+
+    svg.addEventListener('mousedown', function(e) {
+      if (e.target === svg || e.target.closest('#oc-edges') || e.target === document.getElementById('oc-viewport')) {
+        oc.pan = { startPanX: oc.vp.x, startPanY: oc.vp.y, startMX: e.clientX, startMY: e.clientY };
+        svg.style.cursor = 'grabbing';
+      }
+    });
+
+    document.addEventListener('mousemove', function(e) {
+      if (oc.drag) {
+        const dx = (e.clientX - oc.drag.startMX) / oc.vp.s;
+        const dy = (e.clientY - oc.drag.startMY) / oc.vp.s;
+        const node = oc.nodes.find(n => n['ID'] == oc.drag.id);
+        if (node) { node['X'] = Math.round(oc.drag.startNodeX + dx); node['Y'] = Math.round(oc.drag.startNodeY + dy); }
+        renderOrgChart();
+      } else if (oc.pan) {
+        oc.vp.x = oc.pan.startPanX + (e.clientX - oc.pan.startMX);
+        oc.vp.y = oc.pan.startPanY + (e.clientY - oc.pan.startMY);
+        document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+      }
+    });
+
+    document.addEventListener('mouseup', function() {
+      if (oc.drag) {
+        // Save position
+        const node = oc.nodes.find(n => n['ID'] == oc.drag.id);
+        if (node) {
+          google.script.run.saveOrgPositions(JSON.stringify([{id: node['ID'], x: node['X'], y: node['Y']}]));
+        }
+        oc.drag = null;
+      }
+      if (oc.pan) { oc.pan = null; const svg=document.getElementById('oc-svg'); if(svg) svg.style.cursor='grab'; }
+    });
+
+    svg.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      oc.vp.x = mx - (mx - oc.vp.x) * factor;
+      oc.vp.y = my - (my - oc.vp.y) * factor;
+      oc.vp.s *= factor;
+      document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+    }, {passive: false});
+  });
+})();
+
+// ── Node Modal ──
+let _ocSelectedParents = [];
+
+function openOCNodeModal(id) {
+  const node = id ? oc.nodes.find(n => n['ID'] == id) : null;
+  document.getElementById('oc-modal-title').textContent = node ? 'Edit Entity' : 'Add Entity';
+  document.getElementById('ocn-id').value = node ? node['ID'] : '';
+  document.getElementById('ocn-name').value = node ? node['Name'] : '';
+  document.getElementById('ocn-node-type').value = node ? (node['Node Type']||'') : '';
+  document.getElementById('ocn-tax-id').value = node ? (node['Tax ID']||'') : '';
+  document.getElementById('ocn-jurisdiction').value = node ? (node['Jurisdiction']||'') : '';
+  document.getElementById('ocn-date-created').value = node ? (node['Date Created']||'') : '';
+  document.getElementById('ocn-ownership').value = node ? (node['Ownership']||'') : '';
+  document.getElementById('ocn-structure').value = node ? (node['Structure']||'both') : 'both';
+  document.getElementById('ocn-color').value = node ? (node['Color']||'#0e4d5c') : '#0e4d5c';
+  document.getElementById('ocn-color-preview').style.background = node ? (node['Color']||'#0e4d5c') : '#0e4d5c';
+  document.getElementById('ocn-notes').value = node ? (node['Notes']||'') : '';
+  document.getElementById('ocn-delete-btn').style.display = node ? 'block' : 'none';
+
+  // Populate parent select
+  const sel = document.getElementById('ocn-parent-select');
+  sel.innerHTML = '<option value="">-- Add a parent entity --</option>';
+  oc.nodes.filter(n => !id || n['ID'] !== id).forEach(n => {
+    const opt = document.createElement('option');
+    opt.value = n['ID']; opt.textContent = n['Name'];
+    sel.appendChild(opt);
+  });
+
+  _ocSelectedParents = node ? [...(node.parents||[])] : [];
+  renderOCParentTags();
+  openModal('oc-node-modal');
+}
+
+function renderOCParentTags() {
+  const list = document.getElementById('ocn-parents-list');
+  list.innerHTML = _ocSelectedParents.map(pid => {
+    const n = oc.nodes.find(x => x['ID'] === pid);
+    const name = n ? n['Name'] : pid;
+    return `<span style="background:#1a3050;border:1px solid #2a4060;border-radius:12px;padding:3px 10px;font-size:12px;display:flex;align-items:center;gap:6px">
+      ${esc(name)}
+      <button type="button" onclick="ocRemoveParent('${pid}')" style="background:none;border:none;color:#e57373;font-size:14px;cursor:pointer;line-height:1;padding:0">&times;</button>
+    </span>`;
+  }).join('');
+}
+
+function ocAddParent() {
+  const sel = document.getElementById('ocn-parent-select');
+  const pid = sel.value;
+  if (pid && !_ocSelectedParents.includes(pid)) { _ocSelectedParents.push(pid); renderOCParentTags(); }
+  sel.value = '';
+}
+
+function ocRemoveParent(pid) {
+  _ocSelectedParents = _ocSelectedParents.filter(p => p !== pid);
+  renderOCParentTags();
+}
+
+function saveOCNode() {
+  const name = document.getElementById('ocn-name').value.trim();
+  if (!name) { toast('Name is required','error'); return; }
+  const existingId = document.getElementById('ocn-id').value;
+
+  // Place new node in visible area if no existing position
+  let x = 200, y = 200;
+  if (!existingId) {
+    const visible = ocVisibleNodes();
+    if (visible.length) {
+      const maxY = Math.max(...visible.map(n => n['Y'] + ocNodeHeight(n)));
+      x = 200; y = maxY + 40;
+    }
+  } else {
+    const existing = oc.nodes.find(n => n['ID'] === existingId);
+    if (existing) { x = existing['X']; y = existing['Y']; }
+  }
+
+  const node = {
+    id:          existingId || '',
+    name,
+    parents:     _ocSelectedParents,
+    nodeType:    document.getElementById('ocn-node-type').value,
+    taxId:       document.getElementById('ocn-tax-id').value.trim(),
+    jurisdiction:document.getElementById('ocn-jurisdiction').value.trim(),
+    dateCreated: document.getElementById('ocn-date-created').value.trim(),
+    ownership:   document.getElementById('ocn-ownership').value.trim(),
+    color:       document.getElementById('ocn-color').value,
+    textColor:   '#ffffff',
+    notes:       document.getElementById('ocn-notes').value.trim(),
+    structure:   document.getElementById('ocn-structure').value,
+    x, y
+  };
+
+  showLoading(true);
+  closeModal('oc-node-modal');
+  google.script.run
+    .withSuccessHandler(r => {
+      showLoading(false);
+      if (r && r.success === false) { toast(r.error||'Save failed','error'); return; }
+      toast('Entity saved');
+      loadData();
+    })
+    .withFailureHandler(e => { showLoading(false); toast(e.message,'error'); })
+    .saveOrgNode(JSON.stringify(node));
+}
+
+function deleteOCNode() {
+  const id = document.getElementById('ocn-id').value;
+  if (!id) return;
+  const node = oc.nodes.find(n => n['ID'] === id);
+  if (!confirm('Delete "' + (node ? node['Name'] : id) + '"?')) return;
+  showLoading(true);
+  closeModal('oc-node-modal');
+  google.script.run
+    .withSuccessHandler(r => {
+      showLoading(false);
+      if (r && r.success === false) { toast(r.error||'Delete failed','error'); return; }
+      toast('Entity deleted');
+      loadData();
+    })
+    .withFailureHandler(e => { showLoading(false); toast(e.message,'error'); })
+    .deleteOrgNode(id);
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
