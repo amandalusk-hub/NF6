@@ -108,6 +108,8 @@ function onOpen() {
     .addItem('Install Daily Trigger', 'installTriggers')
     .addSeparator()
     .addItem('Fix Sheet Headers (run once)', 'fixSheetHeaders')
+    .addSeparator()
+    .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addToUi();
 }
 
@@ -705,6 +707,200 @@ function deleteLiability(id) {
     if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
   }
   return { success: false, error: 'Not found' };
+}
+
+// ── Org Chart Seed ────────────────────────────────────────────────────────────
+
+function seedOrgChart() {
+  ensureSheets_();
+  var sheet = getSheet_('ORG_CHART');
+  var existing = sheet.getLastRow();
+  if (existing > 1) {
+    var ui = SpreadsheetApp.getUi();
+    var resp = ui.alert('Org Chart already has data (' + (existing - 1) + ' nodes). This will ADD new nodes without deleting existing ones. Continue?', ui.ButtonSet.YES_NO);
+    if (resp !== ui.Button.YES) return;
+  }
+
+  // Helper: build row aligned to headers
+  var headers = COL.ORG_CHART;
+  function makeRow(obj) {
+    return headers.map(function(h) { return obj[h] !== undefined ? obj[h] : ''; });
+  }
+
+  // Pre-assign stable IDs so parent references work
+  var ID = {
+    MICHAEL:     Utilities.getUuid(),
+    MICHELLE:    Utilities.getUuid(),
+    DAVID:       Utilities.getUuid(),
+    NANCY:       Utilities.getUuid(),
+    MN_REV:      Utilities.getUuid(),  // 2013 MN Family Revocable Trust
+    MN_IRREV:    Utilities.getUuid(),  // MN Family Trust Irrevocable
+    NF6_MGMT:    Utilities.getUuid(),  // NF6 Joint MGMT LLC
+    NF6_HOLD:    Utilities.getUuid(),  // NF6 Family Holding LP
+    BPMGMT:      Utilities.getUuid(),  // BPMGMT LLC
+    TIGER:       Utilities.getUuid(),  // NF5 Tiger Capital LLC
+    BP_LP:       Utilities.getUuid(),  // Blue Panda Family LP
+    YM_PR:       Utilities.getUuid(),  // YM PR Investment Group LLC
+    NF6_V8:      Utilities.getUuid(),  // NF6 Venture 8 LLC
+    NF5_CAP:     Utilities.getUuid(),  // NF5 Capital LLC
+    TLMND:       Utilities.getUuid(),  // TLMND LLC
+    NF_MOE:      Utilities.getUuid(),  // NF MOE CO SA S
+    MEJ_DR:      Utilities.getUuid(),  // MEJ DR INC
+    NF_EUR:      Utilities.getUuid(),  // NF Europe Holding S
+    PARIS_SCI:   Utilities.getUuid(),  // Paris Thacko SCI
+    NF5_SPAIN:   Utilities.getUuid(),  // NF5 Spain Holdings SL
+    NF_US_CA:    Utilities.getUuid(),  // NF U S CA LLC
+    CLIFTON:     Utilities.getUuid(),  // Clifton MCI LLC
+    NF_US_TX:    Utilities.getUuid(),  // NF U S TX LLC
+    // NF6 Venture 8 — US investments
+    SOCIODOC:    Utilities.getUuid(),
+    SOLARIS:     Utilities.getUuid(),
+    NAT_NUTRA:   Utilities.getUuid(),
+    LEXI_SKIN:   Utilities.getUuid(),
+    MICIDA:      Utilities.getUuid(),
+    TALKSELF:    Utilities.getUuid(),
+    FS_NYC:      Utilities.getUuid(),
+    SAN_ORL:     Utilities.getUuid(),
+    SAN_RES:     Utilities.getUuid(),
+    // NF6 Venture 8 — PR investments
+    FIT_PR:      Utilities.getUuid(),
+    SUN_HARBOR:  Utilities.getUuid(),
+    SAN_D_EAST:  Utilities.getUuid(),
+    SAN_D_WEST:  Utilities.getUuid(),
+    // TLMND US investments
+    NW_WOOD:     Utilities.getUuid(),
+    SANU:        Utilities.getUuid(),
+    KUHLMAN:     Utilities.getUuid(),
+    // MEJ DR / Colombia
+    FARANDA:     Utilities.getUuid(),
+    LAND_AM:     Utilities.getUuid(),
+    PARAISO:     Utilities.getUuid(),
+    RF_HOLD:     Utilities.getUuid(),
+    COLCIENO_A:  Utilities.getUuid(),
+    COLCIENO_2:  Utilities.getUuid(),
+    LAURELES:    Utilities.getUuid(),
+    SEATLON:     Utilities.getUuid(),
+    MANILA:      Utilities.getUuid(),
+    LOAO:        Utilities.getUuid(),
+    // Europe
+    DGUN:        Utilities.getUuid(),
+    SANGLIMA:    Utilities.getUuid(),
+    PLAZA_COL:   Utilities.getUuid(),
+    // 2026 Trust (post structure only)
+    TRUST_2026:  Utilities.getUuid()
+  };
+
+  // Nodes: [ID-key, Name, Parents(array of ID-keys), NodeType, TaxID, Jurisdiction, DateCreated, Ownership, Color, Structure, X, Y]
+  var NODES = [
+    // ── Individuals ──────────────────────────────────────────────────────────
+    ['MICHAEL',  'Michael Nguyen',   [],                       'Individual',         '',             'Puerto Rico', '',           'DOB: 7/19/1969\nType: 1099 Individual\nPhone: 216-313-4759', '#1a4f7a', 'both',    1150, 50],
+    ['MICHELLE', 'Michelle Lam',     [],                       'Individual',         '',             'USA',         '',           '',                                                            '#1a4f7a', 'both',    100,  50],
+    ['DAVID',    'David Nguyen',     [],                       'Individual',         '',             'USA',         '',           '',                                                            '#1a4f7a', 'both',    310,  50],
+    ['NANCY',    'Nancy Nguyen',     [],                       'Individual',         '',             'USA',         '',           '',                                                            '#1a4f7a', 'both',    520,  50],
+
+    // ── Level 1 ───────────────────────────────────────────────────────────────
+    ['NF6_MGMT', 'NF6 Joint MGMT LLC',            ['MICHELLE','DAVID','NANCY'], 'LLC',              '83-4156504',  'USA',         '10/30/2022', '33.34% Michelle Lam\n33.33% Nancy Nguyen\n33.33% David Nguyen', '#0e4d5c', 'both', 300, 220],
+    ['MN_REV',   '2013 MN Family Revocable Trust', ['MICHAEL'],                 'Trust (Revocable)', '',           'Puerto Rico', '',           'Grantor & Trustee: Michael Nguyen',                             '#2d6a4f', 'both', 730, 220],
+    ['MN_IRREV', 'MN Family Trust - Irrevocable',  ['MICHAEL'],                 'Trust (Irrevocable)','',          'Puerto Rico', '',           'Grantor: Michael Nguyen\nTrustee: Nancy Nguyen',                '#2d6a4f', 'both', 1150, 220],
+
+    // ── Level 2 ───────────────────────────────────────────────────────────────
+    ['NF6_HOLD', 'NF6 Family Holding LP',  ['NF6_MGMT','MN_REV'], 'LP (Limited Partnership)', '', 'USA', '10/10/2022', 'General Partner: NF6 Joint MGMT LLC 1%\nLimited Partner: 2013 MN Family Revocable Trust 99%', '#0e4d5c', 'both', 300, 390],
+    ['BPMGMT',   'BPMGMT LLC',             ['NANCY','MN_REV'],    'LLC',                      '82-3131738', 'USA', '10/01/2018', '49% Nancy Nguyen\n51% 2013 MN Family Revocable Trust', '#0e4d5c', 'both', 800, 390],
+    ['YM_PR',    'YM PR Investment Group LLC', ['MN_IRREV'],       'LLC',                      '', 'Puerto Rico', '', 'Ownership: 50%', '#0e4d5c', 'both', 1150, 390],
+
+    // ── Level 3 ───────────────────────────────────────────────────────────────
+    ['TIGER',  'NF5 Tiger Capital LLC',  ['NF6_HOLD'], 'LLC',                    '', 'USA',          '10/15/2022', 'Ownership: 100% NF6 Family Holding LP\nType: Single Member Disregarded', '#0e4d5c', 'both', 100, 560],
+    ['BP_LP',  'Blue Panda Family LP',  ['BPMGMT'],   'LP (Limited Partnership)','83-3832234', 'Puerto Rico', '09/15/2019', 'Owner/GP: BPMGMT LLC\nDate Est. 2019', '#0e4d5c', 'both', 800, 560],
+
+    // ── Level 4 — Blue Panda children ────────────────────────────────────────
+    ['NF6_V8',  'NF6 Venture 8 LLC',  ['BP_LP'], 'LLC',            '', 'USA', '06/09/2018', 'Type: Single Member Disregarded\nPurpose: Business and Real Estate Investment Holding', '#1e6e3b', 'both', 420, 730],
+    ['NF5_CAP', 'NF5 Capital LLC',    ['BP_LP'], 'LLC',            '', 'USA', '',           'Type: Single Member Disregarded\nReturn Reported on Blue Panda LP\nPurpose: Cash Investment Holding\nOwnership: BP Family 100%', '#1e6e3b', 'both', 630, 730],
+    ['TLMND',   'TLMND LLC',          ['BP_LP'], 'LLC',            '83-2303718', 'USA', '10/15/2016', 'Type: S Corporation 1120\nOwnership: BP Family 12%\nPurpose: RE & Foreign Investment', '#1e6e3b', 'both', 840, 730],
+    ['NF_MOE',  'NF MOE CO SA S',     ['BP_LP'], 'Other',          '', '',    '',           'Purpose: Business and RE Investment Holding', '#1e3a5c', 'both', 1080, 730],
+
+    // ── Level 5 ───────────────────────────────────────────────────────────────
+    ['MEJ_DR',   'MEJ DR INC',          ['TLMND'],  'Corporation',    '', 'Dominican Republic', '', 'Purpose: Business and RE Investment Holding', '#1e6e3b', 'both', 840, 900],
+    ['NF_EUR',   'NF Europe Holding S', ['NF_MOE'], 'Holding Company','', 'Europe',   '',       'Purpose: Business and RE Investment Holding', '#1e3a5c', 'both', 1200, 900],
+
+    // ── Level 6 — Europe ─────────────────────────────────────────────────────
+    ['PARIS_SCI', 'Paris Thacko SCI',     ['NF_EUR'], 'Other', '', 'France', '', 'Purpose: Business and RE Investment Holding', '#7a1f1f', 'both', 1080, 1070],
+    ['NF5_SPAIN', 'NF5 Spain Holdings SL',['NF_EUR'], 'Other', '', 'Spain',  '', 'Purpose: Business and RE Investment Holding', '#7a1f1f', 'both', 1310, 1070],
+
+    // ── TLMND US subsidiaries ─────────────────────────────────────────────────
+    ['NF_US_CA', 'NF U S CA LLC',   ['TLMND'], 'LLC', '', 'USA - California', '', '6330 Cameo Canyon Rd\nSan Diego Clinic\nOwnership: 100%', '#7a1f1f', 'both', 540, 900],
+    ['CLIFTON',  'Clifton MCI LLC', ['TLMND'], 'LLC', '', 'USA',              '', 'Clifton Clinic\nOwnership: 50%',                            '#7a1f1f', 'both', 690, 900],
+    ['NF_US_TX', 'NF U S TX LLC',   ['TLMND'], 'LLC', '', 'USA - Texas',      '', 'Purpose: Business and RE Investment Holding',               '#0e4d5c', 'both', 380, 1070],
+    ['NW_WOOD',  'NW Woodland Park ASC', ['TLMND'], 'Other', '', 'USA', '', 'Source: MN Asset Card', '#7a1f1f', 'both', 230, 900],
+    ['SANU',     'SA NU Beauty LLC',     ['TLMND'], 'LLC',   '', 'USA', '', 'Source: MN Asset Card', '#1e6e3b', 'both', 80,  900],
+    ['KUHLMAN',  '709 Kuhlman',          ['NF_US_TX'], 'Real Estate', '', 'USA - Texas', '', 'Ownership: 100%', '#7a1f1f', 'both', 380, 1240],
+
+    // ── MEJ DR — DR/Colombia investments ────────────────────────────────────
+    ['FARANDA',  'Faranda Beach House',             ['MEJ_DR'], 'Real Estate', '', 'Dominican Republic', '', '', '#7a1f1f', 'both', 680,  1070],
+    ['LAND_AM',  'Land America Property Investments',['MEJ_DR'],'Investment Category','','Colombia',   '', '', '#8b6914', 'both', 900,  1070],
+    ['PARAISO',  'Paraiso Beach',                   ['LAND_AM'],'Real Estate', '', 'Colombia',  '', 'Ownership: 15%', '#7a1f1f', 'both', 900, 1240],
+    ['RF_HOLD',  'RF Holdings SAS',                 ['NF_MOE'], 'Corporation', '', 'Colombia',  '', 'Source: MN Asset Card', '#1e6e3b', 'both', 1080, 1070],
+    ['COLCIENO_A','Colcieno Associates LLC',        ['NF_MOE'], 'LLC',         '', 'Colombia',  '', 'Ownership: 16%\nSource: MN Asset Card', '#0e4d5c', 'both', 1240, 1070],
+    ['COLCIENO_2','Colcieno 2 SAS',                ['NF_MOE'], 'Corporation', '', 'Colombia',  '', 'Ownership: 30%', '#1e3a5c', 'both', 1430, 1070],
+    ['LAURELES', 'Laureles Factory',                ['NF_MOE'], 'Other',       '', 'Colombia',  '', '', '#b5521a', 'both', 1080, 1240],
+    ['SEATLON',  'Seatlon Hotel',                   ['NF_MOE'], 'Other',       '', 'Colombia',  '', 'Ownership: 5%', '#b5521a', 'both', 1240, 1240],
+    ['MANILA',   'Manila Holdings',                 ['NF_MOE'], 'Other',       '', 'Colombia',  '', 'AKU Landing Hotel\nOwnership: 71%', '#b5521a', 'both', 1400, 1240],
+    ['LOAO',     'LOAO - Restaurant',               ['NF_MOE'], 'Other',       '', 'Colombia',  '', 'Ownership: 11%', '#b5521a', 'both', 1560, 1240],
+
+    // ── Europe property investments ───────────────────────────────────────────
+    ['DGUN',     "D'Gun DC Montreuillo", ['PARIS_SCI'], 'Real Estate', '', 'France', '', 'Ownership: 100%', '#7a1f1f', 'both', 980,  1240],
+    ['SANGLIMA', 'Sanglima',             ['PARIS_SCI'], 'Real Estate', '', 'France', '', 'Ownership: 100%', '#7a1f1f', 'both', 1080, 1240],
+    ['PLAZA_COL','Plaza Colmar',         ['PARIS_SCI'], 'Real Estate', '', 'France', '', 'Ownership: 100%', '#7a1f1f', 'both', 1180, 1240],
+
+    // ── NF6 Venture 8 — US Business Investments ──────────────────────────────
+    ['SOCIODOC', 'Sociodoc',             ['NF6_V8'], 'Investment Category', '', 'USA', '', 'Source: MN Asset Card', '#1e6e3b', 'both', -200, 900],
+    ['SOLARIS',  'Solaris FL Holding',   ['NF6_V8'], 'LLC',                 '', 'USA - Florida', '', 'Source: MN Asset Card', '#1e6e3b', 'both', -10,  900],
+    ['NAT_NUTRA','Natural Nutra',        ['NF6_V8'], 'Other',               '', 'USA', '', 'Source: MN Asset Card', '#1e6e3b', 'both', 180, 900],
+    ['LEXI_SKIN','Lexi Skin',            ['NF6_V8'], 'Other',               '', 'USA', '', 'Source: MN Asset Card', '#1e6e3b', 'both', -200, 1070],
+    ['MICIDA',   'Micida Capital Partners',['NF6_V8'],'Investment Category', '', 'USA', '', '', '#5b2c87', 'both', -10,  1070],
+    ['TALKSELF', 'Talkself Florida LLC', ['NF6_V8'], 'LLC',                 '', 'USA - Florida', '', '', '#1e6e3b', 'both', 180, 1070],
+    ['FS_NYC',   'FS NYC Chelsea',       ['NF6_V8'], 'Other',               '', 'USA - New York', '', 'Source: MN Asset Card', '#1e6e3b', 'both', -200, 1240],
+    ['SAN_ORL',  'Sanchezon at Orlando', ['NF6_V8'], 'Other',               '', 'USA - Florida',  '', '', '#b5521a', 'both', -10, 1240],
+    ['SAN_RES',  'Sanchezon Residential',['NF6_V8'], 'Other',               '', 'USA', '', '', '#b5521a', 'both', 180, 1240],
+
+    // ── NF6 Venture 8 — PR Business Investments ──────────────────────────────
+    ['FIT_PR',    'FIT Investments PR',   ['NF6_V8'], 'Investment Category', '', 'Puerto Rico', '', 'Source: MN Asset Card', '#5b2c87', 'both', -380, 900],
+    ['SUN_HARBOR','Sun Harbor Capital',   ['NF6_V8'], 'Other',               '', 'Puerto Rico', '', 'Source: MN Asset Card', '#5b2c87', 'both', -380, 1070],
+    ['SAN_D_EAST','Sanchezon Dorado East',['NF6_V8'], 'Real Estate',         '', 'Puerto Rico', '', '', '#7a1f1f', 'both', -380, 1240],
+    ['SAN_D_WEST','Sanchezon Dorado West',['NF6_V8'], 'Real Estate',         '', 'Puerto Rico', '', '', '#7a1f1f', 'both', -380, 1410],
+
+    // ── NF5 Tiger Capital — Investments ──────────────────────────────────────
+    // (Brokerage accounts - listed here as structural nodes)
+
+    // ── POST STRUCTURE — NF6 Family 2026 Trust ───────────────────────────────
+    ['TRUST_2026','NF6 Family 2026 Trust',['MICHAEL'], 'Trust (Irrevocable)', '', 'USA', '2026', 'Grantor: Michael Nguyen\n(New structure — in formation)', '#2d6a4f', 'post', 850, 220]
+  ];
+
+  var rows = NODES.map(function(n) {
+    var key       = n[0];
+    var id        = ID[key];
+    var parentIds = n[2].map(function(pk) { return ID[pk]; }).join(',');
+    return makeRow({
+      'ID':           id,
+      'Name':         n[1],
+      'Parents':      parentIds,
+      'Node Type':    n[3],
+      'Tax ID':       n[4],
+      'Jurisdiction': n[5],
+      'Date Created': n[6],
+      'Ownership':    n[7],
+      'Color':        n[8],
+      'Text Color':   '#ffffff',
+      'Notes':        '',
+      'Structure':    n[9],
+      'X':            n[10],
+      'Y':            n[11]
+    });
+  });
+
+  var startRow = sheet.getLastRow() + 1;
+  sheet.getRange(startRow, 1, rows.length, rows[0].length).setValues(rows);
+
+  SpreadsheetApp.getUi().alert('✅ Org chart seeded with ' + rows.length + ' entities.\n\nOpen the web app and go to the Org Chart tab. Click "Fit View" to see everything.\n\nNote: The 2026 Trust node is set to "Post" view — switch to that view to see it.');
 }
 
 // ── Org Chart ─────────────────────────────────────────────────────────────────
