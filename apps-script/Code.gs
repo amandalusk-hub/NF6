@@ -55,8 +55,38 @@ var COL = {
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
-  SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD']
+  SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD'],
+  ASSET_DETAILS:     ['Asset ID','Asset Name','Updated By','Project Leader','Occupancy','Description','Location','Type','Sqft','Drive Folder','Purchase Price','Purchase Date','Closing Costs','Permits','Revenue','OpEx','Property Tax','Insurance','HOA','Maintenance','Utilities','Loan Info','Financial Notes','Contact 1 Type','Contact 1 Name','Contact 2 Type','Contact 2 Name','Contact 3 Type','Contact 3 Name','Contact 4 Type','Contact 4 Name','Borrower Name','Borrower Contact','Original Amount','Outstanding Balance','Interest Rate','Loan Status','Loan Date','Due Date','Loan Terms','Payment Schedule','Received To Date','Collateral','Drive Link','Attorney','Loan Notes'],
+  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes']
 };
+
+// Maps JS field names ↔ Asset Details sheet column names
+var ASSET_DET_MAP = [
+  ['updatedBy','Updated By'],['projectLeader','Project Leader'],['occupancy','Occupancy'],
+  ['description','Description'],['location','Location'],['type','Type'],['sqft','Sqft'],
+  ['folder','Drive Folder'],['purchasePrice','Purchase Price'],['purchaseDate','Purchase Date'],
+  ['closingCosts','Closing Costs'],['permits','Permits'],['revenue','Revenue'],['opex','OpEx'],
+  ['taxes','Property Tax'],['insurance','Insurance'],['hoa','HOA'],['maintenance','Maintenance'],
+  ['utilities','Utilities'],['loan','Loan Info'],['finNotes','Financial Notes'],
+  ['borrower','Borrower Name'],['borrowerContact','Borrower Contact'],
+  ['loanOriginal','Original Amount'],['loanBalance','Outstanding Balance'],
+  ['loanRate','Interest Rate'],['loanStatus','Loan Status'],['loanDate','Loan Date'],
+  ['loanDue','Due Date'],['loanTerms','Loan Terms'],['loanPayment','Payment Schedule'],
+  ['loanReceived','Received To Date'],['loanCollateral','Collateral'],
+  ['loanDrive','Drive Link'],['loanAttorney','Attorney'],['loanNotes','Loan Notes']
+];
+
+// Maps JS field names ↔ Liability Details sheet column names
+var LIAB_DET_MAP = [
+  ['bank','Bank / Lender'],['account','Account Number'],['rate','Interest Rate'],
+  ['loanType','Loan Type'],['original','Original Amount'],['balance','Current Balance'],
+  ['startDate','Start Date'],['maturity','Maturity Date'],['term','Loan Term'],
+  ['remaining','Months Remaining'],['payment','Monthly Payment'],['principal','Principal'],
+  ['interestPmt','Interest Payment'],['escrow','Escrow'],['tax','Property Tax'],
+  ['insurance','Insurance'],['hoa','HOA'],['officer','Loan Officer'],
+  ['attorney','Attorney / Title'],['insAgent','Insurance Agent'],
+  ['contacts','Other Contacts'],['notes','Notes']
+];
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
 
@@ -219,7 +249,7 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots' }[key];
+  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots', ASSET_DETAILS: 'Asset Details', LIABILITY_DETAILS: 'Liability Details' }[key];
 }
 
 function getSpreadsheet_() {
@@ -268,10 +298,62 @@ function getFullData() {
     });
   }
 
+  // Build Asset Details map (id → det object with JS field names)
+  var assetDetMap = {};
+  var adSheet = getSheet_('ASSET_DETAILS');
+  var adData  = adSheet.getDataRange().getValues();
+  if (adData.length > 1) {
+    var adHeaders = adData[0];
+    for (var ai = 1; ai < adData.length; ai++) {
+      var adRow = adData[ai];
+      var detId = String(adRow[0]);
+      if (!detId) continue;
+      var colObj = {};
+      adHeaders.forEach(function(h, j) { colObj[h] = adRow[j]; });
+      var det = {};
+      ASSET_DET_MAP.forEach(function(m) { det[m[0]] = colObj[m[1]] || ''; });
+      det.contacts = [];
+      for (var ci = 1; ci <= 4; ci++) {
+        var cType = colObj['Contact ' + ci + ' Type'] || '';
+        var cName = colObj['Contact ' + ci + ' Name'] || '';
+        if (cType || cName) det.contacts.push({ type: cType, name: cName });
+      }
+      assetDetMap[detId] = det;
+    }
+  }
+
+  // Build Liability Details map
+  var liabDetMap = {};
+  var ldSheet = getSheet_('LIABILITY_DETAILS');
+  var ldData  = ldSheet.getDataRange().getValues();
+  if (ldData.length > 1) {
+    var ldHeaders = ldData[0];
+    for (var li = 1; li < ldData.length; li++) {
+      var ldRow = ldData[li];
+      var ldId  = String(ldRow[0]);
+      if (!ldId) continue;
+      var ldColObj = {};
+      ldHeaders.forEach(function(h, j) { ldColObj[h] = ldRow[j]; });
+      var ldet = {};
+      LIAB_DET_MAP.forEach(function(m) { ldet[m[0]] = ldColObj[m[1]] || ''; });
+      liabDetMap[ldId] = ldet;
+    }
+  }
+
+  // Merge det into each asset and liability
+  var assets = clean(sheetToObjects_('ASSETS')).map(function(a) {
+    a.det = assetDetMap[String(a.ID)] || null;
+    return a;
+  });
+  var liabilities = clean(sheetToObjects_('LIABILITIES')).map(function(l) {
+    l.det = liabDetMap[String(l.ID)] || null;
+    return l;
+  });
+
   var assetHeaderRow = assetSheet.getRange(1, 1, 1, Math.max(assetSheet.getLastColumn(), 1)).getValues()[0];
   return {
-    assets:      clean(sheetToObjects_('ASSETS')),
-    liabilities: clean(sheetToObjects_('LIABILITIES')),
+    assets:      assets,
+    liabilities: liabilities,
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
     history:     clean(sheetToObjects_('HISTORY')),
@@ -450,19 +532,51 @@ function updateAsset(data) {
 }
 
 function saveAssetDetails(id, detailsJson) {
-  var sheet      = getSheet_('ASSETS');
-  var rows       = sheet.getDataRange().getValues();
-  var detailsCol = rows[0].indexOf('Details') + 1;
-  var lastUpdCol = rows[0].indexOf('Last Updated') + 1;
-  if (detailsCol < 1) return { success: false, error: 'Details column missing — redeploy to add it' };
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(id)) {
-      sheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
-      if (lastUpdCol > 0) sheet.getRange(i + 1, lastUpdCol).setValue(new Date());
-      return { success: true };
+  var det = {};
+  try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
+
+  // 1. Write JSON blob to ASSETS.Details column (fast read path)
+  var assetsSheet  = getSheet_('ASSETS');
+  var assetsData   = assetsSheet.getDataRange().getValues();
+  var detailsCol   = assetsData[0].indexOf('Details') + 1;
+  var lastUpdCol   = assetsData[0].indexOf('Last Updated') + 1;
+  var assetName    = '';
+  for (var i = 1; i < assetsData.length; i++) {
+    if (String(assetsData[i][0]) === String(id)) {
+      assetName = String(assetsData[i][1] || '');
+      if (detailsCol > 0) assetsSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
+      if (lastUpdCol > 0) assetsSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
+      break;
     }
   }
-  return { success: false, error: 'Asset not found' };
+
+  // 2. Upsert row in Asset Details sheet (flat columns, spreadsheet-editable)
+  var detSheet   = getSheet_('ASSET_DETAILS');
+  var detData    = detSheet.getDataRange().getValues();
+  var detHeaders = detData[0];
+  var contacts   = det.contacts || [];
+
+  // Build a column-name → value lookup
+  var colLookup = { 'Asset ID': id, 'Asset Name': assetName };
+  ASSET_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+  for (var ci = 1; ci <= 4; ci++) {
+    var c = contacts[ci - 1] || {};
+    colLookup['Contact ' + ci + ' Type'] = c.type || '';
+    colLookup['Contact ' + ci + ' Name'] = c.name || '';
+  }
+  var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
+
+  var existingRow = -1;
+  for (var j = 1; j < detData.length; j++) {
+    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+  }
+  if (existingRow > 0) {
+    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    detSheet.appendRow(rowData);
+  }
+
+  return { success: true };
 }
 
 function deleteAsset(id) {
@@ -543,19 +657,43 @@ function updateLiability(data) {
 }
 
 function saveLiabilityDetails(id, detailsJson) {
-  var sheet      = getSheet_('LIABILITIES');
-  var rows       = sheet.getDataRange().getValues();
-  var detailsCol = rows[0].indexOf('Details') + 1;
-  var lastUpdCol = rows[0].indexOf('Last Updated') + 1;
-  if (detailsCol < 1) return { success: false, error: 'Details column missing — redeploy to add it' };
-  for (var i = 1; i < rows.length; i++) {
-    if (String(rows[i][0]) === String(id)) {
-      sheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
-      if (lastUpdCol > 0) sheet.getRange(i + 1, lastUpdCol).setValue(new Date());
-      return { success: true };
+  var det = {};
+  try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
+
+  // 1. Write JSON blob to LIABILITIES.Details column
+  var liabSheet  = getSheet_('LIABILITIES');
+  var liabData   = liabSheet.getDataRange().getValues();
+  var detailsCol = liabData[0].indexOf('Details') + 1;
+  var lastUpdCol = liabData[0].indexOf('Last Updated') + 1;
+  var liabName   = '';
+  for (var i = 1; i < liabData.length; i++) {
+    if (String(liabData[i][0]) === String(id)) {
+      liabName = String(liabData[i][1] || '');
+      if (detailsCol > 0) liabSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
+      if (lastUpdCol > 0) liabSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
+      break;
     }
   }
-  return { success: false, error: 'Liability not found' };
+
+  // 2. Upsert row in Liability Details sheet (flat columns)
+  var detSheet   = getSheet_('LIABILITY_DETAILS');
+  var detData    = detSheet.getDataRange().getValues();
+  var detHeaders = detData[0];
+  var colLookup  = { 'Liability ID': id, 'Liability Name': liabName };
+  LIAB_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+  var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
+
+  var existingRow = -1;
+  for (var j = 1; j < detData.length; j++) {
+    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+  }
+  if (existingRow > 0) {
+    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    detSheet.appendRow(rowData);
+  }
+
+  return { success: true };
 }
 
 function deleteLiability(id) {

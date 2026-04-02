@@ -1414,8 +1414,7 @@ function openAssetDetail(id){
   document.getElementById('detail-asset-meta').textContent=
     (asset.Category||'')+(asset.Entity?' · '+asset.Entity:'')+' · '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
 
-  let det={};
-  try{det=JSON.parse(asset.Details||'{}');}catch(e){det={};}
+  let det = asset.det || (() => { try{return JSON.parse(asset.Details||'{}');}catch(e){return {};} })();
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
 
@@ -1649,8 +1648,7 @@ function openLiabDetail(id){
     (liab.Type||'')+(liab.Location?' · '+liab.Location:'')+' · '+fmtUSD(num(liab['USD Value']));
   document.getElementById('liab-detail-edit-btn').onclick=()=>openLiabModal(id);
 
-  let det={};
-  try{det=JSON.parse(liab.Details||'{}');}catch(e){det={};}
+  let det = liab.det || (() => { try{return JSON.parse(liab.Details||'{}');}catch(e){return {};} })();
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
   sv('ld-bank',       det.bank||'');
