@@ -280,7 +280,6 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
-  try {
   ensureSheets_();
 
   // Auto-assign IDs to any asset rows that were manually entered without one
@@ -302,62 +301,10 @@ function getFullData() {
     });
   }
 
-  // Build Asset Details map (id → det object with JS field names)
-  var assetDetMap = {};
-  var adSheet = getSheet_('ASSET_DETAILS');
-  var adData  = adSheet.getDataRange().getValues();
-  if (adData.length > 1) {
-    var adHeaders = adData[0];
-    for (var ai = 1; ai < adData.length; ai++) {
-      var adRow = adData[ai];
-      var detId = String(adRow[0]);
-      if (!detId) continue;
-      var colObj = {};
-      adHeaders.forEach(function(h, j) { colObj[h] = adRow[j]; });
-      var det = {};
-      ASSET_DET_MAP.forEach(function(m) { det[m[0]] = colObj[m[1]] || ''; });
-      det.contacts = [];
-      for (var ci = 1; ci <= 4; ci++) {
-        var cType = colObj['Contact ' + ci + ' Type'] || '';
-        var cName = colObj['Contact ' + ci + ' Name'] || '';
-        if (cType || cName) det.contacts.push({ type: cType, name: cName });
-      }
-      assetDetMap[detId] = det;
-    }
-  }
-
-  // Build Liability Details map
-  var liabDetMap = {};
-  var ldSheet = getSheet_('LIABILITY_DETAILS');
-  var ldData  = ldSheet.getDataRange().getValues();
-  if (ldData.length > 1) {
-    var ldHeaders = ldData[0];
-    for (var li = 1; li < ldData.length; li++) {
-      var ldRow = ldData[li];
-      var ldId  = String(ldRow[0]);
-      if (!ldId) continue;
-      var ldColObj = {};
-      ldHeaders.forEach(function(h, j) { ldColObj[h] = ldRow[j]; });
-      var ldet = {};
-      LIAB_DET_MAP.forEach(function(m) { ldet[m[0]] = ldColObj[m[1]] || ''; });
-      liabDetMap[ldId] = ldet;
-    }
-  }
-
-  // Merge det into each asset and liability
-  var assets = clean(sheetToObjects_('ASSETS')).map(function(a) {
-    a.det = assetDetMap[String(a.ID)] || null;
-    return a;
-  });
-  var liabilities = clean(sheetToObjects_('LIABILITIES')).map(function(l) {
-    l.det = liabDetMap[String(l.ID)] || null;
-    return l;
-  });
-
   var assetHeaderRow = assetSheet.getRange(1, 1, 1, Math.max(assetSheet.getLastColumn(), 1)).getValues()[0];
   return {
-    assets:      assets,
-    liabilities: liabilities,
+    assets:      clean(sheetToObjects_('ASSETS')),
+    liabilities: clean(sheetToObjects_('LIABILITIES')),
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
     history:     clean(sheetToObjects_('HISTORY')),
@@ -369,10 +316,6 @@ function getFullData() {
       assetRowCount: Math.max(assetSheet.getLastRow() - 1, 0)
     }
   };
-  } catch(e) {
-    Logger.log('getFullData error: ' + e.message + '\n' + e.stack);
-    throw e;  // re-throw so withFailureHandler gets a proper message
-  }
 }
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────

@@ -1599,8 +1599,8 @@ function renderMNWList(){
         if(a.Category==='Loans Receivable'){
           try{
             // Prefer flat det object, fall back to JSON Details
-            let ld = a.det||{};
-            if(!ld.borrower&&!ld.loanDue&&a.Details){try{ld=JSON.parse(a.Details);}catch(e){}}
+            let ld={};
+            try{ld=JSON.parse(a.Details||'{}');}catch(e){}
             const parts=[];
             if(ld.borrower) parts.push(esc(ld.borrower));
             const dueRaw=ld.loanDue||ld['Due Date']||'';
@@ -2056,7 +2056,7 @@ function openAssetDetail(id){
   document.getElementById('detail-asset-meta').textContent=
     (asset.Category||'')+(asset.Entity?' · '+asset.Entity:'')+' · '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
 
-  let det = asset.det || (() => { try{return JSON.parse(asset.Details||'{}');}catch(e){return {};} })();
+  let det={}; try{det=JSON.parse(asset.Details||'{}');}catch(e){det={}; }
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
 
@@ -2320,7 +2320,7 @@ function openLiabDetail(id){
     (liab.Type||'')+(liab.Location?' · '+liab.Location:'')+' · '+fmtUSD(num(liab['USD Value']));
   document.getElementById('liab-detail-edit-btn').onclick=()=>openLiabModal(id);
 
-  let det = liab.det || (() => { try{return JSON.parse(liab.Details||'{}');}catch(e){return {};} })();
+  let det={}; try{det=JSON.parse(liab.Details||'{}');}catch(e){det={}; }
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
   sv('ld-bank',       det.bank||'');
