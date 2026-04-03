@@ -1680,8 +1680,14 @@ function renderMNWList(){
           const parts=[];
           // Borrower sub-label (loans only)
           if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
-          // Rate sub-label (PE only)
-          if(a.Category==='Private Equity' && det.peRate) parts.push(esc(det.peRate));
+          // PE sub-labels: total invested + rate
+          if(a.Category==='Private Equity'){
+            const peInit  = parseFloat(det.peInitial)||0;
+            const peCalls = (det.capitalCalls||[]).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
+            const peTotal = peInit + peCalls;
+            if(peTotal>0) parts.push('Invested: '+fmtUSD(peTotal));
+            if(det.peRate) parts.push(esc(det.peRate));
+          }
           // Due date — check both loan and PE maturity fields
           const dueRaw = det.loanDue || det.peMaturity || det['Due Date'] || '';
           if(dueRaw){
@@ -2416,9 +2422,10 @@ function recalcPE() {
   const dists   = Array.from(document.querySelectorAll('#d-pe-dist-list .pe-dist-amount'))
                     .reduce((s,el)=>s+(parseFloat(el.value)||0), 0);
   const totalIn = initial + calls;
-  const moic    = totalIn > 0 ? (dists / totalIn).toFixed(2)+'x' : '—';
-  const roi     = totalIn > 0 ? (((dists-totalIn)/totalIn)*100).toFixed(1)+'%' : '—';
-  const roiColor= totalIn > 0 ? (dists >= totalIn ? '#1e8e3e' : '#c5221f') : '#555';
+  const hasDist = dists > 0;
+  const moic    = (totalIn > 0 && hasDist) ? (dists / totalIn).toFixed(2)+'x' : '—';
+  const roi     = (totalIn > 0 && hasDist) ? (((dists-totalIn)/totalIn)*100).toFixed(1)+'%' : '—';
+  const roiColor= (totalIn > 0 && hasDist) ? (dists >= totalIn ? '#1e8e3e' : '#c5221f') : '#555';
   const set=(id,v,c)=>{const el=document.getElementById(id);if(el){el.textContent=v;if(c)el.style.color=c;}};
   set('d-pe-total-invested', fmtUSD(totalIn));
   set('d-pe-total-dist',     fmtUSD(dists),  dists>0?'#1e8e3e':'#555');
