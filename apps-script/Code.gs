@@ -1463,6 +1463,7 @@ function dailySync_() {
   syncPlaidAccounts();
   refreshPropertyValues();
   if (new Date().getDate() === 1) takeMonthlySnapshot();
+  generateBalancesSheet();
 }
 
 // ── Balances Sheet (Tiller-style Net Worth view) ──────────────────────────────
