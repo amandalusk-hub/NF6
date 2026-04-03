@@ -110,6 +110,8 @@ function onOpen() {
     .addItem('Fix Sheet Headers (run once)', 'fixSheetHeaders')
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
+    .addSeparator()
+    .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
     .addToUi();
 }
 
@@ -1461,4 +1463,315 @@ function dailySync_() {
   syncPlaidAccounts();
   refreshPropertyValues();
   if (new Date().getDate() === 1) takeMonthlySnapshot();
+}
+
+// ── Balances Sheet (Tiller-style Net Worth view) ──────────────────────────────
+
+function generateBalancesSheet() {
+  var ss        = getSpreadsheet_();
+  var SHEET_NAME = 'Balances';
+
+  // ── get or create the Balances sheet ──────────────────────────────────────
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (sheet) {
+    sheet.clearContents();
+    sheet.clearFormats();
+  } else {
+    sheet = ss.insertSheet(SHEET_NAME);
+  }
+
+  // ── pull live data ─────────────────────────────────────────────────────────
+  var assets      = sheetToObjects_('ASSETS');
+  var liabilities = sheetToObjects_('LIABILITIES');
+
+  // Compute USD values
+  assets.forEach(function(a) {
+    a._usd = parseFloat(a['My Share USD']) || 0;
+    a._lastUpdated = a['Last Updated'] ? new Date(a['Last Updated']) : null;
+  });
+  liabilities.forEach(function(l) {
+    l._usd = parseFloat(l['USD Value']) || 0;
+    l._lastUpdated = l['Last Updated'] ? new Date(l['Last Updated']) : null;
+  });
+
+  // Group assets by Category
+  var assetCats = {};
+  CATEGORIES.forEach(function(c) { assetCats[c] = []; });
+  assets.forEach(function(a) {
+    var cat = a['Category'] || 'Other';
+    if (!assetCats[cat]) assetCats[cat] = [];
+    assetCats[cat].push(a);
+  });
+  // Only keep categories that have items
+  var usedAssetCats = CATEGORIES.filter(function(c) { return assetCats[c] && assetCats[c].length > 0; });
+
+  // Group liabilities by Type
+  var liabTypes = {};
+  liabilities.forEach(function(l) {
+    var t = l['Type'] || 'Other';
+    if (!liabTypes[t]) liabTypes[t] = [];
+    liabTypes[t].push(l);
+  });
+  var usedLiabTypes = Object.keys(liabTypes).sort();
+
+  // Totals
+  var totalAssets = assets.reduce(function(s, a) { return s + a._usd; }, 0);
+  var totalLiabs  = liabilities.reduce(function(s, l) { return s + l._usd; }, 0);
+  var netWorth    = totalAssets - totalLiabs;
+
+  // Helper: days ago string
+  function daysAgo(d) {
+    if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
+    var days = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (days === 0) return 'today';
+    if (days === 1) return '1 day ago';
+    return days + ' days ago';
+  }
+
+  // Helper: latest date in a group
+  function latestDate(items) {
+    var best = null;
+    items.forEach(function(item) {
+      if (item._lastUpdated && (!best || item._lastUpdated > best)) best = item._lastUpdated;
+    });
+    return best;
+  }
+
+  // Helper: format currency
+  function fmt(v) {
+    if (v == null || isNaN(v)) return '$0';
+    return '$' + Math.round(v).toLocaleString();
+  }
+
+  // ── build row data ─────────────────────────────────────────────────────────
+  // We'll write rows into parallel arrays (left side = assets, right side = liabilities)
+  // Each entry: { type: 'title'|'net_worth'|'section_header'|'cat_header'|'item'|'total'|'blank', ... }
+
+  var assetRows  = [];  // left side rows
+  var liabRows   = [];  // right side rows
+
+  // Asset section header
+  assetRows.push({ type: 'section_header', label: 'ASSETS', total: totalAssets });
+
+  usedAssetCats.forEach(function(cat) {
+    var items    = assetCats[cat];
+    var catTotal = items.reduce(function(s, a) { return s + a._usd; }, 0);
+    var latest   = latestDate(items);
+    assetRows.push({ type: 'cat_header', label: cat, updated: daysAgo(latest), total: catTotal });
+    items.forEach(function(a) {
+      assetRows.push({ type: 'item', label: a['Name'] || '', updated: daysAgo(a._lastUpdated), value: a._usd });
+    });
+  });
+
+  // Liability section header
+  liabRows.push({ type: 'section_header', label: 'LIABILITIES', total: totalLiabs });
+
+  usedLiabTypes.forEach(function(t) {
+    var items    = liabTypes[t];
+    var typeTotal = items.reduce(function(s, l) { return s + l._usd; }, 0);
+    var latest    = latestDate(items);
+    liabRows.push({ type: 'cat_header', label: t, updated: daysAgo(latest), total: typeTotal });
+    items.forEach(function(l) {
+      liabRows.push({ type: 'item', label: l['Name'] || '', updated: daysAgo(l._lastUpdated), value: l._usd });
+    });
+  });
+
+  // ── write to sheet ─────────────────────────────────────────────────────────
+  // Column layout (1-indexed):
+  // A(1): Asset name     — wide
+  // B(2): (name cont.)
+  // C(3): (name cont.)
+  // D(4): days ago       — right-aligned
+  // E(5): spacer
+  // F(6): value          — right-aligned
+  // G(7): gap
+  // H(8): Liab name
+  // I(9): (name cont.)
+  // J(10): (name cont.)
+  // K(11): days ago
+  // L(12): spacer
+  // M(13): value
+
+  var TOTAL_COLS = 13;
+  var NOW        = new Date();
+  var dateStr    = Utilities.formatDate(NOW, Session.getScriptTimeZone(), 'MMMM d, yyyy');
+
+  // Ensure at least TOTAL_COLS columns exist
+  if (sheet.getMaxColumns() < TOTAL_COLS) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), TOTAL_COLS - sheet.getMaxColumns());
+  }
+
+  // Row 1: Title
+  sheet.getRange(1, 1, 1, TOTAL_COLS).merge()
+    .setValue('Net Worth')
+    .setFontSize(18).setFontWeight('bold').setFontColor('#000000')
+    .setHorizontalAlignment('left').setVerticalAlignment('middle')
+    .setBackground('#ffffff');
+
+  // Row 2: Date
+  sheet.getRange(2, 1, 1, TOTAL_COLS).merge()
+    .setValue(dateStr)
+    .setFontSize(10).setFontColor('#666666')
+    .setHorizontalAlignment('left')
+    .setBackground('#ffffff');
+
+  // Row 3: blank spacer
+  sheet.getRange(3, 1, 1, TOTAL_COLS).setBackground('#ffffff');
+
+  // Row 4: NET WORTH banner
+  sheet.getRange(4, 1, 1, 6).merge()
+    .setValue('NET WORTH')
+    .setFontSize(12).setFontWeight('bold').setFontColor('#ffffff')
+    .setHorizontalAlignment('left').setVerticalAlignment('middle')
+    .setBackground('#1A7341');
+  sheet.getRange(4, 7, 1, 7).merge()
+    .setValue(netWorth < 0 ? '-' + fmt(Math.abs(netWorth)) : fmt(netWorth))
+    .setFontSize(12).setFontWeight('bold').setFontColor('#ffffff')
+    .setHorizontalAlignment('right').setVerticalAlignment('middle')
+    .setBackground('#1A7341');
+
+  // Row 5: blank spacer
+  sheet.getRange(5, 1, 1, TOTAL_COLS).setBackground('#ffffff');
+
+  // Data starts at row 6
+  var maxRows = Math.max(assetRows.length, liabRows.length);
+
+  for (var i = 0; i < maxRows; i++) {
+    var r    = 6 + i;
+    var aRow = assetRows[i];
+    var lRow = liabRows[i];
+
+    // ── Left: assets ────────────────────────────────────────────────────────
+    if (aRow) {
+      if (aRow.type === 'section_header') {
+        // Dark header: col A-C merged = "ASSETS", D=Updated, F=total
+        sheet.getRange(r, 1, 1, 3).merge()
+          .setValue('ASSETS')
+          .setFontSize(11).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#1B3A5C').setHorizontalAlignment('left');
+        sheet.getRange(r, 4).setValue('Updated')
+          .setFontSize(9).setFontColor('#ffffff').setFontWeight('bold')
+          .setBackground('#1B3A5C').setHorizontalAlignment('right');
+        sheet.getRange(r, 5).setBackground('#1B3A5C');
+        sheet.getRange(r, 6)
+          .setValue(fmt(aRow.total))
+          .setFontSize(11).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#1B3A5C').setHorizontalAlignment('right');
+
+      } else if (aRow.type === 'cat_header') {
+        sheet.getRange(r, 1, 1, 3).merge()
+          .setValue(aRow.label)
+          .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#2E6DA4').setHorizontalAlignment('left');
+        sheet.getRange(r, 4).setValue(aRow.updated || '')
+          .setFontSize(8).setFontColor('#cce0f5')
+          .setBackground('#2E6DA4').setHorizontalAlignment('right');
+        sheet.getRange(r, 5).setBackground('#2E6DA4');
+        sheet.getRange(r, 6).setValue(fmt(aRow.total))
+          .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#2E6DA4').setHorizontalAlignment('right');
+
+      } else if (aRow.type === 'item') {
+        var bg = (i % 2 === 0) ? '#f5f8fc' : '#ffffff';
+        sheet.getRange(r, 1, 1, 3).merge()
+          .setValue('  ' + aRow.label)
+          .setFontSize(9).setFontColor('#1a1a1a')
+          .setBackground(bg).setHorizontalAlignment('left');
+        sheet.getRange(r, 4).setValue(aRow.updated || '')
+          .setFontSize(8).setFontColor('#888888')
+          .setBackground(bg).setHorizontalAlignment('right');
+        sheet.getRange(r, 5).setBackground(bg);
+        sheet.getRange(r, 6).setValue(fmt(aRow.value))
+          .setFontSize(9).setFontColor('#1a1a1a')
+          .setBackground(bg).setHorizontalAlignment('right');
+      }
+    } else {
+      // fill blank left cells
+      sheet.getRange(r, 1, 1, 6).setBackground('#ffffff');
+    }
+
+    // Gap col G
+    sheet.getRange(r, 7).setBackground('#ffffff');
+
+    // ── Right: liabilities ──────────────────────────────────────────────────
+    if (lRow) {
+      if (lRow.type === 'section_header') {
+        sheet.getRange(r, 8, 1, 3).merge()
+          .setValue('LIABILITIES')
+          .setFontSize(11).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#5B1A1A').setHorizontalAlignment('left');
+        sheet.getRange(r, 11).setValue('Updated')
+          .setFontSize(9).setFontColor('#ffffff').setFontWeight('bold')
+          .setBackground('#5B1A1A').setHorizontalAlignment('right');
+        sheet.getRange(r, 12).setBackground('#5B1A1A');
+        sheet.getRange(r, 13).setValue(fmt(lRow.total))
+          .setFontSize(11).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#5B1A1A').setHorizontalAlignment('right');
+
+      } else if (lRow.type === 'cat_header') {
+        sheet.getRange(r, 8, 1, 3).merge()
+          .setValue(lRow.label)
+          .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#A33030').setHorizontalAlignment('left');
+        sheet.getRange(r, 11).setValue(lRow.updated || '')
+          .setFontSize(8).setFontColor('#f5cccc')
+          .setBackground('#A33030').setHorizontalAlignment('right');
+        sheet.getRange(r, 12).setBackground('#A33030');
+        sheet.getRange(r, 13).setValue(fmt(lRow.total))
+          .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
+          .setBackground('#A33030').setHorizontalAlignment('right');
+
+      } else if (lRow.type === 'item') {
+        var lbg = (i % 2 === 0) ? '#fdf5f5' : '#ffffff';
+        sheet.getRange(r, 8, 1, 3).merge()
+          .setValue('  ' + lRow.label)
+          .setFontSize(9).setFontColor('#1a1a1a')
+          .setBackground(lbg).setHorizontalAlignment('left');
+        sheet.getRange(r, 11).setValue(lRow.updated || '')
+          .setFontSize(8).setFontColor('#888888')
+          .setBackground(lbg).setHorizontalAlignment('right');
+        sheet.getRange(r, 12).setBackground(lbg);
+        sheet.getRange(r, 13).setValue(fmt(lRow.value))
+          .setFontSize(9).setFontColor('#1a1a1a')
+          .setBackground(lbg).setHorizontalAlignment('right');
+      }
+    } else {
+      sheet.getRange(r, 8, 1, 6).setBackground('#ffffff');
+    }
+  }
+
+  // ── Column widths ──────────────────────────────────────────────────────────
+  sheet.setColumnWidth(1,  140);  // A - asset name (part 1)
+  sheet.setColumnWidth(2,  100);  // B - name (cont.)
+  sheet.setColumnWidth(3,   80);  // C - name (cont.)
+  sheet.setColumnWidth(4,  100);  // D - days ago
+  sheet.setColumnWidth(5,    8);  // E - spacer
+  sheet.setColumnWidth(6,  110);  // F - value
+  sheet.setColumnWidth(7,   20);  // G - gap
+  sheet.setColumnWidth(8,  140);  // H - liab name (part 1)
+  sheet.setColumnWidth(9,  100);  // I - name (cont.)
+  sheet.setColumnWidth(10,  80);  // J - name (cont.)
+  sheet.setColumnWidth(11, 100);  // K - days ago
+  sheet.setColumnWidth(12,   8);  // L - spacer
+  sheet.setColumnWidth(13, 110);  // M - value
+
+  // ── Row heights ────────────────────────────────────────────────────────────
+  sheet.setRowHeight(1, 40);
+  sheet.setRowHeight(2, 22);
+  sheet.setRowHeight(3, 10);
+  sheet.setRowHeight(4, 36);
+  sheet.setRowHeight(5, 10);
+  for (var ri = 6; ri < 6 + maxRows; ri++) {
+    sheet.setRowHeight(ri, 22);
+  }
+
+  // ── Hide gridlines & freeze top rows ──────────────────────────────────────
+  sheet.setHiddenGridlines(true);
+  sheet.setFrozenRows(5);
+
+  // ── Activate the sheet ────────────────────────────────────────────────────
+  ss.setActiveSheet(sheet);
+  ss.toast('Balances sheet refreshed!', 'Done', 4);
+
+  return { success: true };
 }
