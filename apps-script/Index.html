@@ -709,7 +709,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Year Written Off</label><input type="number" id="d-pe-year-wo" placeholder="—" min="1990" max="2099"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Initial Investment ($)</label><input type="number" id="d-pe-initial" placeholder="0" oninput="recalcPE()"></div>
+          <div class="form-row"><label>Initial Investment ($)</label><input type="text" id="d-pe-initial" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)"></div>
           <div class="form-row"><label>Ownership %</label><input type="number" id="d-pe-ownership" placeholder="e.g. 25" step="0.01"></div>
         </div>
         <div class="form-two">
@@ -2179,7 +2179,7 @@ function openAssetDetail(id){
     sv('d-pe-year-exit', det.peYearExit||'');
     sv('d-pe-year-sold', det.peYearSold||'');
     sv('d-pe-year-wo',   det.peYearWo||'');
-    sv('d-pe-initial',   det.peInitial||'');
+    sv('d-pe-initial',   det.peInitial ? fmtAcct(det.peInitial) : '');
     sv('d-pe-ownership', det.peOwnership||'');
     sv('d-pe-maturity',  det.peMaturity||'');
     sv('d-pe-rate',      det.peRate||'');
@@ -2338,7 +2338,7 @@ function saveAssetDetails(){
     peYearExit:      gv('d-pe-year-exit'),
     peYearSold:      gv('d-pe-year-sold'),
     peYearWo:        gv('d-pe-year-wo'),
-    peInitial:       gv('d-pe-initial'),
+    peInitial:       parseAcct(gv('d-pe-initial')),
     peOwnership:     gv('d-pe-ownership'),
     peMaturity:      gv('d-pe-maturity'),
     peRate:          gv('d-pe-rate'),
@@ -2346,14 +2346,14 @@ function saveAssetDetails(){
     capitalCalls: Array.from(document.querySelectorAll('#d-pe-calls-list .pe-log-row')).map(function(row){
       return {
         date:   row.querySelector('.pe-call-date').value,
-        amount: parseFloat(row.querySelector('.pe-call-amount').value)||0,
+        amount: parseAcct(row.querySelector('.pe-call-amount').value),
         notes:  row.querySelector('.pe-call-notes').value.trim()
       };
     }),
     distributions: Array.from(document.querySelectorAll('#d-pe-dist-list .pe-log-row')).map(function(row){
       return {
         date:   row.querySelector('.pe-dist-date').value,
-        amount: parseFloat(row.querySelector('.pe-dist-amount').value)||0,
+        amount: parseAcct(row.querySelector('.pe-dist-amount').value),
         notes:  row.querySelector('.pe-dist-notes').value.trim()
       };
     })
@@ -2364,6 +2364,24 @@ function saveAssetDetails(){
     .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
     .saveAssetDetails(id,JSON.stringify(details));
+}
+
+// ── Accounting format helpers ─────────────────────────────────────────────
+function fmtAcct(v) {
+  const n = parseFloat(String(v||'').replace(/[$,\s]/g,''));
+  return isNaN(n)||n===0 ? '' : '$'+Math.round(n).toLocaleString('en-US');
+}
+function parseAcct(s) {
+  return parseFloat(String(s||'').replace(/[$,\s]/g,''))||0;
+}
+function onAcctBlur(el, recalcFn) {
+  const v = parseAcct(el.value);
+  el.value = v ? fmtAcct(v) : '';
+  if (recalcFn) recalcFn();
+}
+function onAcctFocus(el) {
+  const v = parseAcct(el.value);
+  el.value = v || '';
 }
 
 // ── Drive link helper ─────────────────────────────────────────────────────
@@ -2390,33 +2408,35 @@ function _peLogRow(listId, dateCls, amtCls, notesCls) {
   row.style.cssText = 'display:grid;grid-template-columns:130px 130px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
   row.innerHTML =
     `<input type="date" class="${dateCls}">` +
-    `<input type="number" class="${amtCls}" placeholder="0" style="text-align:right">` +
+    `<input type="text" class="${amtCls}" placeholder="$0" style="text-align:right">` +
     `<input type="text" class="${notesCls}" placeholder="Notes">` +
     `<button type="button" onclick="this.closest('.pe-log-row').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">×</button>`;
   list.appendChild(row);
-  row.querySelector('.'+amtCls).addEventListener('input', recalcPE);
+  const amtEl = row.querySelector('.'+amtCls);
+  amtEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcPE); });
+  amtEl.addEventListener('focus', function(){ onAcctFocus(this); });
   return row;
 }
 function addPECallRow(date, amount, notes) {
   const row = _peLogRow('d-pe-calls-list','pe-call-date','pe-call-amount','pe-call-notes');
   if (date)   row.querySelector('.pe-call-date').value   = date;
-  if (amount) row.querySelector('.pe-call-amount').value = amount;
+  if (amount) row.querySelector('.pe-call-amount').value = fmtAcct(amount);
   if (notes)  row.querySelector('.pe-call-notes').value  = notes;
   recalcPE();
 }
 function addPEDistRow(date, amount, notes) {
   const row = _peLogRow('d-pe-dist-list','pe-dist-date','pe-dist-amount','pe-dist-notes');
   if (date)   row.querySelector('.pe-dist-date').value   = date;
-  if (amount) row.querySelector('.pe-dist-amount').value = amount;
+  if (amount) row.querySelector('.pe-dist-amount').value = fmtAcct(amount);
   if (notes)  row.querySelector('.pe-dist-notes').value  = notes;
   recalcPE();
 }
 function recalcPE() {
-  const initial = parseFloat((document.getElementById('d-pe-initial')||{}).value)||0;
+  const initial = parseAcct((document.getElementById('d-pe-initial')||{}).value);
   const calls   = Array.from(document.querySelectorAll('#d-pe-calls-list .pe-call-amount'))
-                    .reduce((s,el)=>s+(parseFloat(el.value)||0), 0);
+                    .reduce((s,el)=>s+parseAcct(el.value), 0);
   const dists   = Array.from(document.querySelectorAll('#d-pe-dist-list .pe-dist-amount'))
-                    .reduce((s,el)=>s+(parseFloat(el.value)||0), 0);
+                    .reduce((s,el)=>s+parseAcct(el.value), 0);
   const totalIn = initial + calls;
   const hasDist = dists > 0;
   const moic    = (totalIn > 0 && hasDist) ? (dists / totalIn).toFixed(2)+'x' : '—';
