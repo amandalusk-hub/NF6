@@ -280,6 +280,7 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
+  try {
   ensureSheets_();
 
   // Auto-assign IDs to any asset rows that were manually entered without one
@@ -363,12 +364,15 @@ function getFullData() {
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
     currencies:  CURRENCIES,
-    orgChart:    getOrgChart(),
     _debug: {
       assetHeaders:  assetHeaderRow,
       assetRowCount: Math.max(assetSheet.getLastRow() - 1, 0)
     }
   };
+  } catch(e) {
+    Logger.log('getFullData error: ' + e.message + '\n' + e.stack);
+    throw e;  // re-throw so withFailureHandler gets a proper message
+  }
 }
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────
