@@ -1154,15 +1154,26 @@ function takeMonthlySnapshot() {
   var rows = assets.map(function(a) {
     return [now, monthKey, a['Name'] || '', a['Category'] || '', a['Currency'] || 'USD', Number(a['My Share USD']) || 0];
   });
-  snapSheet.getRange(snapSheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+  var startRow = snapSheet.getLastRow() + 1;
+  snapSheet.getRange(startRow, 1, rows.length, 6).setValues(rows);
+  // Force Month Key column (col 2) to plain text so GAS won't auto-convert "YYYY-MM" to a date
+  snapSheet.getRange(startRow, 2, rows.length, 1).setNumberFormat('@');
   return { success: true, alreadyDone: false, count: rows.length, monthKey: monthKey };
+}
+
+function normalizeMonthKey_(mk) {
+  // Google Sheets may auto-convert "2026-04" strings to Date objects
+  if (mk instanceof Date) {
+    return mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
+  }
+  return String(mk || '').trim();
 }
 
 function getSnapshotTrend() {
   var data = sheetToObjects_('SNAPSHOTS');
   var byMonth = {};
   data.forEach(function(row) {
-    var mk = row['Month Key'] || '';
+    var mk = normalizeMonthKey_(row['Month Key']);
     if (!mk) return;
     if (!byMonth[mk]) byMonth[mk] = 0;
     byMonth[mk] += Number(row['My Share USD']) || 0;
@@ -1180,7 +1191,7 @@ function getSnapshotMatrix() {
   var assetData = {}; // name -> { category, monthKey -> value }
 
   snapRows.forEach(function(row) {
-    var mk   = row['Month Key'] || '';
+    var mk   = normalizeMonthKey_(row['Month Key']);
     var name = row['Asset Name'] || '';
     if (!mk || !name) return;
     monthSet[mk] = true;
