@@ -491,14 +491,36 @@ function saveAssetDetails(id, detailsJson) {
   // 1. Write JSON blob to ASSETS.Details column (fast read path)
   var assetsSheet  = getSheet_('ASSETS');
   var assetsData   = assetsSheet.getDataRange().getValues();
-  var detailsCol   = assetsData[0].indexOf('Details') + 1;
-  var lastUpdCol   = assetsData[0].indexOf('Last Updated') + 1;
+  var headers      = assetsData[0];
+  var detailsCol   = headers.indexOf('Details') + 1;
+  var lastUpdCol   = headers.indexOf('Last Updated') + 1;
+  var categoryCol  = headers.indexOf('Category') + 1;
+  var shareCol     = headers.indexOf('My Share %') + 1;
+  var localValCol  = headers.indexOf('Local Value') + 1;
+  var usdValCol    = headers.indexOf('USD Value') + 1;
+  var shareUsdCol  = headers.indexOf('My Share USD') + 1;
   var assetName    = '';
   for (var i = 1; i < assetsData.length; i++) {
     if (String(assetsData[i][0]) === String(id)) {
       assetName = String(assetsData[i][1] || '');
       if (detailsCol > 0) assetsSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
       if (lastUpdCol > 0) assetsSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
+
+      // For Private Equity: auto-update asset value to total invested (initial + all capital calls)
+      var category = categoryCol > 0 ? String(assetsData[i][categoryCol - 1] || '') : '';
+      if (category === 'Private Equity') {
+        var peInitial    = parseFloat(det.peInitial) || 0;
+        var callsTotal   = (det.capitalCalls || []).reduce(function(s, c) { return s + (parseFloat(c.amount) || 0); }, 0);
+        var totalInvested = peInitial + callsTotal;
+        if (totalInvested > 0) {
+          var sharePct = shareCol > 0 ? (parseFloat(assetsData[i][shareCol - 1]) || 100) : 100;
+          var usdValue = sharePct > 0 ? totalInvested / (sharePct / 100) : totalInvested;
+          if (localValCol  > 0) assetsSheet.getRange(i + 1, localValCol).setValue(usdValue);
+          if (usdValCol    > 0) assetsSheet.getRange(i + 1, usdValCol).setValue(usdValue);
+          if (shareUsdCol  > 0) assetsSheet.getRange(i + 1, shareUsdCol).setValue(totalInvested);
+        }
+      }
+
       break;
     }
   }
