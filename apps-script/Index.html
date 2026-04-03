@@ -310,8 +310,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div style="font-size:30px;font-weight:700;color:#0d2137" id="bal-net-worth">$0</div>
       </div>
-      <div id="bal-chart-wrap">
-        <svg id="bal-svg" height="200" style="width:100%;display:block;overflow:visible"></svg>
+      <div id="bal-chart-wrap" style="overflow:hidden">
+        <svg id="bal-svg" height="200" style="width:100%;display:block;overflow:hidden"></svg>
         <div id="bal-labels" style="display:flex;justify-content:space-between;font-size:11px;color:#888;padding:4px 0 0"></div>
       </div>
       <div style="display:flex;gap:20px;justify-content:center;margin-top:10px;font-size:12px;color:#555">
@@ -1872,9 +1872,12 @@ function renderBalanceChart(data){
   const svg=document.getElementById('bal-svg');
   const W=svg.getBoundingClientRect().width||800;
   const H=200,padT=15,padB=25,padL=65,padR=20;
-  const all=[...data.assetTotals,...data.liabTotals,...data.netWorthTotals].filter(v=>v>0);
-  if(!all.length){svg.innerHTML='';return;}
-  const minV=Math.min(...all)*0.97,maxV=Math.max(...all)*1.03;
+  // Include ALL values (including negative net worth) so the Y scale covers the full range
+  const allVals=[...data.assetTotals,...data.liabTotals,...data.netWorthTotals].filter(v=>isFinite(v));
+  if(!allVals.length){svg.innerHTML='';return;}
+  const rawMin=Math.min(...allVals),rawMax=Math.max(...allVals);
+  const pad=(rawMax-rawMin)||Math.abs(rawMax)*0.1||1;
+  const minV=rawMin-pad*0.05,maxV=rawMax+pad*0.05;
   const n=data.months.length;
   const xs=i=>padL+(n>1?i/(n-1):0.5)*(W-padL-padR);
   const ys=v=>padT+(1-(v-minV)/(maxV-minV))*(H-padT-padB);
