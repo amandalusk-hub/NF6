@@ -78,11 +78,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 /* Modals */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;align-items:center;justify-content:center;padding:16px}
 .modal-overlay.open{display:flex}
-.modal{background:#fff;border-radius:10px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
-.modal-header{padding:18px 20px 14px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between}
+.modal{background:#fff;border-radius:10px;width:100%;max-width:520px;max-height:90vh;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.2);display:flex;flex-direction:column}
+.modal-header{padding:18px 20px 14px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .modal-title{font-size:16px;font-weight:600}
 .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:#666;line-height:1}
-.modal-body{padding:20px}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
 .form-row{margin-bottom:14px}
 .form-row label{display:block;font-size:12px;font-weight:600;color:#555;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
 .form-row input,.form-row select,.form-row textarea{width:100%;padding:8px 11px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit;outline:none}
@@ -91,7 +91,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .form-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .usd-preview{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:6px;padding:10px 12px;font-size:13px;color:#1a3a5c;margin-bottom:14px}
 .usd-preview span{font-weight:700}
-.modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end}
+.modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
 /* MNW4-style grouped list */
 .mnw-section-hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
 .mnw-section-hdr.assets{background:#0d2137;color:#fff}
@@ -584,21 +584,55 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
           <div class="form-row"><label>Last Updated By</label><input type="text" id="d-updated-by" placeholder="e.g. Amanda Lusk"></div>
         </div>
+        <div class="form-row"><label>Description / Notes</label><textarea id="d-description" placeholder="Brief description of this asset…"></textarea></div>
         <div class="form-two">
           <div class="form-row"><label>Project Leader</label><input type="text" id="d-project-leader" placeholder="Name"></div>
-          <div class="form-row"><label>Occupancy Status</label>
-            <select id="d-occupancy"><option value="">—</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
-          </div>
-        </div>
-        <div class="form-row"><label>Description</label><textarea id="d-description" placeholder="Brief description of this asset…"></textarea></div>
-        <div class="form-two">
-          <div class="form-row"><label>Location</label><input type="text" id="d-location" placeholder="City, Country/State"></div>
-          <div class="form-row"><label>Type</label><input type="text" id="d-type" placeholder="e.g. Residential, Commercial, SFR"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Square Footage</label><input type="text" id="d-sqft" placeholder="e.g. 5,200 sq ft"></div>
           <div class="form-row"><label>Google Drive Folder</label><input type="text" id="d-folder" placeholder="Paste Drive link here"></div>
         </div>
+        <!-- RE-specific overview fields -->
+        <div id="d-overview-re-fields">
+          <div class="form-two">
+            <div class="form-row"><label>Occupancy Status</label>
+              <select id="d-occupancy"><option value="">—</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
+            </div>
+            <div class="form-row"><label>Property Type</label><input type="text" id="d-type" placeholder="e.g. Residential, Commercial, SFR"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Location</label><input type="text" id="d-location" placeholder="City, Country/State"></div>
+            <div class="form-row"><label>Square Footage</label><input type="text" id="d-sqft" placeholder="e.g. 5,200 sq ft"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cash / Bank — only shown for Cash categories -->
+      <div class="detail-section" id="d-cash-section" style="display:none">
+        <div class="detail-section-title">Account Info</div>
+        <div class="form-two">
+          <div class="form-row"><label>Bank / Institution</label><input type="text" id="d-cash-bank" placeholder="e.g. Chase, Schwab, Fidelity"></div>
+          <div class="form-row"><label>Account Type</label>
+            <select id="d-cash-acct-type">
+              <option value="">—</option><option>Checking</option><option>Savings</option><option>Money Market</option><option>CD</option><option>Treasury</option><option>Business Checking</option><option>Business Savings</option><option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Account # (last 4)</label><input type="text" id="d-cash-acct-num" placeholder="e.g. 4321"></div>
+          <div class="form-row"><label>Interest / Yield Rate</label><input type="text" id="d-cash-rate" placeholder="e.g. 4.5% APY"></div>
+        </div>
+      </div>
+
+      <!-- Equity — only shown for Public/Private Equity -->
+      <div class="detail-section" id="d-equity-section" style="display:none">
+        <div class="detail-section-title">Investment Info</div>
+        <div class="form-two">
+          <div class="form-row"><label>Broker / Platform</label><input type="text" id="d-eq-broker" placeholder="e.g. Fidelity, JP Morgan, Schwab"></div>
+          <div class="form-row"><label>Account # (last 4)</label><input type="text" id="d-eq-acct" placeholder="e.g. 4321"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Shares / Units Held</label><input type="number" id="d-eq-shares" placeholder="0"></div>
+          <div class="form-row"><label>Avg Cost Per Share</label><input type="number" id="d-eq-cost" placeholder="0.00"></div>
+        </div>
+        <div class="form-row"><label>Investment Notes</label><textarea id="d-eq-notes" placeholder="Strategy, thesis, dividend info…" style="min-height:60px"></textarea></div>
       </div>
 
       <!-- Loan Details — only shown for Loans Receivable -->
@@ -639,7 +673,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Total Received to Date</label><input type="number" id="d-loan-received" placeholder="0"></div>
           <div class="form-row"><label>Collateral</label><input type="text" id="d-loan-collateral" placeholder="e.g. Real estate, equity stake"></div>
         </div>
-        <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="url" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
+        <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
         <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-loan-attorney" placeholder="Name, firm, contact"></div>
         <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history…"></textarea></div>
       </div>
@@ -877,35 +911,35 @@ const state = {
 
 // ── Category colors ────────────────────────────────────────────────────────
 const CAT_COLORS = {
-  'Art/Jewelry/Other':                '#4285F4',
-  'ART/JEWELRY/OTHER':                '#4285F4',
-  'Automobile':                       '#EA4335',
-  'AUTOMOBILE':                       '#EA4335',
-  'Cash - Business':                  '#FBBC04',
-  'CASH - BUSINESS':                  '#FBBC04',
-  'Cash - Personal':                  '#34A853',
-  'CASH - PERSONAL':                  '#34A853',
-  'Private Equity':                   '#FF6D00',
-  'PRIVATE EQUITY':                   '#FF6D00',
-  'Public Equity (Dividends)':        '#00BCD4',
-  'PUBLIC EQUITY (DIVIDENDS)':        '#00BCD4',
-  'Public Equity (Growth)':           '#8BC34A',
-  'PUBLIC EQUITY (GROWTH)':           '#8BC34A',
-  'Real Estate - Colombia':           '#CDDC39',
-  'REAL ESTATE - COLOMBIA':           '#CDDC39',
-  'Real Estate - Dominican Republic': '#1565C0',
-  'REAL ESTATE - DOMINICAN REPUBLIC': '#1565C0',
-  'Real Estate - Europe':             '#F48FB1',
-  'REAL ESTATE - EUROPE':             '#F48FB1',
-  'Real Estate - Puerto Rico':        '#B71C1C',
-  'REAL ESTATE - PUERTO RICO':        '#B71C1C',
-  'Real Estate - United States':      '#E91E63',
-  'REAL ESTATE - UNITED STATES':      '#E91E63',
-  'VIP Medical Group':                '#1E88E5',
-  'VIP MEDICAL GROUP':                '#1E88E5',
-  'Loans Receivable':                 '#f57c00',
-  'Insurance':                        '#8d6e63',
-  'Other':                            '#78909c'
+  'Art/Jewelry/Other':                '#6C7EC0',
+  'ART/JEWELRY/OTHER':                '#6C7EC0',
+  'Automobile':                       '#8D7263',
+  'AUTOMOBILE':                       '#8D7263',
+  'Cash - Business':                  '#2E9E8F',
+  'CASH - BUSINESS':                  '#2E9E8F',
+  'Cash - Personal':                  '#4A9E6F',
+  'CASH - PERSONAL':                  '#4A9E6F',
+  'Private Equity':                   '#9260AD',
+  'PRIVATE EQUITY':                   '#9260AD',
+  'Public Equity (Dividends)':        '#4A7FB5',
+  'PUBLIC EQUITY (DIVIDENDS)':        '#4A7FB5',
+  'Public Equity (Growth)':           '#2A9DB0',
+  'PUBLIC EQUITY (GROWTH)':           '#2A9DB0',
+  'Real Estate - Colombia':           '#8A9E3C',
+  'REAL ESTATE - COLOMBIA':           '#8A9E3C',
+  'Real Estate - Dominican Republic': '#4C6E8A',
+  'REAL ESTATE - DOMINICAN REPUBLIC': '#4C6E8A',
+  'Real Estate - Europe':             '#B86B70',
+  'REAL ESTATE - EUROPE':             '#B86B70',
+  'Real Estate - Puerto Rico':        '#9E3A3A',
+  'REAL ESTATE - PUERTO RICO':        '#9E3A3A',
+  'Real Estate - United States':      '#B55C30',
+  'REAL ESTATE - UNITED STATES':      '#B55C30',
+  'VIP Medical Group':                '#3A7A9E',
+  'VIP MEDICAL GROUP':                '#3A7A9E',
+  'Loans Receivable':                 '#B88030',
+  'Insurance':                        '#7A8E9C',
+  'Other':                            '#7A8E9C'
 };
 function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 
@@ -1454,18 +1488,18 @@ function renderDonut(){
 }
 
 const LIAB_COLORS={
-  'Credit Card':                        '#4285F4',
-  'CREDIT CARD':                        '#4285F4',
-  'Real Estate - Colombia (Liability)': '#EA4335',
-  'REAL ESTATE - COLOMBIA (LIABILITY)': '#EA4335',
-  'Real Estate - Puerto Rico':          '#FBBC04',
-  'REAL ESTATE - PUERTO RICO':          '#FBBC04',
-  'Real Estate - United States':        '#FF6D00',
-  'REAL ESTATE - UNITED STATES':        '#FF6D00',
-  'Mortgage':                           '#9C27B0',
-  'Auto Loan':                          '#00BCD4',
-  'Personal Loan':                      '#8BC34A',
-  'Other':                              '#78909c'
+  'Credit Card':                        '#6C7EC0',
+  'CREDIT CARD':                        '#6C7EC0',
+  'Real Estate - Colombia (Liability)': '#9E3A3A',
+  'REAL ESTATE - COLOMBIA (LIABILITY)': '#9E3A3A',
+  'Real Estate - Puerto Rico':          '#B88030',
+  'REAL ESTATE - PUERTO RICO':          '#B88030',
+  'Real Estate - United States':        '#B55C30',
+  'REAL ESTATE - UNITED STATES':        '#B55C30',
+  'Mortgage':                           '#7260AD',
+  'Auto Loan':                          '#2A9DB0',
+  'Personal Loan':                      '#4A9E6F',
+  'Other':                              '#7A8E9C'
 };
 function liabColor(t,i){return LIAB_COLORS[t]||['#e53935','#fb8c00','#fdd835','#8d6e63','#d81b60','#00897b','#5c6bc0','#26a69a'][i%8];}
 
@@ -1547,18 +1581,23 @@ function renderMNWList(){
       [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
         // Parse due date + borrower for Loans Receivable
         let loanTag='';
-        if(a.Category==='Loans Receivable'&&a.Details){
+        if(a.Category==='Loans Receivable'){
           try{
-            const ld=JSON.parse(a.Details);
+            // Prefer flat det object, fall back to JSON Details
+            let ld = a.det||{};
+            if(!ld.borrower&&!ld.loanDue&&a.Details){try{ld=JSON.parse(a.Details);}catch(e){}}
             const parts=[];
             if(ld.borrower) parts.push(esc(ld.borrower));
-            if(ld.loanDue){
-              const due=new Date(ld.loanDue);
-              const daysLeft=Math.ceil((due-Date.now())/86400000);
-              const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-              const color=daysLeft<0?'#c5221f':daysLeft<30?'#f57c00':'#666';
-              const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
-              parts.push(`<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`);
+            const dueRaw=ld.loanDue||ld['Due Date']||'';
+            if(dueRaw){
+              const due=new Date(dueRaw);
+              if(!isNaN(due)){
+                const daysLeft=Math.ceil((due-Date.now())/86400000);
+                const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+                const color=daysLeft<0?'#c5221f':daysLeft<30?'#e07b30':'#666';
+                const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
+                parts.push(`<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`);
+              }
             }
             if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join(' · ')}</div>`;
           }catch(e){}
@@ -2007,9 +2046,16 @@ function openAssetDetail(id){
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
 
   // Show/hide sections based on category
-  const isLoan=asset.Category==='Loans Receivable';
-  document.getElementById('d-loan-section').style.display=isLoan?'block':'none';
-  document.getElementById('d-re-section').style.display=isLoan?'none':'block';
+  const cat = asset.Category||'';
+  const isLoan   = cat === 'Loans Receivable';
+  const isRE     = cat.startsWith('Real Estate');
+  const isCash   = cat.startsWith('Cash');
+  const isEquity = cat.includes('Equity');
+  document.getElementById('d-loan-section').style.display         = isLoan   ? 'block' : 'none';
+  document.getElementById('d-re-section').style.display           = isRE     ? 'block' : 'none';
+  document.getElementById('d-cash-section').style.display         = isCash   ? 'block' : 'none';
+  document.getElementById('d-equity-section').style.display       = isEquity ? 'block' : 'none';
+  document.getElementById('d-overview-re-fields').style.display   = isRE     ? ''      : 'none';
 
   // Overview fields
   sv('d-status',       det.status||(isLoan?'Active':'Active'));
@@ -2036,6 +2082,18 @@ function openAssetDetail(id){
   sv('d-utilities',    det.utilities||'');
   sv('d-loan',         det.loan||'');
   sv('d-fin-notes',    det.finNotes||'');
+
+  // Cash section
+  sv('d-cash-bank',      det.cashBank||'');
+  sv('d-cash-acct-type', det.cashAcctType||'');
+  sv('d-cash-acct-num',  det.cashAcctNum||'');
+  sv('d-cash-rate',      det.cashRate||'');
+  // Equity section
+  sv('d-eq-broker', det.eqBroker||'');
+  sv('d-eq-acct',   det.eqAcct||'');
+  sv('d-eq-shares', det.eqShares||'');
+  sv('d-eq-cost',   det.eqCost||'');
+  sv('d-eq-notes',  det.eqNotes||'');
 
   // Dynamic contact rows
   const contactsList = document.getElementById('d-contacts-list');
@@ -2136,7 +2194,18 @@ function saveAssetDetails(){
     loanCollateral:  gv('d-loan-collateral'),
     loanDrive:       gv('d-loan-drive'),
     loanAttorney:    gv('d-loan-attorney'),
-    loanNotes:       gv('d-loan-notes')
+    loanNotes:       gv('d-loan-notes'),
+    // Cash fields
+    cashBank:        gv('d-cash-bank'),
+    cashAcctType:    gv('d-cash-acct-type'),
+    cashAcctNum:     gv('d-cash-acct-num'),
+    cashRate:        gv('d-cash-rate'),
+    // Equity fields
+    eqBroker:        gv('d-eq-broker'),
+    eqAcct:          gv('d-eq-acct'),
+    eqShares:        gv('d-eq-shares'),
+    eqCost:          gv('d-eq-cost'),
+    eqNotes:         gv('d-eq-notes')
   };
   showLoading(true);
   closeModal('detail-modal');
