@@ -1605,7 +1605,9 @@ function renderMNWList(){
             if(ld.borrower) parts.push(esc(ld.borrower));
             const dueRaw=ld.loanDue||ld['Due Date']||'';
             if(dueRaw){
-              const due=new Date(dueRaw);
+              // Parse as local date (not UTC) to avoid off-by-one-day timezone issue
+              const [y,m,d]=dueRaw.split('-').map(Number);
+              const due = (y&&m&&d) ? new Date(y,m-1,d) : new Date(dueRaw);
               if(!isNaN(due)){
                 const daysLeft=Math.ceil((due-Date.now())/86400000);
                 const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
