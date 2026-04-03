@@ -273,10 +273,19 @@ function doGet() {
 var _sheetsReady = false;
 function ensureSheets_() {
   if (_sheetsReady) return;
+  // Use script cache so the full sheet scan is skipped across executions
+  // (GAS globals reset per execution, but CacheService persists for up to 6h)
+  var cache = CacheService.getScriptCache();
+  if (cache.get('sheets_ready') === '1') { _sheetsReady = true; return; }
+
   var ss = getSpreadsheet_();
   Object.keys(COL).forEach(function(key) {
     var name    = sheetName_(key);
     var headers = COL[key];
+    if (Array.isArray(headers) && headers[0] && headers[0].constructor === Array) {
+      // COL.ASSET_DETAILS is an array of arrays after the schema change — flatten
+      headers = headers.reduce(function(a, b) { return a.concat(b); }, []);
+    }
     var sheet   = ss.getSheetByName(name);
     if (!sheet) {
       sheet = ss.insertSheet(name);
@@ -284,18 +293,20 @@ function ensureSheets_() {
         .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
       sheet.setFrozenRows(1);
       sheet.setColumnWidth(1, 220);
+      cache.remove('sheets_ready'); // new sheet added — invalidate cache
     } else {
-      // Add any columns that exist in COL but are missing from the sheet
-      var lastCol = sheet.getLastColumn();
+      var lastCol  = sheet.getLastColumn();
       var existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
-      var missing = headers.filter(function(h) { return existing.indexOf(h) === -1; });
+      var missing  = headers.filter(function(h) { return existing.indexOf(h) === -1; });
       if (missing.length) {
         var startCol = lastCol + 1;
         sheet.getRange(1, startCol, 1, missing.length).setValues([missing])
           .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+        cache.remove('sheets_ready'); // schema changed — invalidate
       }
     }
   });
+  cache.put('sheets_ready', '1', 21600); // valid for 6 hours
   _sheetsReady = true;
 }
 
@@ -1861,6 +1872,8 @@ function generateBalancesSheet() {
 
 function setupDatabase() {
   var ss = getSpreadsheet_();
+  CacheService.getScriptCache().remove('sheets_ready'); // force re-check after setup
+  _sheetsReady = false;
   ensureSheets_();
 
   // ── Tab colors ──────────────────────────────────────────────────────────
