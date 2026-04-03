@@ -1455,7 +1455,7 @@ function renderDashboard(){
   const liabs  = state.liabilities || [];
   const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
   const liabUSD  = liabs.reduce((s,l)=>s+num(l['USD Value']),0);
-  const cashUSD  = assets.filter(a=>a.Category==='Cash').reduce((s,a)=>s+num(a['My Share USD']),0);
+  const cashUSD  = assets.filter(a=>(a.Category||'').toLowerCase().startsWith('cash')).reduce((s,a)=>s+num(a['My Share USD']),0);
   document.getElementById('net-worth').textContent      = fmtUSD(totalUSD - liabUSD);
   document.getElementById('m-assets').textContent       = fmtUSD(totalUSD);
   document.getElementById('m-liabilities').textContent  = fmtUSD(liabUSD);
