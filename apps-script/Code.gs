@@ -56,25 +56,68 @@ var COL = {
   FX:          ['Currency','Rate to USD','Last Fetched'],
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
   SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD'],
-  ASSET_DETAILS:     ['Asset ID','Asset Name','Updated By','Project Leader','Occupancy','Description','Location','Type','Sqft','Drive Folder','Purchase Price','Purchase Date','Closing Costs','Permits','Revenue','OpEx','Property Tax','Insurance','HOA','Maintenance','Utilities','Loan Info','Financial Notes','Contact 1 Type','Contact 1 Name','Contact 2 Type','Contact 2 Name','Contact 3 Type','Contact 3 Name','Contact 4 Type','Contact 4 Name','Borrower Name','Borrower Contact','Original Amount','Outstanding Balance','Interest Rate','Loan Status','Loan Date','Due Date','Loan Terms','Payment Schedule','Received To Date','Collateral','Drive Link','Attorney','Loan Notes'],
+  ASSET_DETAILS: [
+    // ── Core ──────────────────────────────────────────────────────────────
+    'Asset ID','Asset Name','Status','Updated By','Description','Drive Folder',
+    'Project Leader',
+    // ── Real Estate ───────────────────────────────────────────────────────
+    'Occupancy','Location','Type','Sqft',
+    'Purchase Price','Purchase Date','Closing Costs','Permits',
+    'Revenue','OpEx','Property Tax','Insurance','HOA','Maintenance','Utilities',
+    'Loan Info','Financial Notes',
+    // ── Contacts ──────────────────────────────────────────────────────────
+    'Contact 1 Type','Contact 1 Name','Contact 2 Type','Contact 2 Name',
+    'Contact 3 Type','Contact 3 Name','Contact 4 Type','Contact 4 Name',
+    // ── Loans Receivable ──────────────────────────────────────────────────
+    'Borrower Name','Borrower Contact','Original Amount','Outstanding Balance',
+    'Interest Rate','Loan Status','Loan Date','Due Date','Loan Terms',
+    'Payment Schedule','Received To Date','Collateral','Drive Link','Attorney','Loan Notes',
+    // ── Cash / Bank ───────────────────────────────────────────────────────
+    'Cash Bank','Cash Account Type','Cash Account Number','Cash Interest Rate',
+    // ── Public Equity ─────────────────────────────────────────────────────
+    'Custodian / Manager','Equity Account Number','Shares / Units',
+    'Avg Cost Per Share','Equity Notes',
+    // ── Private Equity ────────────────────────────────────────────────────
+    'PE Manager','PE Tax Treatment','PE Year Invested','PE Target Exit Year',
+    'PE Year Sold','PE Year Written Off','PE Initial Investment','PE Ownership %',
+    'PE Maturity Date','PE Return Rate','PE Capital Calls','PE Distributions','PE Notes'
+  ],
   LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
   ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
 };
 
 // Maps JS field names ↔ Asset Details sheet column names
 var ASSET_DET_MAP = [
-  ['updatedBy','Updated By'],['projectLeader','Project Leader'],['occupancy','Occupancy'],
-  ['description','Description'],['location','Location'],['type','Type'],['sqft','Sqft'],
-  ['folder','Drive Folder'],['purchasePrice','Purchase Price'],['purchaseDate','Purchase Date'],
+  // Core
+  ['status','Status'],['updatedBy','Updated By'],['description','Description'],
+  ['folder','Drive Folder'],['projectLeader','Project Leader'],
+  // Real Estate
+  ['occupancy','Occupancy'],['location','Location'],['type','Type'],['sqft','Sqft'],
+  ['purchasePrice','Purchase Price'],['purchaseDate','Purchase Date'],
   ['closingCosts','Closing Costs'],['permits','Permits'],['revenue','Revenue'],['opex','OpEx'],
   ['taxes','Property Tax'],['insurance','Insurance'],['hoa','HOA'],['maintenance','Maintenance'],
   ['utilities','Utilities'],['loan','Loan Info'],['finNotes','Financial Notes'],
+  // Loans Receivable
   ['borrower','Borrower Name'],['borrowerContact','Borrower Contact'],
   ['loanOriginal','Original Amount'],['loanBalance','Outstanding Balance'],
   ['loanRate','Interest Rate'],['loanStatus','Loan Status'],['loanDate','Loan Date'],
   ['loanDue','Due Date'],['loanTerms','Loan Terms'],['loanPayment','Payment Schedule'],
   ['loanReceived','Received To Date'],['loanCollateral','Collateral'],
-  ['loanDrive','Drive Link'],['loanAttorney','Attorney'],['loanNotes','Loan Notes']
+  ['loanDrive','Drive Link'],['loanAttorney','Attorney'],['loanNotes','Loan Notes'],
+  // Cash / Bank
+  ['cashBank','Cash Bank'],['cashAcctType','Cash Account Type'],
+  ['cashAcctNum','Cash Account Number'],['cashRate','Cash Interest Rate'],
+  // Public Equity
+  ['eqBroker','Custodian / Manager'],['eqAcct','Equity Account Number'],
+  ['eqShares','Shares / Units'],['eqCost','Avg Cost Per Share'],['eqNotes','Equity Notes'],
+  // Private Equity
+  ['peManager','PE Manager'],['peTax','PE Tax Treatment'],
+  ['peYearIn','PE Year Invested'],['peYearExit','PE Target Exit Year'],
+  ['peYearSold','PE Year Sold'],['peYearWo','PE Year Written Off'],
+  ['peInitial','PE Initial Investment'],['peOwnership','PE Ownership %'],
+  ['peMaturity','PE Maturity Date'],['peRate','PE Return Rate'],
+  ['capitalCalls','PE Capital Calls'],['distributions','PE Distributions'],
+  ['peNotes','PE Notes']
 ];
 
 // Maps JS field names ↔ Liability Details sheet column names
@@ -114,6 +157,7 @@ function onOpen() {
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
+    .addItem('Reset Asset Details Schema', 'resetSchema')
     .addToUi();
 }
 
@@ -542,8 +586,12 @@ function saveAssetDetails(id, detailsJson) {
   var contacts   = det.contacts || [];
 
   // Build a column-name → value lookup
+  // Arrays (capitalCalls, distributions) are stored as JSON strings in flat columns
   var colLookup = { 'Asset ID': id, 'Asset Name': assetName };
-  ASSET_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+  ASSET_DET_MAP.forEach(function(m) {
+    var val = det[m[0]];
+    colLookup[m[1]] = Array.isArray(val) ? JSON.stringify(val) : (val || '');
+  });
   for (var ci = 1; ci <= 4; ci++) {
     var c = contacts[ci - 1] || {};
     colLookup['Contact ' + ci + ' Type'] = c.type || '';
@@ -1933,6 +1981,102 @@ function setupDatabase() {
   SpreadsheetApp.flush();
   ss.toast('Database structure configured! Tab colors, validation, formatting, and header protection applied.', 'Setup Complete', 8);
   return { success: true };
+}
+
+// ── Schema Reset ──────────────────────────────────────────────────────────────
+
+function resetSchema() {
+  var ss        = getSpreadsheet_();
+  var ui        = SpreadsheetApp.getUi();
+  var detSheet  = ss.getSheetByName('Asset Details');
+  if (!detSheet) { ui.alert('Asset Details sheet not found. Run Setup Database Structure first.'); return; }
+
+  var existingHeaders = detSheet.getLastColumn() > 0
+    ? detSheet.getRange(1, 1, 1, detSheet.getLastColumn()).getValues()[0]
+    : [];
+  var dataRows = detSheet.getLastRow() - 1;
+  var newHeaders = COL.ASSET_DETAILS;
+
+  if (dataRows > 0) {
+    // ── Has existing data: preserve all columns, mark removed ones [OLD] ──
+    var response = ui.alert(
+      'Asset Details has ' + dataRows + ' data row(s).',
+      'Existing columns that are no longer in the schema will be renamed [OLD]. New columns will be added to the right. No data will be deleted. Continue?',
+      ui.ButtonSet.YES_NO
+    );
+    if (response !== ui.Button.YES) return;
+
+    // Mark columns no longer in schema as [OLD]
+    existingHeaders.forEach(function(h, i) {
+      if (h && newHeaders.indexOf(h) === -1 && String(h).indexOf('[OLD]') === -1) {
+        detSheet.getRange(1, i + 1).setValue('[OLD] ' + h);
+      }
+    });
+    // Add missing new columns to the right
+    var updatedHeaders = detSheet.getRange(1, 1, 1, detSheet.getLastColumn()).getValues()[0];
+    newHeaders.forEach(function(h) {
+      if (updatedHeaders.indexOf(h) === -1) {
+        var nextCol = detSheet.getLastColumn() + 1;
+        detSheet.getRange(1, nextCol).setValue(h)
+          .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+      }
+    });
+    ss.toast('Schema updated. Old columns marked [OLD], new columns added. No data was deleted.', 'Schema Updated', 8);
+
+  } else {
+    // ── No data: safe to completely rebuild headers ─────────────────────
+    var response2 = ui.alert(
+      'Rebuild Asset Details schema?',
+      'The sheet has no data. This will clear and replace all headers with the current schema.',
+      ui.ButtonSet.YES_NO
+    );
+    if (response2 !== ui.Button.YES) return;
+
+    detSheet.clearContents();
+    detSheet.getRange(1, 1, 1, newHeaders.length).setValues([newHeaders])
+      .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+    detSheet.setFrozenRows(1);
+
+    // Style: group columns by category with slightly different header shades
+    var groupColors = {
+      'Asset ID': '#0d2137', 'Asset Name': '#0d2137', 'Status': '#0d2137',
+      'Updated By': '#0d2137', 'Description': '#0d2137', 'Drive Folder': '#0d2137',
+      'Project Leader': '#0d2137',
+      'Occupancy': '#1B3A5C', 'Location': '#1B3A5C', 'Type': '#1B3A5C', 'Sqft': '#1B3A5C',
+      'Purchase Price': '#1B3A5C', 'Purchase Date': '#1B3A5C', 'Closing Costs': '#1B3A5C',
+      'Permits': '#1B3A5C', 'Revenue': '#1B3A5C', 'OpEx': '#1B3A5C',
+      'Property Tax': '#1B3A5C', 'Insurance': '#1B3A5C', 'HOA': '#1B3A5C',
+      'Maintenance': '#1B3A5C', 'Utilities': '#1B3A5C', 'Loan Info': '#1B3A5C',
+      'Financial Notes': '#1B3A5C',
+      'Contact 1 Type': '#2E4057', 'Contact 1 Name': '#2E4057',
+      'Contact 2 Type': '#2E4057', 'Contact 2 Name': '#2E4057',
+      'Contact 3 Type': '#2E4057', 'Contact 3 Name': '#2E4057',
+      'Contact 4 Type': '#2E4057', 'Contact 4 Name': '#2E4057',
+      'Borrower Name': '#5B1A1A', 'Borrower Contact': '#5B1A1A',
+      'Original Amount': '#5B1A1A', 'Outstanding Balance': '#5B1A1A',
+      'Interest Rate': '#5B1A1A', 'Loan Status': '#5B1A1A', 'Loan Date': '#5B1A1A',
+      'Due Date': '#5B1A1A', 'Loan Terms': '#5B1A1A', 'Payment Schedule': '#5B1A1A',
+      'Received To Date': '#5B1A1A', 'Collateral': '#5B1A1A', 'Drive Link': '#5B1A1A',
+      'Attorney': '#5B1A1A', 'Loan Notes': '#5B1A1A',
+      'Cash Bank': '#145A32', 'Cash Account Type': '#145A32',
+      'Cash Account Number': '#145A32', 'Cash Interest Rate': '#145A32',
+      'Custodian / Manager': '#1F618D', 'Equity Account Number': '#1F618D',
+      'Shares / Units': '#1F618D', 'Avg Cost Per Share': '#1F618D', 'Equity Notes': '#1F618D',
+      'PE Manager': '#4A235A', 'PE Tax Treatment': '#4A235A',
+      'PE Year Invested': '#4A235A', 'PE Target Exit Year': '#4A235A',
+      'PE Year Sold': '#4A235A', 'PE Year Written Off': '#4A235A',
+      'PE Initial Investment': '#4A235A', 'PE Ownership %': '#4A235A',
+      'PE Maturity Date': '#4A235A', 'PE Return Rate': '#4A235A',
+      'PE Capital Calls': '#4A235A', 'PE Distributions': '#4A235A', 'PE Notes': '#4A235A'
+    };
+    newHeaders.forEach(function(h, i) {
+      var col = groupColors[h] || '#0d2137';
+      detSheet.getRange(1, i + 1).setBackground(col);
+    });
+
+    protectHeader_(detSheet);
+    ss.toast('Asset Details schema rebuilt clean.', 'Done', 5);
+  }
 }
 
 function protectHeader_(sheet) {
