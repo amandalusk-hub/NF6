@@ -911,35 +911,35 @@ const state = {
 
 // ── Category colors ────────────────────────────────────────────────────────
 const CAT_COLORS = {
-  'Art/Jewelry/Other':                '#6C7EC0',
-  'ART/JEWELRY/OTHER':                '#6C7EC0',
-  'Automobile':                       '#8D7263',
-  'AUTOMOBILE':                       '#8D7263',
-  'Cash - Business':                  '#2E9E8F',
-  'CASH - BUSINESS':                  '#2E9E8F',
-  'Cash - Personal':                  '#4A9E6F',
-  'CASH - PERSONAL':                  '#4A9E6F',
-  'Private Equity':                   '#9260AD',
-  'PRIVATE EQUITY':                   '#9260AD',
-  'Public Equity (Dividends)':        '#4A7FB5',
-  'PUBLIC EQUITY (DIVIDENDS)':        '#4A7FB5',
-  'Public Equity (Growth)':           '#2A9DB0',
-  'PUBLIC EQUITY (GROWTH)':           '#2A9DB0',
-  'Real Estate - Colombia':           '#8A9E3C',
-  'REAL ESTATE - COLOMBIA':           '#8A9E3C',
-  'Real Estate - Dominican Republic': '#4C6E8A',
-  'REAL ESTATE - DOMINICAN REPUBLIC': '#4C6E8A',
-  'Real Estate - Europe':             '#B86B70',
-  'REAL ESTATE - EUROPE':             '#B86B70',
-  'Real Estate - Puerto Rico':        '#9E3A3A',
-  'REAL ESTATE - PUERTO RICO':        '#9E3A3A',
-  'Real Estate - United States':      '#B55C30',
-  'REAL ESTATE - UNITED STATES':      '#B55C30',
-  'VIP Medical Group':                '#3A7A9E',
-  'VIP MEDICAL GROUP':                '#3A7A9E',
-  'Loans Receivable':                 '#B88030',
-  'Insurance':                        '#7A8E9C',
-  'Other':                            '#7A8E9C'
+  'Art/Jewelry/Other':                '#1B4F8A',
+  'ART/JEWELRY/OTHER':                '#1B4F8A',
+  'Automobile':                       '#2E6DA4',
+  'AUTOMOBILE':                       '#2E6DA4',
+  'Cash - Business':                  '#4A8DC0',
+  'CASH - BUSINESS':                  '#4A8DC0',
+  'Cash - Personal':                  '#6AADD4',
+  'CASH - PERSONAL':                  '#6AADD4',
+  'Private Equity':                   '#0D3B6E',
+  'PRIVATE EQUITY':                   '#0D3B6E',
+  'Public Equity (Dividends)':        '#8FC4E0',
+  'PUBLIC EQUITY (DIVIDENDS)':        '#8FC4E0',
+  'Public Equity (Growth)':           '#3A7CA8',
+  'PUBLIC EQUITY (GROWTH)':           '#3A7CA8',
+  'Real Estate - Colombia':           '#1A5276',
+  'REAL ESTATE - COLOMBIA':           '#1A5276',
+  'Real Estate - Dominican Republic': '#5B9BBF',
+  'REAL ESTATE - DOMINICAN REPUBLIC': '#5B9BBF',
+  'Real Estate - Europe':             '#A8CCE0',
+  'REAL ESTATE - EUROPE':             '#A8CCE0',
+  'Real Estate - Puerto Rico':        '#2471A3',
+  'REAL ESTATE - PUERTO RICO':        '#2471A3',
+  'Real Estate - United States':      '#154360',
+  'REAL ESTATE - UNITED STATES':      '#154360',
+  'VIP Medical Group':                '#7FB3D3',
+  'VIP MEDICAL GROUP':                '#7FB3D3',
+  'Loans Receivable':                 '#0A2A4A',
+  'Insurance':                        '#9DBFCF',
+  'Other':                            '#B8D4E0'
 };
 function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 
@@ -1503,20 +1503,20 @@ function renderDonut(){
 }
 
 const LIAB_COLORS={
-  'Credit Card':                        '#6C7EC0',
-  'CREDIT CARD':                        '#6C7EC0',
-  'Real Estate - Colombia (Liability)': '#9E3A3A',
-  'REAL ESTATE - COLOMBIA (LIABILITY)': '#9E3A3A',
-  'Real Estate - Puerto Rico':          '#B88030',
-  'REAL ESTATE - PUERTO RICO':          '#B88030',
-  'Real Estate - United States':        '#B55C30',
-  'REAL ESTATE - UNITED STATES':        '#B55C30',
-  'Mortgage':                           '#7260AD',
-  'Auto Loan':                          '#2A9DB0',
-  'Personal Loan':                      '#4A9E6F',
-  'Other':                              '#7A8E9C'
+  'Credit Card':                        '#1B4F8A',
+  'CREDIT CARD':                        '#1B4F8A',
+  'Real Estate - Colombia (Liability)': '#0D3B6E',
+  'REAL ESTATE - COLOMBIA (LIABILITY)': '#0D3B6E',
+  'Real Estate - Puerto Rico':          '#2471A3',
+  'REAL ESTATE - PUERTO RICO':          '#2471A3',
+  'Real Estate - United States':        '#154360',
+  'REAL ESTATE - UNITED STATES':        '#154360',
+  'Mortgage':                           '#2E6DA4',
+  'Auto Loan':                          '#4A8DC0',
+  'Personal Loan':                      '#6AADD4',
+  'Other':                              '#8FC4E0'
 };
-function liabColor(t,i){return LIAB_COLORS[t]||['#e53935','#fb8c00','#fdd835','#8d6e63','#d81b60','#00897b','#5c6bc0','#26a69a'][i%8];}
+function liabColor(t,i){return LIAB_COLORS[t]||['#1B4F8A','#2E6DA4','#4A8DC0','#6AADD4','#0D3B6E','#154360','#2471A3','#8FC4E0'][i%8];}
 
 function renderLiabDonut(){
   const liabs=state.liabilities||[];
