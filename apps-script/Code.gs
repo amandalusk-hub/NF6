@@ -112,6 +112,8 @@ function onOpen() {
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
+    .addSeparator()
+    .addItem('Setup Database Structure', 'setupDatabase')
     .addToUi();
 }
 
@@ -258,9 +260,13 @@ function sheetName_(key) {
 }
 
 function getSpreadsheet_() {
+  if (_ss) return _ss;
   var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  _ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+  return _ss;
 }
+
+var _ss = null;
 
 function getSheet_(key) {
   ensureSheets_();
@@ -474,7 +480,9 @@ function updateAsset(data) {
       [16, data.costBasis !== undefined ? Number(data.costBasis) : (Number(rows[i][15]) || 0)],
       [17, data.details   !== undefined ? data.details           : (rows[i][16] || '')]
     ];
-    updates.forEach(function(u) { sheet.getRange(i + 1, u[0]).setValue(u[1]); });
+    var newRow = rows[i].slice();
+    updates.forEach(function(u) { newRow[u[0] - 1] = u[1]; });
+    sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
 
     if (Math.abs(usdVal - oldUsd) > 0.01) {
       logHistory_(data.name || rows[i][1], oldUsd, usdVal, currency, data.notes || 'Manual update');
@@ -503,24 +511,26 @@ function saveAssetDetails(id, detailsJson) {
   for (var i = 1; i < assetsData.length; i++) {
     if (String(assetsData[i][0]) === String(id)) {
       assetName = String(assetsData[i][1] || '');
-      if (detailsCol > 0) assetsSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
-      if (lastUpdCol > 0) assetsSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
+      var newRow = assetsData[i].slice();
+      if (detailsCol  > 0) newRow[detailsCol  - 1] = detailsJson || '';
+      if (lastUpdCol  > 0) newRow[lastUpdCol   - 1] = new Date();
 
       // For Private Equity: auto-update asset value to total invested (initial + all capital calls)
       var category = categoryCol > 0 ? String(assetsData[i][categoryCol - 1] || '') : '';
       if (category === 'Private Equity') {
-        var peInitial    = parseFloat(det.peInitial) || 0;
-        var callsTotal   = (det.capitalCalls || []).reduce(function(s, c) { return s + (parseFloat(c.amount) || 0); }, 0);
+        var peInitial     = parseFloat(det.peInitial) || 0;
+        var callsTotal    = (det.capitalCalls || []).reduce(function(s, c) { return s + (parseFloat(c.amount) || 0); }, 0);
         var totalInvested = peInitial + callsTotal;
         if (totalInvested > 0) {
           var sharePct = shareCol > 0 ? (parseFloat(assetsData[i][shareCol - 1]) || 100) : 100;
           var usdValue = sharePct > 0 ? totalInvested / (sharePct / 100) : totalInvested;
-          if (localValCol  > 0) assetsSheet.getRange(i + 1, localValCol).setValue(usdValue);
-          if (usdValCol    > 0) assetsSheet.getRange(i + 1, usdValCol).setValue(usdValue);
-          if (shareUsdCol  > 0) assetsSheet.getRange(i + 1, shareUsdCol).setValue(totalInvested);
+          if (localValCol > 0) newRow[localValCol - 1] = usdValue;
+          if (usdValCol   > 0) newRow[usdValCol   - 1] = usdValue;
+          if (shareUsdCol > 0) newRow[shareUsdCol  - 1] = totalInvested;
         }
       }
 
+      assetsSheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
       break;
     }
   }
@@ -1797,4 +1807,143 @@ function generateBalancesSheet() {
   ss.toast('Balances sheet refreshed!', 'Done', 4);
 
   return { success: true };
+}
+
+// ── Database Setup ────────────────────────────────────────────────────────────
+
+function setupDatabase() {
+  var ss = getSpreadsheet_();
+  ensureSheets_();
+
+  // ── Tab colors ──────────────────────────────────────────────────────────
+  var tabColors = {
+    'Assets':            '#1B3A5C',
+    'Liabilities':       '#7B2D2D',
+    'Entities':          '#4A235A',
+    'FX Rates':          '#145A32',
+    'History':           '#5D6D7E',
+    'Snapshots':         '#424949',
+    'Asset Details':     '#1F618D',
+    'Liability Details': '#922B21',
+    'Org Chart':         '#6C3483',
+    'Balances':          '#1A7341'
+  };
+  Object.keys(tabColors).forEach(function(name) {
+    var s = ss.getSheetByName(name);
+    if (s) s.setTabColor(tabColors[name]);
+  });
+
+  // ── Assets sheet ────────────────────────────────────────────────────────
+  // Columns: ID(1) Name(2) Category(3) Entity(4) Currency(5) Local Value(6)
+  //   USD Rate(7) USD Value(8) My Share %(9) My Share USD(10) Date Added(11)
+  //   Last Updated(12) Notes(13) Plaid Account ID(14) Address(15) Cost Basis(16) Details(17)
+  var assets = ss.getSheetByName('Assets');
+  if (assets) {
+    [[1,30],[2,220],[3,170],[4,160],[5,70],[6,120],[7,80],[8,120],
+     [9,90],[10,130],[11,100],[12,110],[13,200],[15,180],[16,120]]
+      .forEach(function(w){ assets.setColumnWidth(w[0], w[1]); });
+    assets.hideColumns(14);  // Plaid Account ID — internal
+    assets.hideColumns(17);  // Details JSON blob — internal
+
+    var N = 2000;
+    // Category dropdown
+    assets.getRange(2, 3, N).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(CATEGORIES, true)
+        .setAllowInvalid(false).setHelpText('Select a category').build());
+    // Currency dropdown
+    assets.getRange(2, 5, N).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(CURRENCIES, true)
+        .setAllowInvalid(false).build());
+    // Number formats
+    assets.getRange(2,  6, N).setNumberFormat('#,##0.00');    // Local Value
+    assets.getRange(2,  7, N).setNumberFormat('0.000000');    // USD Rate
+    assets.getRange(2,  8, N).setNumberFormat('$#,##0.00');   // USD Value
+    assets.getRange(2,  9, N).setNumberFormat('0.00');        // My Share %
+    assets.getRange(2, 10, N).setNumberFormat('$#,##0.00');   // My Share USD
+    assets.getRange(2, 16, N).setNumberFormat('$#,##0.00');   // Cost Basis
+    assets.setFrozenRows(1);
+    protectHeader_(assets);
+  }
+
+  // ── Liabilities sheet ───────────────────────────────────────────────────
+  // Columns: ID(1) Name(2) Type(3) Currency(4) Amount(5) USD Value(6)
+  //   Date Added(7) Last Updated(8) Notes(9) Location(10) Details(11)
+  var liabs = ss.getSheetByName('Liabilities');
+  if (liabs) {
+    [[1,30],[2,220],[3,160],[4,70],[5,120],[6,120],[7,100],[8,110],[9,220],[10,160]]
+      .forEach(function(w){ liabs.setColumnWidth(w[0], w[1]); });
+    liabs.hideColumns(11); // Details JSON
+    var liabTypes = ['Mortgage','Auto Loan','Personal Loan','Credit Card',
+                     'Line of Credit','Business Loan','Student Loan','Other'];
+    liabs.getRange(2, 3, 1000).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(liabTypes, true)
+        .setAllowInvalid(true).build());
+    liabs.getRange(2, 4, 1000).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(CURRENCIES, true)
+        .setAllowInvalid(false).build());
+    liabs.getRange(2, 5, 1000).setNumberFormat('#,##0.00');
+    liabs.getRange(2, 6, 1000).setNumberFormat('$#,##0.00');
+    liabs.setFrozenRows(1);
+    protectHeader_(liabs);
+  }
+
+  // ── Entities sheet ──────────────────────────────────────────────────────
+  var ents = ss.getSheetByName('Entities');
+  if (ents) {
+    [[1,200],[2,140],[3,140],[4,90],[5,260]]
+      .forEach(function(w){ ents.setColumnWidth(w[0], w[1]); });
+    ents.getRange(2, 4, 500).setNumberFormat('0.00');
+    ents.setFrozenRows(1);
+    protectHeader_(ents);
+  }
+
+  // ── FX Rates sheet ──────────────────────────────────────────────────────
+  var fx = ss.getSheetByName('FX Rates');
+  if (fx) {
+    fx.setColumnWidth(1, 100); fx.setColumnWidth(2, 130); fx.setColumnWidth(3, 160);
+    fx.getRange(2, 2, 100).setNumberFormat('0.000000');
+    fx.setFrozenRows(1);
+    protectHeader_(fx);
+  }
+
+  // ── History sheet ───────────────────────────────────────────────────────
+  var hist = ss.getSheetByName('History');
+  if (hist) {
+    [[1,110],[2,220],[3,120],[4,120],[5,120],[6,80],[7,220]]
+      .forEach(function(w){ hist.setColumnWidth(w[0], w[1]); });
+    hist.getRange(2, 3, 5000, 3).setNumberFormat('$#,##0.00');
+    hist.setFrozenRows(1);
+    protectHeader_(hist);
+  }
+
+  // ── Snapshots sheet ─────────────────────────────────────────────────────
+  var snap = ss.getSheetByName('Snapshots');
+  if (snap) {
+    snap.getRange(2, 6, 10000).setNumberFormat('$#,##0.00'); // My Share USD
+    snap.setFrozenRows(1);
+    protectHeader_(snap);
+  }
+
+  // ── Asset Details & Liability Details ────────────────────────────────────
+  ['Asset Details', 'Liability Details'].forEach(function(name) {
+    var s = ss.getSheetByName(name);
+    if (s) { s.setFrozenRows(1); protectHeader_(s); }
+  });
+
+  SpreadsheetApp.flush();
+  ss.toast('Database structure configured! Tab colors, validation, formatting, and header protection applied.', 'Setup Complete', 8);
+  return { success: true };
+}
+
+function protectHeader_(sheet) {
+  // Remove any existing header protections first
+  sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function(p) {
+    try {
+      var r = p.getRange();
+      if (r.getRow() === 1 && r.getNumRows() === 1) p.remove();
+    } catch(e) {}
+  });
+  var protection = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).protect();
+  protection.setDescription('Header row — managed by system');
+  protection.setWarningOnly(true); // warns before editing but doesn't block
 }
