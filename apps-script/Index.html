@@ -1680,12 +1680,8 @@ function renderMNWList(){
           const parts=[];
           // Borrower sub-label (loans only)
           if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
-          // PE sub-labels: total invested + rate
+          // PE sub-labels: rate only (value already shown on right)
           if(a.Category==='Private Equity'){
-            const peInit  = parseFloat(det.peInitial)||0;
-            const peCalls = (det.capitalCalls||[]).reduce((s,c)=>s+(parseFloat(c.amount)||0),0);
-            const peTotal = peInit + peCalls;
-            if(peTotal>0) parts.push('Invested: '+fmtUSD(peTotal));
             if(det.peRate) parts.push(esc(det.peRate));
           }
           // Due date — check both loan and PE maturity fields
