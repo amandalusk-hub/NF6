@@ -1130,6 +1130,94 @@ function ocZoomBy(factor) {
   document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
 }
 
+// Single click — only open modal if not a drag
+function ocNodeClick(e, id) {
+  if (oc.drag && (Math.abs(e.clientX - oc.drag.startMX) > 4 || Math.abs(e.clientY - oc.drag.startMY) > 4)) return;
+  openOCNodeModal(id);
+}
+
+// Right-click context menu
+function ocNodeRightClick(e, id) {
+  e.stopPropagation();
+  const node = oc.nodes.find(n => n['ID'] == id);
+  oc._ctxId = id;
+  const menu = document.getElementById('oc-ctx');
+  document.getElementById('oc-ctx-name').textContent = node ? node['Name'] : '';
+  menu.style.display = 'block';
+  menu.style.left = e.clientX + 'px';
+  menu.style.top  = e.clientY + 'px';
+  // Hide on next click anywhere
+  setTimeout(() => document.addEventListener('click', function hide(){ menu.style.display='none'; document.removeEventListener('click',hide); }, {once:true}), 10);
+}
+function ocCtxEdit()   { document.getElementById('oc-ctx').style.display='none'; openOCNodeModal(oc._ctxId); }
+function ocCtxDelete() {
+  document.getElementById('oc-ctx').style.display='none';
+  const node = oc.nodes.find(n => n['ID'] == oc._ctxId);
+  if (!node) return;
+  if (!confirm('Delete "' + node['Name'] + '"? This cannot be undone.')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(r => { showLoading(false); if(r&&r.success===false){toast(r.error||'Delete failed','error');return;} toast('Entity deleted'); loadData(); })
+    .withFailureHandler(e => { showLoading(false); toast(e.message,'error'); })
+    .deleteOrgNode(oc._ctxId);
+}
+
+// Auto layout — positions nodes in a proper layered tree
+function ocAutoLayout() {
+  const visible = ocVisibleNodes();
+  if (!visible.length) { toast('No nodes to lay out','error'); return; }
+  const W = oc.NODE_W + 60;
+  const H = 180;
+  const idSet = new Set(visible.map(n => n['ID']));
+
+  // Assign levels via BFS from roots
+  const level = {};
+  const roots = visible.filter(n => !n.parents.some(p => idSet.has(p)));
+  roots.forEach(n => { level[n['ID']] = 0; });
+  const queue = roots.map(n => n['ID']);
+  let qi = 0;
+  while (qi < queue.length) {
+    const nid = queue[qi++];
+    visible.filter(n => n.parents.includes(nid)).forEach(child => {
+      const newLv = (level[nid] || 0) + 1;
+      if (level[child['ID']] === undefined || level[child['ID']] < newLv) {
+        level[child['ID']] = newLv;
+        queue.push(child['ID']);
+      }
+    });
+  }
+  visible.forEach(n => { if (level[n['ID']] === undefined) level[n['ID']] = 0; });
+
+  // Group by level
+  const byLevel = {};
+  visible.forEach(n => {
+    const lv = level[n['ID']];
+    if (!byLevel[lv]) byLevel[lv] = [];
+    byLevel[lv].push(n);
+  });
+
+  // Position: center each level row
+  const maxPerRow = Math.max(...Object.values(byLevel).map(a => a.length));
+  const canvasW = maxPerRow * W;
+  Object.entries(byLevel).forEach(([lv, nodes]) => {
+    const rowW = nodes.length * W;
+    const startX = (canvasW - rowW) / 2;
+    nodes.forEach((n, i) => {
+      n['X'] = startX + i * W + 60;
+      n['Y'] = parseInt(lv) * H + 60;
+    });
+  });
+
+  renderOrgChart();
+  ocFitView();
+
+  const posData = visible.map(n => ({ id: n['ID'], x: n['X'], y: n['Y'] }));
+  google.script.run
+    .withSuccessHandler(() => toast('Layout saved'))
+    .withFailureHandler(e => toast(e.message,'error'))
+    .saveOrgPositions(JSON.stringify(posData));
+}
+
 // ── Mouse events ──
 function ocNodeDown(e, id) {
   e.stopPropagation();
