@@ -107,7 +107,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .mnw-row-right{display:flex;align-items:center;gap:20px;flex-shrink:0}
 .mnw-row-age{font-size:11px;color:#999;min-width:80px;text-align:right}
 .mnw-row-val{font-size:13px;font-weight:600;color:#0d2137;min-width:90px;text-align:right}
-.mnw-col{max-height:520px;overflow-y:auto}
+.mnw-col{}
 /* Detail sections */
 .detail-section{margin-bottom:22px;padding-bottom:22px;border-bottom:1px solid #f0f0f0}
 .detail-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
@@ -187,14 +187,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="card">
         <div class="section-title">Assets by Category</div>
         <div class="chart-wrap">
-          <svg id="donut-svg" width="160" height="160" viewBox="0 0 160 160"></svg>
+          <svg id="donut-svg" width="220" height="220" viewBox="0 0 220 220"></svg>
           <div class="legend" id="donut-legend"></div>
         </div>
       </div>
       <div class="card">
         <div class="section-title">Liabilities by Type</div>
         <div class="chart-wrap" id="liab-chart-wrap">
-          <svg id="liab-donut-svg" width="160" height="160" viewBox="0 0 160 160"></svg>
+          <svg id="liab-donut-svg" width="220" height="220" viewBox="0 0 220 220"></svg>
           <div class="legend" id="liab-donut-legend"></div>
         </div>
         <div id="liab-empty" style="display:none" class="no-data">No liabilities recorded</div>
@@ -378,6 +378,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary btn-sm" onclick="ocFitView()" style="font-size:12px">Fit View</button>
+        <button class="btn btn-secondary btn-sm" onclick="ocAutoLayout()" style="font-size:12px">Auto Layout</button>
         <button class="btn btn-primary" onclick="openOCNodeModal(null)" style="font-size:13px">+ Add Entity</button>
       </div>
     </div>
@@ -481,6 +482,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <button class="btn btn-primary" onclick="saveOCNode()">Save Entity</button>
     </div>
   </div>
+</div>
+
+<!-- Org Chart Context Menu -->
+<div id="oc-ctx" style="display:none;position:fixed;background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:4px 0;z-index:2000;min-width:160px;box-shadow:0 6px 20px rgba(0,0,0,.5)">
+  <div id="oc-ctx-name" style="padding:8px 16px;font-size:12px;color:#9db4cc;border-bottom:1px solid #1a3050;font-weight:600"></div>
+  <div onclick="ocCtxEdit()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e0e8f0" onmouseover="this.style.background='#1a3050'" onmouseout="this.style.background=''">✏️ Edit Entity</div>
+  <div onclick="ocCtxDelete()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e57373" onmouseover="this.style.background='#2a1a1a'" onmouseout="this.style.background=''">🗑️ Delete Entity</div>
 </div>
 
 <!-- Asset Modal -->
@@ -869,21 +877,33 @@ const state = {
 
 // ── Category colors ────────────────────────────────────────────────────────
 const CAT_COLORS = {
-  'Real Estate - United States':      '#1a73e8',
-  'Real Estate - Colombia':           '#1557b0',
-  'Real Estate - Puerto Rico':        '#1976d2',
-  'Real Estate - Dominican Republic': '#0d47a1',
-  'Real Estate - Europe':             '#2196f3',
-  'Cash - Personal':                  '#43a047',
-  'Cash - Business':                  '#2e7d32',
-  'Private Equity':                   '#7c4dff',
-  'Public Equity (Dividends)':        '#00897b',
-  'Public Equity (Growth)':           '#00acc1',
+  'Art/Jewelry/Other':                '#4285F4',
+  'ART/JEWELRY/OTHER':                '#4285F4',
+  'Automobile':                       '#EA4335',
+  'AUTOMOBILE':                       '#EA4335',
+  'Cash - Business':                  '#FBBC04',
+  'CASH - BUSINESS':                  '#FBBC04',
+  'Cash - Personal':                  '#34A853',
+  'CASH - PERSONAL':                  '#34A853',
+  'Private Equity':                   '#FF6D00',
+  'PRIVATE EQUITY':                   '#FF6D00',
+  'Public Equity (Dividends)':        '#00BCD4',
+  'PUBLIC EQUITY (DIVIDENDS)':        '#00BCD4',
+  'Public Equity (Growth)':           '#8BC34A',
+  'PUBLIC EQUITY (GROWTH)':           '#8BC34A',
+  'Real Estate - Colombia':           '#CDDC39',
+  'REAL ESTATE - COLOMBIA':           '#CDDC39',
+  'Real Estate - Dominican Republic': '#1565C0',
+  'REAL ESTATE - DOMINICAN REPUBLIC': '#1565C0',
+  'Real Estate - Europe':             '#F48FB1',
+  'REAL ESTATE - EUROPE':             '#F48FB1',
+  'Real Estate - Puerto Rico':        '#B71C1C',
+  'REAL ESTATE - PUERTO RICO':        '#B71C1C',
+  'Real Estate - United States':      '#E91E63',
+  'REAL ESTATE - UNITED STATES':      '#E91E63',
+  'VIP Medical Group':                '#1E88E5',
+  'VIP MEDICAL GROUP':                '#1E88E5',
   'Loans Receivable':                 '#f57c00',
-  'Automobile':                       '#fb8c00',
-  'Art/Jewelry/Other':                '#e91e63',
-  'Crypto':                           '#f4511e',
-  'VIP Medical Group':                '#0288d1',
   'Insurance':                        '#8d6e63',
   'Other':                            '#78909c'
 };
@@ -1054,7 +1074,8 @@ function renderOrgChart() {
     const id = escX(node['ID']);
     nodesSVG += `<g class="oc-node" data-id="${id}"
         onmousedown="ocNodeDown(event,'${id}')"
-        ondblclick="openOCNodeModal('${id}')"
+        onclick="ocNodeClick(event,'${id}')"
+        oncontextmenu="ocNodeRightClick(event,'${id}');return false;"
         style="cursor:pointer">
       <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8"
         fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
@@ -1309,32 +1330,34 @@ function renderDashboard(){
 }
 
 function renderDonut(){
-  const totByCat = {};
+  const totByCat={};
   state.assets.forEach(a=>{
     const c=a.Category||'Other';
     totByCat[c]=(totByCat[c]||0)+num(a['My Share USD']);
   });
-  const total = Object.values(totByCat).reduce((s,v)=>s+v,0)||1;
-  const entries = Object.entries(totByCat).sort((a,b)=>b[1]-a[1]);
-  const cx=80,cy=80,r=60,ri=36;
+  const total=Object.values(totByCat).reduce((s,v)=>s+v,0)||1;
+  const entries=Object.entries(totByCat).sort((a,b)=>b[1]-a[1]);
+  const cx=110,cy=110,r=95;
   let angle=-Math.PI/2;
-  let paths='';
+  let paths='',labels='';
   entries.forEach(([cat,val])=>{
     const pct=val/total;
     const a2=angle+pct*2*Math.PI;
     if(pct<0.001){angle=a2;return;}
     const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
     const x2=cx+r*Math.cos(a2),  y2=cy+r*Math.sin(a2);
-    const xi1=cx+ri*Math.cos(angle),yi1=cy+ri*Math.sin(angle);
-    const xi2=cx+ri*Math.cos(a2),  yi2=cy+ri*Math.sin(a2);
     const large=pct>0.5?1:0;
     const color=catColor(cat);
-    paths+=`<path d="M${xi1},${yi1} A${ri},${ri} 0 ${large} 1 ${xi2},${yi2} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x1},${y1} Z" fill="${color}" opacity=".9"/>`;
+    paths+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${color}" stroke="#fff" stroke-width="1"/>`;
+    if(pct>0.03){
+      const mid=(angle+a2)/2;
+      const lr=r*0.65;
+      labels+=`<text x="${(cx+lr*Math.cos(mid)).toFixed(1)}" y="${(cy+lr*Math.sin(mid)).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="9.5" font-weight="700">${(pct*100).toFixed(1)}%</text>`;
+    }
     angle=a2;
   });
-  document.getElementById('donut-svg').innerHTML=paths;
-  const leg=document.getElementById('donut-legend');
-  leg.innerHTML=entries.slice(0,8).map(([cat,val])=>`
+  document.getElementById('donut-svg').innerHTML=paths+labels;
+  document.getElementById('donut-legend').innerHTML=entries.map(([cat,val])=>`
     <div class="legend-item">
       <div class="legend-dot" style="background:${catColor(cat)}"></div>
       <span>${esc(cat)}</span>
@@ -1342,38 +1365,55 @@ function renderDonut(){
     </div>`).join('');
 }
 
-const LIAB_COLORS=['#e53935','#f4511e','#fb8c00','#fdd835','#8d6e63','#78909c','#d81b60','#00897b'];
+const LIAB_COLORS={
+  'Credit Card':                        '#4285F4',
+  'CREDIT CARD':                        '#4285F4',
+  'Real Estate - Colombia (Liability)': '#EA4335',
+  'REAL ESTATE - COLOMBIA (LIABILITY)': '#EA4335',
+  'Real Estate - Puerto Rico':          '#FBBC04',
+  'REAL ESTATE - PUERTO RICO':          '#FBBC04',
+  'Real Estate - United States':        '#FF6D00',
+  'REAL ESTATE - UNITED STATES':        '#FF6D00',
+  'Mortgage':                           '#9C27B0',
+  'Auto Loan':                          '#00BCD4',
+  'Personal Loan':                      '#8BC34A',
+  'Other':                              '#78909c'
+};
+function liabColor(t,i){return LIAB_COLORS[t]||['#e53935','#fb8c00','#fdd835','#8d6e63','#d81b60','#00897b','#5c6bc0','#26a69a'][i%8];}
 
 function renderLiabDonut(){
-  const liabs=state.liabilities;
+  const liabs=state.liabilities||[];
   const totByType={};
   liabs.forEach(l=>{const t=l.Type||'Other';totByType[t]=(totByType[t]||0)+num(l['USD Value']);});
   const total=Object.values(totByType).reduce((s,v)=>s+v,0);
   const wrap=document.getElementById('liab-chart-wrap');
   const empty=document.getElementById('liab-empty');
-  if(!wrap||!empty) return;
+  if(!wrap||!empty)return;
   if(!total){wrap.style.display='none';empty.style.display='block';return;}
   wrap.style.display='flex';empty.style.display='none';
   const entries=Object.entries(totByType).sort((a,b)=>b[1]-a[1]);
-  const cx=80,cy=80,r=60,ri=36;
-  let angle=-Math.PI/2,paths='';
+  const cx=110,cy=110,r=95;
+  let angle=-Math.PI/2,paths='',labels='';
   entries.forEach(([type,val],idx)=>{
     const pct=val/total;
     const a2=angle+pct*2*Math.PI;
     if(pct<0.001){angle=a2;return;}
     const x1=cx+r*Math.cos(angle),y1=cy+r*Math.sin(angle);
     const x2=cx+r*Math.cos(a2),  y2=cy+r*Math.sin(a2);
-    const xi1=cx+ri*Math.cos(angle),yi1=cy+ri*Math.sin(angle);
-    const xi2=cx+ri*Math.cos(a2),  yi2=cy+ri*Math.sin(a2);
     const large=pct>0.5?1:0;
-    const color=LIAB_COLORS[idx%LIAB_COLORS.length];
-    paths+=`<path d="M${xi1},${yi1} A${ri},${ri} 0 ${large} 1 ${xi2},${yi2} L${x2},${y2} A${r},${r} 0 ${large} 0 ${x1},${y1} Z" fill="${color}" opacity=".9"/>`;
+    const color=liabColor(type,idx);
+    paths+=`<path d="M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z" fill="${color}" stroke="#fff" stroke-width="1"/>`;
+    if(pct>0.03){
+      const mid=(angle+a2)/2;
+      const lr=r*0.65;
+      labels+=`<text x="${(cx+lr*Math.cos(mid)).toFixed(1)}" y="${(cy+lr*Math.sin(mid)).toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="9.5" font-weight="700">${(pct*100).toFixed(1)}%</text>`;
+    }
     angle=a2;
   });
-  document.getElementById('liab-donut-svg').innerHTML=paths;
+  document.getElementById('liab-donut-svg').innerHTML=paths+labels;
   document.getElementById('liab-donut-legend').innerHTML=entries.map(([type,val],idx)=>`
     <div class="legend-item">
-      <div class="legend-dot" style="background:${LIAB_COLORS[idx%LIAB_COLORS.length]}"></div>
+      <div class="legend-dot" style="background:${liabColor(type,idx)}"></div>
       <span>${esc(type)}</span>
       <span class="legend-pct">${((val/total)*100).toFixed(1)}%</span>
     </div>`).join('');
