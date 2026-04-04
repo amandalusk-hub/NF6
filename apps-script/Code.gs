@@ -1440,47 +1440,69 @@ function syncPlaidAccounts() {
       var data = JSON.parse(resp.getContentText());
       if (!data.accounts) return;
 
+      // Look up institution (bank) name — one call per token, not per account
+      var bankName = '';
+      try {
+        var instId = data.item && data.item.institution_id;
+        if (instId) {
+          var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
+            method: 'POST',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              client_id: cfg.clientId, secret: cfg.secret,
+              institution_id: instId,
+              country_codes: ['US','PR','CO','DO','GB','FR','ES']
+            }),
+            muteHttpExceptions: true
+          });
+          var instData = JSON.parse(instResp.getContentText());
+          if (instData.institution) bankName = instData.institution.name;
+        }
+      } catch(e) { console.warn('Could not fetch institution name:', e.message); }
+
       data.accounts.forEach(function(acct) {
         var balance  = (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0;
-        var acctName = (acct.name || 'Account') + ' ···' + (acct.mask || '');
+        var acctName = (bankName ? bankName + ' — ' : '') + (acct.name || 'Account') + ' ···' + (acct.mask || '');
         var acctId   = acct.account_id;
         var sheet    = getSheet_('ASSETS');
         var rows     = sheet.getDataRange().getValues();
         var found    = false;
 
+        // First pass: match by Plaid Account ID (most reliable)
         var matchRow = -1;
-        // First pass: exact match by Plaid Account ID or name+category
         for (var i = 1; i < rows.length; i++) {
-          if (rows[i][13] === acctId || (rows[i][1] === acctName && rows[i][2] === 'Cash')) {
-            matchRow = i;
-            break;
-          }
+          if (rows[i][13] === acctId) { matchRow = i; break; }
         }
-        // Second pass: claim any unlinked Cash asset (no Plaid ID set)
+        // Second pass: claim any unlinked Cash - Business or Cash - Personal row
         if (matchRow === -1) {
           for (var i = 1; i < rows.length; i++) {
-            if (rows[i][2] === 'Cash' && !rows[i][13]) {
-              matchRow = i;
-              break;
+            var cat = String(rows[i][2] || '');
+            if ((cat === 'Cash - Business' || cat === 'Cash - Personal') && !rows[i][13]) {
+              matchRow = i; break;
             }
           }
         }
 
         if (matchRow !== -1) {
           var oldUsd = Number(rows[matchRow][7]) || 0;
-          sheet.getRange(matchRow + 1, 2).setValue(acctName);   // update Name from Plaid
-          sheet.getRange(matchRow + 1, 6).setValue(balance);
-          sheet.getRange(matchRow + 1, 7).setValue(1);
-          sheet.getRange(matchRow + 1, 8).setValue(balance);
-          sheet.getRange(matchRow + 1, 10).setValue(balance);
-          sheet.getRange(matchRow + 1, 12).setValue(new Date());
-          sheet.getRange(matchRow + 1, 14).setValue(acctId);
+          var sharePct = Number(rows[matchRow][8]) || 100;
+          var newRow = rows[matchRow].slice();
+          newRow[1]  = acctName;               // Name (includes bank)
+          newRow[5]  = balance;                 // Local Value
+          newRow[6]  = 1;                       // USD Rate
+          newRow[7]  = balance;                 // USD Value
+          newRow[9]  = sharePct;                // My Share % (keep existing)
+          newRow[10] = balance * sharePct / 100; // My Share USD
+          newRow[11] = new Date();              // Last Updated
+          newRow[13] = acctId;                  // Plaid Account ID
+          sheet.getRange(matchRow + 1, 1, 1, newRow.length).setValues([newRow]);
           if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
           found = true;
         }
 
         if (!found) {
-          addAsset({ name: acctName, category: 'Cash', currency: 'USD', localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
+          addAsset({ name: acctName, category: 'Cash - Business', currency: 'USD',
+                     localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
           var newRows = sheet.getDataRange().getValues();
           sheet.getRange(newRows.length, 14).setValue(acctId);
         }
