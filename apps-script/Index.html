@@ -1192,7 +1192,7 @@ function renderOrgChart() {
     const H  = ocNodeHeight(node);
     const x  = node['X'];
     const y  = node['Y'];
-    const bg = node['Color'] || (OC_NODE_TYPES[node['Node Type'] || ''] || {}).color || '#1e3a5c';
+    const bg = node['Color'] || OC_NODE_TYPES[node['Node Type'] || '']?.color || '#1e3a5c';
     const tc = node['Text Color'] || '#ffffff';
     const ntype = node['Node Type'] || '';
     const owLines = node['Ownership'] ? node['Ownership'].split('\n').filter(Boolean).slice(0,3) : [];
