@@ -466,6 +466,60 @@ function getFxRate_(currency) {
   return (result.success && result.rates[currency]) ? result.rates[currency] : 1;
 }
 
+/**
+ * Get today's exchange rate for a currency to USD.
+ * Use directly in sheet cells: =FX_RATE("COP")
+ * @param {string} currencyCode - ISO 4217 code (e.g. "COP", "EUR")
+ * @return {number} Rate: 1 unit of currencyCode = X USD
+ * @customfunction
+ */
+function FX_RATE(currencyCode) {
+  if (!currencyCode) return '';
+  currencyCode = currencyCode.toString().trim().toUpperCase();
+  if (currencyCode === 'USD') return 1;
+
+  var cache    = CacheService.getScriptCache();
+  var cacheKey = 'fx_' + currencyCode + '_USD';
+  var cached   = cache.get(cacheKey);
+  if (cached) return Number(cached);
+
+  try {
+    var apiKey  = PropertiesService.getScriptProperties().getProperty('EXCHANGERATE_API_KEY');
+    var baseUrl = apiKey
+      ? 'https://v6.exchangerate-api.com/v6/' + apiKey + '/latest/' + currencyCode
+      : 'https://open.er-api.com/v6/latest/' + currencyCode;
+
+    var resp = UrlFetchApp.fetch(baseUrl, { muteHttpExceptions: true });
+    if (resp.getResponseCode() !== 200) return 'Error: HTTP ' + resp.getResponseCode();
+
+    var data = JSON.parse(resp.getContentText());
+    if (!data.rates || !data.rates['USD']) return 'Error: no rate';
+
+    var rate = data.rates['USD'];
+    cache.put(cacheKey, rate.toString(), 14400); // cache 4 hours
+    return rate;
+  } catch(e) {
+    return 'Error: ' + e.message;
+  }
+}
+
+/**
+ * Convert a foreign currency amount to USD.
+ * Use directly in sheet cells: =TO_USD(1000000, "COP")
+ * @param {number} amount
+ * @param {string} currencyCode - ISO 4217 code
+ * @return {number} USD equivalent
+ * @customfunction
+ */
+function TO_USD(amount, currencyCode) {
+  if (!amount || !currencyCode) return '';
+  currencyCode = currencyCode.toString().trim().toUpperCase();
+  if (currencyCode === 'USD') return Number(amount);
+  var rate = FX_RATE(currencyCode);
+  if (typeof rate !== 'number') return rate;
+  return Number(amount) * rate;
+}
+
 // ── Assets CRUD ───────────────────────────────────────────────────────────────
 
 function addAsset(data) {
@@ -1089,6 +1143,24 @@ function refreshPropertyValues() {
   return { success: true, updated: updated, errors: errors };
 }
 
+function lookupSingleProperty() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Property Lookup', 'Enter full US address (e.g. 123 Main St, Houston, TX 77001):', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var address = resp.getResponseText().trim();
+  if (!address) return;
+  var result = getPropertyValue(address);
+  if (result.success) {
+    ui.alert('Property Estimate',
+      address + '\n\n' +
+      'Value:  $' + formatNumber_(result.value) + '\n' +
+      'Range:  $' + formatNumber_(result.lowValue) + ' – $' + formatNumber_(result.highValue),
+      ui.ButtonSet.OK);
+  } else {
+    ui.alert('Could not get estimate: ' + result.error);
+  }
+}
+
 function getPropertyValue(address) {
   if (!address) return { success: false, error: 'No address provided' };
   var props = PropertiesService.getScriptProperties();
@@ -1133,6 +1205,40 @@ function getApiNinjasEstimate_(address, apiKey) {
   } catch(e) {
     return { success: false, error: e.message };
   }
+}
+
+function getRentcastEstimate_(address, apiKey) {
+  try {
+    var url  = 'https://api.rentcast.io/v1/avm/value?address=' + encodeURIComponent(address);
+    var resp = UrlFetchApp.fetch(url, {
+      method: 'GET', headers: { 'X-Api-Key': apiKey }, muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    if (code === 401) return { success: false, error: 'Rentcast API key inactive — subscription required at rentcast.io' };
+    if (code === 404) return { success: false, error: 'Address not found in Rentcast database' };
+    if (code === 429) return { success: false, error: 'Rentcast rate limit hit (50 requests/month on free tier)' };
+    if (code !== 200) return { success: false, error: 'Rentcast HTTP ' + code };
+    var data  = JSON.parse(resp.getContentText());
+    var value = data.price || data.value || data.priceRangeMid || null;
+    if (!value) return { success: false, error: 'No valuation returned' };
+    return {
+      success:   true,
+      value:     Math.round(value),
+      lowValue:  Math.round(data.priceLow  || value * 0.95),
+      highValue: Math.round(data.priceHigh || value * 1.05)
+    };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function formatNumber_(n) {
+  if (!n) return '0';
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function formatDate_(d) {
+  return (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
 }
 
 // ── History ───────────────────────────────────────────────────────────────────
@@ -1386,6 +1492,62 @@ function syncPlaidAccounts() {
   });
 
   return { success: true, synced: synced };
+}
+
+// ── Plaid UI Helpers ──────────────────────────────────────────────────────────
+
+function setPlaidCredentials() {
+  var ui       = SpreadsheetApp.getUi();
+  var clientId = ui.prompt('Plaid Setup', 'Enter your Plaid Client ID:', ui.ButtonSet.OK_CANCEL);
+  if (clientId.getSelectedButton() !== ui.Button.OK) return;
+  var secret   = ui.prompt('Plaid Setup', 'Enter your Plaid Secret:', ui.ButtonSet.OK_CANCEL);
+  if (secret.getSelectedButton() !== ui.Button.OK) return;
+  var env      = ui.prompt('Plaid Setup', 'Environment (sandbox / production):', ui.ButtonSet.OK_CANCEL);
+  if (env.getSelectedButton() !== ui.Button.OK) return;
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('PLAID_CLIENT_ID', clientId.getResponseText().trim());
+  props.setProperty('PLAID_SECRET',    secret.getResponseText().trim());
+  props.setProperty('PLAID_ENV',       env.getResponseText().trim() || 'sandbox');
+  ui.alert('Plaid credentials saved. You can now connect bank accounts.');
+}
+
+function openPlaidLink() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    var ui   = SpreadsheetApp.getUi();
+    var resp = ui.alert('Plaid Not Configured', 'Plaid credentials are not set. Would you like to set them now?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.YES) setPlaidCredentials();
+    return;
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLink')
+    .setTitle('Connect Bank Account')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function handlePlaidSuccess(publicToken) {
+  try {
+    var exchResult = exchangePlaidToken(publicToken);
+    if (!exchResult.success) return { success: false, message: exchResult.error };
+    var syncResult = syncPlaidAccounts();
+    return { success: true, message: 'Bank connected! ' + (syncResult.synced || 0) + ' account(s) synced to Assets tab.' };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
+function removePlaidConnection() {
+  var ui     = SpreadsheetApp.getUi();
+  var props  = PropertiesService.getScriptProperties();
+  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) { ui.alert('No Plaid connections to remove.'); return; }
+  var resp = ui.alert('Remove Plaid Connections',
+    'This will disconnect all ' + tokens.length + ' bank connection(s). Continue?',
+    ui.ButtonSet.YES_NO);
+  if (resp === ui.Button.YES) {
+    props.deleteProperty('PLAID_TOKENS');
+    ui.alert('All Plaid connections removed.');
+  }
 }
 
 function fixSheetHeaders() {
