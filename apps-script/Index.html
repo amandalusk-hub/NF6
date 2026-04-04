@@ -1043,7 +1043,7 @@ function onDataLoaded(d){
   state.liabilities = d.liabilities || [];
   state.entities    = d.entities    || [];
   state.fxRates     = d.fxRates     || [];
-  state.history     = d.history     || [];
+  state.history     = d.history     || []; // kept for History tab
   state.snapshots   = d.snapshots   || [];
   state.categories  = d.categories  || [];
   state.currencies  = d.currencies  || [];
@@ -1078,8 +1078,24 @@ function onDataLoaded(d){
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
-  if(name==='balance') renderBalanceHistory();
+  if(name==='balance')  renderBalanceHistory();
   if(name==='orgchart') loadAndRenderOrgChart();
+  if(name==='history')  ensureHistoryLoaded();
+}
+
+// ── History lazy-load ─────────────────────────────────────────────────────
+let _histLoaded = false;
+function ensureHistoryLoaded(callback) {
+  if (_histLoaded) { if(callback) callback(); return; }
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      state.history = rows || [];
+      _histLoaded = true;
+      renderHistoryTable();
+      if(callback) callback();
+    })
+    .withFailureHandler(function(e){ toast('Could not load history: '+e.message,'error'); })
+    .getHistoryData();
 }
 
 // ── Org Chart ──────────────────────────────────────────────────────────────
@@ -2243,32 +2259,37 @@ function openAssetDetail(id){
   sv('d-loan-attorney',    det.loanAttorney||'');
   sv('d-loan-notes',       det.loanNotes||'');
 
-  // Asset-specific history
-  const hist=(state.history||[]).filter(h=>h['Asset Name']===asset.Name);
+  // Asset-specific history — loaded lazily from server
   const hDiv=document.getElementById('detail-history');
-  if(!hist.length){
-    hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">No value changes recorded yet.</p>';
-  }else{
-    hDiv.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead><tr style="background:#f8f9ff">
-        <th style="padding:7px 10px;text-align:left;font-weight:600">Date</th>
-        <th style="padding:7px 10px;text-align:right;font-weight:600">Old Value</th>
-        <th style="padding:7px 10px;text-align:right;font-weight:600">New Value</th>
-        <th style="padding:7px 10px;text-align:right;font-weight:600">Change</th>
-        <th style="padding:7px 10px;text-align:left;font-weight:600">Notes</th>
-      </tr></thead>
-      <tbody>${[...hist].reverse().slice(0,25).map(h=>{
-        const d=num(h['New Value USD'])-num(h['Old Value USD']);
-        return`<tr style="border-bottom:1px solid #f0f0f0">
-          <td style="padding:7px 10px">${fmtDate(h.Date)}</td>
-          <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['Old Value USD']))}</td>
-          <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['New Value USD']))}</td>
-          <td style="padding:7px 10px;text-align:right;font-weight:600;color:${d>=0?'#1e8e3e':'#c5221f'}">${d>=0?'+':''}${fmtUSD(d)}</td>
-          <td style="padding:7px 10px;color:#666;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.Notes||'')}</td>
-        </tr>`;
-      }).join('')}</tbody>
-    </table>`;
-  }
+  hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">Loading history…</p>';
+  google.script.run
+    .withSuccessHandler(function(hist){
+      if(!hist||!hist.length){
+        hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">No value changes recorded yet.</p>';
+        return;
+      }
+      hDiv.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="background:#f8f9ff">
+          <th style="padding:7px 10px;text-align:left;font-weight:600">Date</th>
+          <th style="padding:7px 10px;text-align:right;font-weight:600">Old Value</th>
+          <th style="padding:7px 10px;text-align:right;font-weight:600">New Value</th>
+          <th style="padding:7px 10px;text-align:right;font-weight:600">Change</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:600">Notes</th>
+        </tr></thead>
+        <tbody>${[...hist].reverse().slice(0,25).map(h=>{
+          const d=num(h['New Value USD'])-num(h['Old Value USD']);
+          return`<tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:7px 10px">${fmtDate(h.Date)}</td>
+            <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['Old Value USD']))}</td>
+            <td style="padding:7px 10px;text-align:right">${fmtUSD(num(h['New Value USD']))}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:600;color:${d>=0?'#1e8e3e':'#c5221f'}">${d>=0?'+':''}${fmtUSD(d)}</td>
+            <td style="padding:7px 10px;color:#666;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.Notes||'')}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    })
+    .withFailureHandler(function(){ hDiv.innerHTML='<p style="color:#c5221f;font-size:13px">Could not load history.</p>'; })
+    .getAssetHistory(asset.Name);
   openModal('detail-modal');
 }
 

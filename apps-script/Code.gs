@@ -345,13 +345,31 @@ function sheetToObjects_(key) {
 function getFullData() {
   ensureSheets_();
 
-  // Auto-assign IDs to any asset rows that were manually entered without one
-  var assetSheet = getSheet_('ASSETS');
-  var assetRows  = assetSheet.getDataRange().getValues();
-  for (var i = 1; i < assetRows.length; i++) {
-    if (!assetRows[i][0]) {
-      assetSheet.getRange(i + 1, 1).setValue(Utilities.getUuid());
+  // Read ASSETS once and reuse for both ID assignment and data return
+  var assetSheet  = getSheet_('ASSETS');
+  var assetData   = assetSheet.getDataRange().getValues();
+  var assetHeader = assetData[0] || [];
+
+  // Auto-assign IDs to any rows missing one — batch all writes
+  var missingIdCells = [];
+  var uuidMap = {};
+  for (var i = 1; i < assetData.length; i++) {
+    if (!assetData[i][0]) {
+      var newId = Utilities.getUuid();
+      assetData[i][0] = newId;
+      uuidMap[i] = newId;
     }
+  }
+  Object.keys(uuidMap).forEach(function(rowIdx) {
+    assetSheet.getRange(Number(rowIdx) + 1, 1).setValue(uuidMap[rowIdx]);
+  });
+
+  function rowsToObjects(headers, rows) {
+    return rows.slice(1).map(function(row) {
+      var obj = {};
+      headers.forEach(function(h, j) { obj[h] = row[j]; });
+      return obj;
+    });
   }
 
   function clean(arr) {
@@ -364,21 +382,43 @@ function getFullData() {
     });
   }
 
-  var assetHeaderRow = assetSheet.getRange(1, 1, 1, Math.max(assetSheet.getLastColumn(), 1)).getValues()[0];
+  // Build asset objects from the already-read data (no second sheet read)
+  var assets = clean(rowsToObjects(assetHeader, assetData));
+
   return {
-    assets:      clean(sheetToObjects_('ASSETS')),
+    assets:      assets,
     liabilities: clean(sheetToObjects_('LIABILITIES')),
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
-    history:     clean(sheetToObjects_('HISTORY')),
+    // history omitted — fetched on demand via getAssetHistory() when detail panel opens
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
     currencies:  CURRENCIES,
     _debug: {
-      assetHeaders:  assetHeaderRow,
-      assetRowCount: Math.max(assetSheet.getLastRow() - 1, 0)
+      assetHeaders:  assetHeader,
+      assetRowCount: Math.max(assetData.length - 1, 0)
     }
   };
+}
+
+// Fetch history for a single asset — called lazily when detail panel opens
+function getAssetHistory(assetName) {
+  return sheetToObjects_('HISTORY')
+    .filter(function(h) { return h['Asset Name'] === assetName; })
+    .map(function(h) {
+      var out = {};
+      Object.keys(h).forEach(function(k) { out[k] = h[k] instanceof Date ? h[k].toISOString() : h[k]; });
+      return out;
+    });
+}
+
+// Fetch all history — called lazily when History tab is opened
+function getHistoryData() {
+  return sheetToObjects_('HISTORY').map(function(h) {
+    var out = {};
+    Object.keys(h).forEach(function(k) { out[k] = h[k] instanceof Date ? h[k].toISOString() : h[k]; });
+    return out;
+  });
 }
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────
