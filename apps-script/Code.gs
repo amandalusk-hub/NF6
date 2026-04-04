@@ -328,24 +328,6 @@ function getSheet_(key) {
   return getSpreadsheet_().getSheetByName(sheetName_(key));
 }
 
-// Fast read — bypasses ensureSheets_() entirely, for use in getFullData()
-function getSheetDirect_(key) {
-  return getSpreadsheet_().getSheetByName(sheetName_(key));
-}
-
-function sheetToObjectsDirect_(key) {
-  var sheet = getSheetDirect_(key);
-  if (!sheet) return [];
-  var data = sheet.getDataRange().getValues();
-  if (data.length < 2) return [];
-  var headers = data[0];
-  return data.slice(1).map(function(row) {
-    var obj = {};
-    headers.forEach(function(h, j) { obj[h] = row[j]; });
-    return obj;
-  });
-}
-
 function sheetToObjects_(key) {
   var sheet = getSheet_(key);
   var data  = sheet.getDataRange().getValues();
@@ -361,50 +343,67 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
-  try {
-    var ss = getSpreadsheet_();
+  ensureSheets_();
 
-    function readSheet(tabName) {
-      try {
-        var s = ss.getSheetByName(tabName);
-        if (!s) return [];
-        var d = s.getDataRange().getValues();
-        if (d.length < 2) return [];
-        var h = d[0];
-        return d.slice(1).map(function(r) {
-          var o = {};
-          h.forEach(function(k, j) { o[k] = r[j] instanceof Date ? r[j].toISOString() : r[j]; });
-          return o;
-        });
-      } catch(e) {
-        return { _sheetError: tabName + ': ' + e.message };
-      }
+  // Read ASSETS once and reuse for both ID assignment and data return
+  var assetSheet  = getSheet_('ASSETS');
+  var assetData   = assetSheet.getDataRange().getValues();
+  var assetHeader = assetData[0] || [];
+
+  // Auto-assign IDs to any rows missing one — batch all writes
+  var missingIdCells = [];
+  var uuidMap = {};
+  for (var i = 1; i < assetData.length; i++) {
+    if (!assetData[i][0]) {
+      var newId = Utilities.getUuid();
+      assetData[i][0] = newId;
+      uuidMap[i] = newId;
     }
-
-    var snapshots = [];
-    try { snapshots = getSnapshotTrend(); } catch(e) { snapshots = []; }
-
-    return {
-      assets:      readSheet('Assets'),
-      liabilities: readSheet('Liabilities'),
-      entities:    readSheet('Entities'),
-      fxRates:     readSheet('FX Rates'),
-      snapshots:   snapshots,
-      categories:  CATEGORIES,
-      currencies:  CURRENCIES
-    };
-  } catch(e) {
-    return {
-      assets:[], liabilities:[], entities:[], fxRates:[], snapshots:[],
-      categories:CATEGORIES, currencies:CURRENCIES,
-      _error: e.message + ' | stack: ' + (e.stack||'none')
-    };
   }
+  Object.keys(uuidMap).forEach(function(rowIdx) {
+    assetSheet.getRange(Number(rowIdx) + 1, 1).setValue(uuidMap[rowIdx]);
+  });
+
+  function rowsToObjects(headers, rows) {
+    return rows.slice(1).map(function(row) {
+      var obj = {};
+      headers.forEach(function(h, j) { obj[h] = row[j]; });
+      return obj;
+    });
+  }
+
+  function clean(arr) {
+    return arr.map(function(obj) {
+      var out = {};
+      Object.keys(obj).forEach(function(k) {
+        out[k] = obj[k] instanceof Date ? obj[k].toISOString() : obj[k];
+      });
+      return out;
+    });
+  }
+
+  // Build asset objects from the already-read data (no second sheet read)
+  var assets = clean(rowsToObjects(assetHeader, assetData));
+
+  return {
+    assets:      assets,
+    liabilities: clean(sheetToObjects_('LIABILITIES')),
+    entities:    clean(sheetToObjects_('ENTITIES')),
+    fxRates:     clean(sheetToObjects_('FX')),
+    // history omitted — fetched on demand via getAssetHistory() when detail panel opens
+    snapshots:   getSnapshotTrend(),
+    categories:  CATEGORIES,
+    currencies:  CURRENCIES,
+    _debug: {
+      assetHeaders:  assetHeader,
+      assetRowCount: Math.max(assetData.length - 1, 0)
+    }
+  };
 }
 
 // Fetch history for a single asset — called lazily when detail panel opens
 function getAssetHistory(assetName) {
-  return sheetToObjectsDirect_('HISTORY')
+  return sheetToObjects_('HISTORY')
     .filter(function(h) { return h['Asset Name'] === assetName; })
     .map(function(h) {
       var out = {};
@@ -415,7 +414,7 @@ function getAssetHistory(assetName) {
 
 // Fetch all history — called lazily when History tab is opened
 function getHistoryData() {
-  return sheetToObjectsDirect_('HISTORY').map(function(h) {
+  return sheetToObjects_('HISTORY').map(function(h) {
     var out = {};
     Object.keys(h).forEach(function(k) { out[k] = h[k] instanceof Date ? h[k].toISOString() : h[k]; });
     return out;
@@ -1198,7 +1197,7 @@ function normalizeMonthKey_(mk) {
 }
 
 function getSnapshotTrend() {
-  var data = sheetToObjectsDirect_('SNAPSHOTS');
+  var data = sheetToObjects_('SNAPSHOTS');
   var byMonth = {};
   data.forEach(function(row) {
     var mk = normalizeMonthKey_(row['Month Key']);
@@ -1335,69 +1334,47 @@ function syncPlaidAccounts() {
       var data = JSON.parse(resp.getContentText());
       if (!data.accounts) return;
 
-      // Look up institution (bank) name — one call per token, not per account
-      var bankName = '';
-      try {
-        var instId = data.item && data.item.institution_id;
-        if (instId) {
-          var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
-            method: 'POST',
-            contentType: 'application/json',
-            payload: JSON.stringify({
-              client_id: cfg.clientId, secret: cfg.secret,
-              institution_id: instId,
-              country_codes: ['US','PR','CO','DO','GB','FR','ES']
-            }),
-            muteHttpExceptions: true
-          });
-          var instData = JSON.parse(instResp.getContentText());
-          if (instData.institution) bankName = instData.institution.name;
-        }
-      } catch(e) { console.warn('Could not fetch institution name:', e.message); }
-
       data.accounts.forEach(function(acct) {
         var balance  = (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0;
-        var acctName = (bankName ? bankName + ' — ' : '') + (acct.name || 'Account') + ' ···' + (acct.mask || '');
+        var acctName = (acct.name || 'Account') + ' ···' + (acct.mask || '');
         var acctId   = acct.account_id;
         var sheet    = getSheet_('ASSETS');
         var rows     = sheet.getDataRange().getValues();
         var found    = false;
 
-        // First pass: match by Plaid Account ID (most reliable)
         var matchRow = -1;
+        // First pass: exact match by Plaid Account ID or name+category
         for (var i = 1; i < rows.length; i++) {
-          if (rows[i][13] === acctId) { matchRow = i; break; }
+          if (rows[i][13] === acctId || (rows[i][1] === acctName && rows[i][2] === 'Cash')) {
+            matchRow = i;
+            break;
+          }
         }
-        // Second pass: claim any unlinked Cash - Business or Cash - Personal row
+        // Second pass: claim any unlinked Cash asset (no Plaid ID set)
         if (matchRow === -1) {
           for (var i = 1; i < rows.length; i++) {
-            var cat = String(rows[i][2] || '');
-            if ((cat === 'Cash - Business' || cat === 'Cash - Personal') && !rows[i][13]) {
-              matchRow = i; break;
+            if (rows[i][2] === 'Cash' && !rows[i][13]) {
+              matchRow = i;
+              break;
             }
           }
         }
 
         if (matchRow !== -1) {
           var oldUsd = Number(rows[matchRow][7]) || 0;
-          var sharePct = Number(rows[matchRow][8]) || 100;
-          var newRow = rows[matchRow].slice();
-          newRow[1]  = acctName;               // Name (includes bank)
-          newRow[5]  = balance;                 // Local Value
-          newRow[6]  = 1;                       // USD Rate
-          newRow[7]  = balance;                 // USD Value
-          newRow[9]  = sharePct;                // My Share % (keep existing)
-          newRow[10] = balance * sharePct / 100; // My Share USD
-          newRow[11] = new Date();              // Last Updated
-          newRow[13] = acctId;                  // Plaid Account ID
-          sheet.getRange(matchRow + 1, 1, 1, newRow.length).setValues([newRow]);
+          sheet.getRange(matchRow + 1, 2).setValue(acctName);   // update Name from Plaid
+          sheet.getRange(matchRow + 1, 6).setValue(balance);
+          sheet.getRange(matchRow + 1, 7).setValue(1);
+          sheet.getRange(matchRow + 1, 8).setValue(balance);
+          sheet.getRange(matchRow + 1, 10).setValue(balance);
+          sheet.getRange(matchRow + 1, 12).setValue(new Date());
+          sheet.getRange(matchRow + 1, 14).setValue(acctId);
           if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
           found = true;
         }
 
         if (!found) {
-          addAsset({ name: acctName, category: 'Cash - Business', currency: 'USD',
-                     localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
+          addAsset({ name: acctName, category: 'Cash', currency: 'USD', localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
           var newRows = sheet.getDataRange().getValues();
           sheet.getRange(newRows.length, 14).setValue(acctId);
         }
@@ -1410,11 +1387,6 @@ function syncPlaidAccounts() {
 
   return { success: true, synced: synced };
 }
-
-// ── Plaid UI Helpers ──────────────────────────────────────────────────────────
-
-// setPlaidCredentials, openPlaidLink, handlePlaidSuccess, removePlaidConnection
-// are defined in Plaid.gs — do not duplicate here.
 
 function fixSheetHeaders() {
   var ss = getSpreadsheet_();

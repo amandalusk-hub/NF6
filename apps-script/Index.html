@@ -1038,8 +1038,7 @@ function loadData(){
 }
 
 function onDataLoaded(d){
-  if(!d){toast('Server returned no data','error');showLoading(false);return;}
-  if(d._error){toast('Server error: '+d._error,'error');showLoading(false);console.error('getFullData error:',d._error);return;}
+  if(!d){toast('Server returned no data — check console','error');showLoading(false);return;}
   state.assets      = d.assets      || [];
   state.liabilities = d.liabilities || [];
   state.entities    = d.entities    || [];
