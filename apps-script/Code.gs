@@ -361,30 +361,45 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
-  var ss = getSpreadsheet_();
+  try {
+    var ss = getSpreadsheet_();
 
-  function readSheet(tabName) {
-    var s = ss.getSheetByName(tabName);
-    if (!s) return [];
-    var d = s.getDataRange().getValues();
-    if (d.length < 2) return [];
-    var h = d[0];
-    return d.slice(1).map(function(r) {
-      var o = {};
-      h.forEach(function(k, j) { o[k] = r[j] instanceof Date ? r[j].toISOString() : r[j]; });
-      return o;
-    });
+    function readSheet(tabName) {
+      try {
+        var s = ss.getSheetByName(tabName);
+        if (!s) return [];
+        var d = s.getDataRange().getValues();
+        if (d.length < 2) return [];
+        var h = d[0];
+        return d.slice(1).map(function(r) {
+          var o = {};
+          h.forEach(function(k, j) { o[k] = r[j] instanceof Date ? r[j].toISOString() : r[j]; });
+          return o;
+        });
+      } catch(e) {
+        return { _sheetError: tabName + ': ' + e.message };
+      }
+    }
+
+    var snapshots = [];
+    try { snapshots = getSnapshotTrend(); } catch(e) { snapshots = []; }
+
+    return {
+      assets:      readSheet('Assets'),
+      liabilities: readSheet('Liabilities'),
+      entities:    readSheet('Entities'),
+      fxRates:     readSheet('FX Rates'),
+      snapshots:   snapshots,
+      categories:  CATEGORIES,
+      currencies:  CURRENCIES
+    };
+  } catch(e) {
+    return {
+      assets:[], liabilities:[], entities:[], fxRates:[], snapshots:[],
+      categories:CATEGORIES, currencies:CURRENCIES,
+      _error: e.message + ' | stack: ' + (e.stack||'none')
+    };
   }
-
-  return {
-    assets:      readSheet('Assets'),
-    liabilities: readSheet('Liabilities'),
-    entities:    readSheet('Entities'),
-    fxRates:     readSheet('FX Rates'),
-    snapshots:   getSnapshotTrend(),
-    categories:  CATEGORIES,
-    currencies:  CURRENCIES
-  };
 }
 
 // Fetch history for a single asset — called lazily when detail panel opens
