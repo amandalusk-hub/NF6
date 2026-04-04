@@ -361,61 +361,29 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
-  // NOTE: deliberately does NOT call ensureSheets_() — setup belongs in setup
-  // functions, not in the hot data-read path. We read sheets directly.
-  var assetSheet  = getSheetDirect_('ASSETS');
-  if (!assetSheet) return { assets:[], liabilities:[], entities:[], fxRates:[], snapshots:[], categories:CATEGORIES, currencies:CURRENCIES, _error:'Assets sheet not found — run Setup Database Structure' };
-  var assetData   = assetSheet.getDataRange().getValues();
-  var assetHeader = assetData[0] || [];
+  var ss = getSpreadsheet_();
 
-  // Auto-assign IDs to any rows missing one — batch all writes
-  var missingIdCells = [];
-  var uuidMap = {};
-  for (var i = 1; i < assetData.length; i++) {
-    if (!assetData[i][0]) {
-      var newId = Utilities.getUuid();
-      assetData[i][0] = newId;
-      uuidMap[i] = newId;
-    }
-  }
-  Object.keys(uuidMap).forEach(function(rowIdx) {
-    assetSheet.getRange(Number(rowIdx) + 1, 1).setValue(uuidMap[rowIdx]);
-  });
-
-  function rowsToObjects(headers, rows) {
-    return rows.slice(1).map(function(row) {
-      var obj = {};
-      headers.forEach(function(h, j) { obj[h] = row[j]; });
-      return obj;
+  function readSheet(tabName) {
+    var s = ss.getSheetByName(tabName);
+    if (!s) return [];
+    var d = s.getDataRange().getValues();
+    if (d.length < 2) return [];
+    var h = d[0];
+    return d.slice(1).map(function(r) {
+      var o = {};
+      h.forEach(function(k, j) { o[k] = r[j] instanceof Date ? r[j].toISOString() : r[j]; });
+      return o;
     });
   }
-
-  function clean(arr) {
-    return arr.map(function(obj) {
-      var out = {};
-      Object.keys(obj).forEach(function(k) {
-        out[k] = obj[k] instanceof Date ? obj[k].toISOString() : obj[k];
-      });
-      return out;
-    });
-  }
-
-  // Build asset objects from the already-read data (no second sheet read)
-  var assets = clean(rowsToObjects(assetHeader, assetData));
 
   return {
-    assets:      assets,
-    liabilities: clean(sheetToObjectsDirect_('LIABILITIES')),
-    entities:    clean(sheetToObjectsDirect_('ENTITIES')),
-    fxRates:     clean(sheetToObjectsDirect_('FX')),
-    // history omitted — fetched on demand via getAssetHistory() when detail panel opens
+    assets:      readSheet('Assets'),
+    liabilities: readSheet('Liabilities'),
+    entities:    readSheet('Entities'),
+    fxRates:     readSheet('FX Rates'),
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
-    currencies:  CURRENCIES,
-    _debug: {
-      assetHeaders:  assetHeader,
-      assetRowCount: Math.max(assetData.length - 1, 0)
-    }
+    currencies:  CURRENCIES
   };
 }
 
