@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><title>Test</title></head>
+<body>
+<h2 id="status">Loading...</h2>
+<pre id="out"></pre>
+<script>
+google.script.run
+  .withSuccessHandler(function(d){
+    document.getElementById('status').textContent = 'SUCCESS';
+    document.getElementById('out').textContent =
+      'Assets: ' + (d.assets||[]).length +
+      '\nLiabilities: ' + (d.liabilities||[]).length +
+      '\nError: ' + (d._error||'none');
+  })
+  .withFailureHandler(function(e){
+    document.getElementById('status').textContent = 'FAILED: ' + e.message;
+  })
+  .getFullData();
+</script>
+</body>
+</html>
