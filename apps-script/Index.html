@@ -145,7 +145,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </nav>
 </header>
 
-<div class="loading-overlay" id="loading">Loading data…</div>
+<div class="loading-overlay" id="loading">Loading data...</div>
 <div id="toast-container"></div>
 
 <main>
@@ -206,7 +206,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="tab-panel" id="tab-assets">
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="asset-search" placeholder="Search assets…" oninput="renderAssetsTable()">
+        <input type="text" id="asset-search" placeholder="Search assets..." oninput="renderAssetsTable()">
         <select id="asset-cat-filter" onchange="renderAssetsTable()"><option value="">All Categories</option></select>
         <button class="btn btn-primary" onclick="openAssetModal()">+ Add Asset</button>
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
@@ -219,15 +219,15 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="table-wrap">
         <table id="assets-table">
           <thead><tr>
-            <th onclick="sortTable('assets','Name')">Name <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','Category')">Category <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','Entity')">Entity <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','Currency')">Currency <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','USD Value')">Total Value <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('assets','My Share USD')">Mike's Share <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Name')">Name <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','Category')">Category <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','Entity')">Entity <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','Currency')">Currency <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','USD Value')">Total Value <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','My Share USD')">Mike's Share <span class="sort-icon">^</span></th>
             <th>Cost Basis</th>
             <th>Gain/Loss</th>
-            <th onclick="sortTable('assets','Last Updated')">Updated <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('assets','Last Updated')">Updated <span class="sort-icon">^</span></th>
             <th>Actions</th>
           </tr></thead>
           <tbody id="assets-tbody"></tbody>
@@ -240,7 +240,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="tab-panel" id="tab-liabilities">
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="liab-search" placeholder="Search liabilities…" oninput="renderLiabilitiesTable()">
+        <input type="text" id="liab-search" placeholder="Search liabilities..." oninput="renderLiabilitiesTable()">
         <select id="liab-type-filter" onchange="renderLiabilitiesTable()">
           <option value="">All Types</option>
           <option>Credit Card</option>
@@ -262,12 +262,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="table-wrap">
         <table id="liabilities-table">
           <thead><tr>
-            <th onclick="sortLiabTable('Name')">Name <span class="sort-icon">↕</span></th>
-            <th onclick="sortLiabTable('Type')">Type <span class="sort-icon">↕</span></th>
-            <th onclick="sortLiabTable('Currency')">Currency <span class="sort-icon">↕</span></th>
-            <th onclick="sortLiabTable('Amount')">Amount <span class="sort-icon">↕</span></th>
-            <th onclick="sortLiabTable('USD Value')">USD Value <span class="sort-icon">↕</span></th>
-            <th onclick="sortLiabTable('Last Updated')">Updated <span class="sort-icon">↕</span></th>
+            <th onclick="sortLiabTable('Name')">Name <span class="sort-icon">^</span></th>
+            <th onclick="sortLiabTable('Type')">Type <span class="sort-icon">^</span></th>
+            <th onclick="sortLiabTable('Currency')">Currency <span class="sort-icon">^</span></th>
+            <th onclick="sortLiabTable('Amount')">Amount <span class="sort-icon">^</span></th>
+            <th onclick="sortLiabTable('USD Value')">USD Value <span class="sort-icon">^</span></th>
+            <th onclick="sortLiabTable('Last Updated')">Updated <span class="sort-icon">^</span></th>
             <th>Notes</th>
             <th>Actions</th>
           </tr></thead>
@@ -281,16 +281,16 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="tab-panel" id="tab-entities">
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="entity-search" placeholder="Search entities…" oninput="renderEntitiesTable()">
+        <input type="text" id="entity-search" placeholder="Search entities..." oninput="renderEntitiesTable()">
         <button class="btn btn-primary" onclick="openEntityModal()">+ Add Entity</button>
       </div>
       <div class="table-wrap">
         <table id="entities-table">
           <thead><tr>
-            <th onclick="sortTable('entities','Name')">Name <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('entities','Type')">Type <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('entities','Jurisdiction')">Jurisdiction <span class="sort-icon">↕</span></th>
-            <th onclick="sortTable('entities','Ownership %')">Ownership % <span class="sort-icon">↕</span></th>
+            <th onclick="sortTable('entities','Name')">Name <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('entities','Type')">Type <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('entities','Jurisdiction')">Jurisdiction <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('entities','Ownership %')">Ownership % <span class="sort-icon">^</span></th>
             <th>Notes</th>
             <th>Actions</th>
           </tr></thead>
@@ -306,7 +306,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:20px;font-weight:700;color:#0d2137">Net Balance</div>
-          <div style="font-size:13px;color:#888;margin-top:2px">Net Worth Trends Analysis — up to 12 months</div>
+          <div style="font-size:13px;color:#888;margin-top:2px">Net Worth Trends Analysis -- up to 12 months</div>
         </div>
         <div style="font-size:30px;font-weight:700;color:#0d2137" id="bal-net-worth">$0</div>
       </div>
@@ -321,7 +321,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
     </div>
     <div class="card" style="padding:0">
-      <div id="bal-empty" class="no-data" style="display:none;padding:40px">No snapshots yet — click "Take Monthly Snapshot" in the History tab to start tracking.</div>
+      <div id="bal-empty" class="no-data" style="display:none;padding:40px">No snapshots yet -- click "Take Monthly Snapshot" in the History tab to start tracking.</div>
       <div style="overflow-x:auto">
         <table id="bal-table" style="min-width:600px">
           <thead><tr id="bal-header"></tr></thead>
@@ -338,7 +338,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="section-title">Portfolio Value Over Time</div>
         <button class="btn btn-secondary btn-sm" onclick="takeSnapshot()">Take Monthly Snapshot</button>
       </div>
-      <div id="trend-empty" class="no-data" style="display:none">No snapshots yet — click "Take Monthly Snapshot" to record today's values and start tracking trends.</div>
+      <div id="trend-empty" class="no-data" style="display:none">No snapshots yet -- click "Take Monthly Snapshot" to record today's values and start tracking trends.</div>
       <div id="trend-chart" style="overflow-x:auto">
         <svg id="trend-svg" height="200" style="width:100%;min-width:300px;display:block"></svg>
         <div id="trend-labels" style="display:flex;justify-content:space-between;font-size:11px;color:#888;padding:2px 8px 0"></div>
@@ -346,7 +346,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     </div>
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="history-search" placeholder="Search change log…" oninput="renderHistoryTable()">
+        <input type="text" id="history-search" placeholder="Search change log..." oninput="renderHistoryTable()">
       </div>
       <div class="table-wrap">
         <table>
@@ -396,9 +396,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </svg>
       <div style="position:absolute;bottom:12px;right:12px;display:flex;gap:6px">
         <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(1.25)" style="font-size:16px;line-height:1;padding:4px 10px">+</button>
-        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(0.8)" style="font-size:16px;line-height:1;padding:4px 10px">−</button>
+        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(0.8)" style="font-size:16px;line-height:1;padding:4px 10px">-</button>
       </div>
-      <div style="position:absolute;top:10px;left:12px;font-size:11px;color:#4a90d9;opacity:0.6">Drag canvas to pan · Scroll to zoom · Drag nodes to reposition · Click node to edit</div>
+      <div style="position:absolute;top:10px;left:12px;font-size:11px;color:#4a90d9;opacity:0.6">Drag canvas to pan  |  Scroll to zoom  |  Drag nodes to reposition  |  Click node to edit</div>
     </div>
   </div>
 </main>
@@ -408,7 +408,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="modal" style="max-width:560px">
     <div class="modal-header">
       <div class="modal-title" id="oc-modal-title">Add Entity</div>
-      <button class="modal-close" onclick="closeModal('oc-node-modal')">×</button>
+      <button class="modal-close" onclick="closeModal('oc-node-modal')">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="ocn-id">
@@ -458,23 +458,23 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="form-two">
         <div class="form-row"><label>Node Color</label>
           <select id="ocn-color" onchange="document.getElementById('ocn-color-preview').style.background=this.value">
-            <option value="#0e4d5c">Teal — Holding / LLC</option>
-            <option value="#1e3a5c">Dark Blue — Main Entity</option>
-            <option value="#1e6e3b">Green — Operating Company</option>
-            <option value="#b5521a">Orange — Geographic Region</option>
-            <option value="#8b6914">Gold — RE Investment</option>
-            <option value="#7a1f1f">Red — Real Estate Property</option>
-            <option value="#5b2c87">Purple — Brokerage / Investments</option>
-            <option value="#1a4f7a">Blue — Individual / Person</option>
-            <option value="#2d6a4f">Teal Green — Trust</option>
-            <option value="#4a5568">Gray — Inactive / Other</option>
+            <option value="#0e4d5c">Teal -- Holding / LLC</option>
+            <option value="#1e3a5c">Dark Blue -- Main Entity</option>
+            <option value="#1e6e3b">Green -- Operating Company</option>
+            <option value="#b5521a">Orange -- Geographic Region</option>
+            <option value="#8b6914">Gold -- RE Investment</option>
+            <option value="#7a1f1f">Red -- Real Estate Property</option>
+            <option value="#5b2c87">Purple -- Brokerage / Investments</option>
+            <option value="#1a4f7a">Blue -- Individual / Person</option>
+            <option value="#2d6a4f">Teal Green -- Trust</option>
+            <option value="#4a5568">Gray -- Inactive / Other</option>
           </select>
         </div>
         <div class="form-row"><label>Preview</label>
           <div id="ocn-color-preview" style="height:36px;border-radius:6px;background:#0e4d5c;border:1px solid #2a4060"></div>
         </div>
       </div>
-      <div class="form-row"><label>Notes</label><textarea id="ocn-notes" rows="2" placeholder="Additional info…"></textarea></div>
+      <div class="form-row"><label>Notes</label><textarea id="ocn-notes" rows="2" placeholder="Additional info..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-danger" id="ocn-delete-btn" onclick="deleteOCNode()" style="display:none">Delete</button>
@@ -487,8 +487,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <!-- Org Chart Context Menu -->
 <div id="oc-ctx" style="display:none;position:fixed;background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:4px 0;z-index:2000;min-width:160px;box-shadow:0 6px 20px rgba(0,0,0,.5)">
   <div id="oc-ctx-name" style="padding:8px 16px;font-size:12px;color:#9db4cc;border-bottom:1px solid #1a3050;font-weight:600"></div>
-  <div onclick="ocCtxEdit()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e0e8f0" onmouseover="this.style.background='#1a3050'" onmouseout="this.style.background=''">✏️ Edit Entity</div>
-  <div onclick="ocCtxDelete()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e57373" onmouseover="this.style.background='#2a1a1a'" onmouseout="this.style.background=''">🗑️ Delete Entity</div>
+  <div onclick="ocCtxEdit()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e0e8f0" onmouseover="this.style.background='#1a3050'" onmouseout="this.style.background=''">Edit Edit Entity</div>
+  <div onclick="ocCtxDelete()" style="padding:9px 16px;cursor:pointer;font-size:13px;color:#e57373" onmouseover="this.style.background='#2a1a1a'" onmouseout="this.style.background=''">Del Delete Entity</div>
 </div>
 
 <!-- Asset Modal -->
@@ -496,7 +496,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title" id="asset-modal-title">Add Asset</div>
-      <button class="modal-close" onclick="closeModal('asset-modal')">×</button>
+      <button class="modal-close" onclick="closeModal('asset-modal')">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="a-id">
@@ -528,7 +528,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-two">
-        <div class="form-row"><label>Entity</label><select id="a-entity" onchange="onEntityChange()"><option value="">— None —</option></select></div>
+        <div class="form-row"><label>Entity</label><select id="a-entity" onchange="onEntityChange()"><option value="">-- None --</option></select></div>
         <div class="form-row"><label>Currency</label>
           <select id="a-currency" onchange="updateUSDPreview()">
             <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
@@ -547,11 +547,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div class="usd-preview">Mike's Share: <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
       <div class="form-row" id="a-address-row" style="display:none">
-        <label>Address <span style="font-weight:400;color:#888">(saved for records — enter value manually below)</span></label>
+        <label>Address <span style="font-weight:400;color:#888">(saved for records -- enter value manually below)</span></label>
         <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="width:100%">
         <div style="font-size:11px;color:#888;margin-top:4px">Tip: look up the value on Zillow or Redfin, then enter it in "Current Total Value" above.</div>
       </div>
-      <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes…"></textarea></div>
+      <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('asset-modal')">Cancel</button>
@@ -570,7 +570,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-secondary btn-sm" id="detail-edit-btn" onclick="openAssetModal(state._detailId)">Edit Core Fields</button>
-        <button class="modal-close" onclick="closeModal('detail-modal')">×</button>
+        <button class="modal-close" onclick="closeModal('detail-modal')">x</button>
       </div>
     </div>
     <div class="modal-body">
@@ -584,13 +584,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
           <div class="form-row"><label>Last Updated By</label><input type="text" id="d-updated-by" placeholder="e.g. Amanda Lusk"></div>
         </div>
-        <div class="form-row"><label>Description / Notes</label><textarea id="d-description" placeholder="Brief description of this asset…"></textarea></div>
+        <div class="form-row"><label>Description / Notes</label><textarea id="d-description" placeholder="Brief description of this asset..."></textarea></div>
         <div class="form-two">
           <div class="form-row"><label>Project Leader</label><input type="text" id="d-project-leader" placeholder="Name"></div>
           <div class="form-row"><label>Google Drive Folder</label>
             <div style="display:flex;gap:6px;align-items:center">
               <input type="text" id="d-folder" placeholder="Paste Drive link here" style="flex:1" oninput="updateDriveLink('d-folder','d-folder-link')">
-              <a id="d-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open ↗</a>
+              <a id="d-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open Open</a>
             </div>
           </div>
         </div>
@@ -598,7 +598,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div id="d-overview-re-fields">
           <div class="form-two">
             <div class="form-row"><label>Occupancy Status</label>
-              <select id="d-occupancy"><option value="">—</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
+              <select id="d-occupancy"><option value="">--</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
             </div>
             <div class="form-row"><label>Property Type</label><input type="text" id="d-type" placeholder="e.g. Residential, Commercial, SFR"></div>
           </div>
@@ -609,14 +609,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
 
-      <!-- Cash / Bank — only shown for Cash categories -->
+      <!-- Cash / Bank -- only shown for Cash categories -->
       <div class="detail-section" id="d-cash-section" style="display:none">
         <div class="detail-section-title">Account Info</div>
         <div class="form-two">
           <div class="form-row"><label>Bank / Institution</label><input type="text" id="d-cash-bank" placeholder="e.g. Chase, Schwab, Fidelity"></div>
           <div class="form-row"><label>Account Type</label>
             <select id="d-cash-acct-type">
-              <option value="">—</option><option>Checking</option><option>Savings</option><option>Money Market</option><option>CD</option><option>Treasury</option><option>Business Checking</option><option>Business Savings</option><option>Other</option>
+              <option value="">--</option><option>Checking</option><option>Savings</option><option>Money Market</option><option>CD</option><option>Treasury</option><option>Business Checking</option><option>Business Savings</option><option>Other</option>
             </select>
           </div>
         </div>
@@ -626,7 +626,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
 
-      <!-- Equity — only shown for Public/Private Equity -->
+      <!-- Equity -- only shown for Public/Private Equity -->
       <div class="detail-section" id="d-equity-section" style="display:none">
         <div class="detail-section-title">Investment Info</div>
         <div class="form-two">
@@ -637,10 +637,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Shares / Units Held</label><input type="number" id="d-eq-shares" placeholder="0"></div>
           <div class="form-row"><label>Avg Cost Per Share</label><input type="number" id="d-eq-cost" placeholder="0.00"></div>
         </div>
-        <div class="form-row"><label>Investment Notes</label><textarea id="d-eq-notes" placeholder="Strategy, thesis, dividend info…" style="min-height:60px"></textarea></div>
+        <div class="form-row"><label>Investment Notes</label><textarea id="d-eq-notes" placeholder="Strategy, thesis, dividend info..." style="min-height:60px"></textarea></div>
       </div>
 
-      <!-- Loan Details — only shown for Loans Receivable -->
+      <!-- Loan Details -- only shown for Loans Receivable -->
       <div class="detail-section" id="d-loan-section" style="display:none">
         <div class="detail-section-title">Loan Details</div>
         <div class="form-two">
@@ -655,7 +655,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Interest Rate</label><input type="text" id="d-loan-rate" placeholder="e.g. 5%, 8% annual"></div>
           <div class="form-row"><label>Status</label>
             <select id="d-loan-status">
-              <option value="">—</option>
+              <option value="">--</option>
               <option>Active</option><option>Late</option><option>Paid Off</option><option>Default</option><option>Refinanced</option>
             </select>
           </div>
@@ -667,7 +667,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-two">
           <div class="form-row"><label>Payment Terms</label>
             <select id="d-loan-terms">
-              <option value="">—</option>
+              <option value="">--</option>
               <option>Monthly</option><option>Quarterly</option><option>Semi-Annual</option>
               <option>Annual</option><option>Lump Sum at Maturity</option><option>Interest Only</option><option>Other</option>
             </select>
@@ -680,17 +680,17 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
         <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-loan-attorney" placeholder="Name, firm, contact"></div>
-        <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history…"></textarea></div>
+        <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history..."></textarea></div>
       </div>
 
-      <!-- Private Equity — only shown for Private Equity category -->
+      <!-- Private Equity -- only shown for Private Equity category -->
       <div class="detail-section" id="d-pe-section" style="display:none">
         <div class="detail-section-title">Investment Details</div>
         <div class="form-two">
           <div class="form-row"><label>Investment Manager / Sponsor</label><input type="text" id="d-pe-manager" placeholder="e.g. Apollo, Blackstone, Direct Deal"></div>
           <div class="form-row"><label>Tax Treatment</label>
             <select id="d-pe-tax">
-              <option value="">—</option>
+              <option value="">--</option>
               <option>K-1 (Partnership)</option>
               <option>1099 (Dividend)</option>
               <option>Disregarded Entity</option>
@@ -705,8 +705,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Target Exit Year</label><input type="number" id="d-pe-year-exit" placeholder="e.g. 2028" min="1990" max="2099"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Year Sold / Exited</label><input type="number" id="d-pe-year-sold" placeholder="—" min="1990" max="2099"></div>
-          <div class="form-row"><label>Year Written Off</label><input type="number" id="d-pe-year-wo" placeholder="—" min="1990" max="2099"></div>
+          <div class="form-row"><label>Year Sold / Exited</label><input type="number" id="d-pe-year-sold" placeholder="--" min="1990" max="2099"></div>
+          <div class="form-row"><label>Year Written Off</label><input type="number" id="d-pe-year-wo" placeholder="--" min="1990" max="2099"></div>
         </div>
         <div class="form-two">
           <div class="form-row"><label>Initial Investment ($)</label><input type="text" id="d-pe-initial" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)"></div>
@@ -729,11 +729,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
           <div style="flex:1;min-width:70px;text-align:center">
             <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">MOIC</div>
-            <div id="d-pe-moic" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">—</div>
+            <div id="d-pe-moic" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">--</div>
           </div>
           <div style="flex:1;min-width:70px;text-align:center">
             <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">ROI</div>
-            <div id="d-pe-roi" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">—</div>
+            <div id="d-pe-roi" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">--</div>
           </div>
         </div>
 
@@ -752,7 +752,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div id="d-pe-dist-list" style="margin-top:6px"></div>
 
         <div class="form-row" style="margin-top:14px"><label>Investment Notes</label>
-          <textarea id="d-pe-notes" placeholder="Deal thesis, co-investors, terms, performance notes…" style="min-height:70px"></textarea>
+          <textarea id="d-pe-notes" placeholder="Deal thesis, co-investors, terms, performance notes..." style="min-height:70px"></textarea>
         </div>
       </div>
 
@@ -809,7 +809,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title" id="liab-modal-title">Add Liability</div>
-      <button class="modal-close" onclick="closeModal('liab-modal')">×</button>
+      <button class="modal-close" onclick="closeModal('liab-modal')">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="l-id">
@@ -853,7 +853,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Amount Owed</label><input type="number" id="l-amount" placeholder="0.00" min="0"></div>
       </div>
       <div class="form-row"><label>Location / Property Address</label><input type="text" id="l-location" placeholder="e.g. 1405 Plantation Vlg, Dorado, PR 00646"></div>
-      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="e.g. interest rate, lender, account xxxx1234…"></textarea></div>
+      <div class="form-row"><label>Notes</label><textarea id="l-notes" placeholder="e.g. interest rate, lender, account xxxx1234..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('liab-modal')">Cancel</button>
@@ -872,7 +872,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-secondary btn-sm" id="liab-detail-edit-btn">Edit Core Fields</button>
-        <button class="modal-close" onclick="closeModal('liab-detail-modal')">×</button>
+        <button class="modal-close" onclick="closeModal('liab-detail-modal')">x</button>
       </div>
     </div>
     <div class="modal-body">
@@ -888,7 +888,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Interest Rate</label><input type="text" id="ld-rate" placeholder="e.g. 6.5% fixed, 5.88% ARM"></div>
           <div class="form-row"><label>Loan Type</label>
             <select id="ld-loan-type">
-              <option value="">—</option>
+              <option value="">--</option>
               <option>Fixed Rate</option><option>Adjustable Rate (ARM)</option>
               <option>Interest Only</option><option>Balloon</option><option>Line of Credit</option><option>Other</option>
             </select>
@@ -954,7 +954,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title" id="entity-modal-title">Add Entity</div>
-      <button class="modal-close" onclick="closeModal('entity-modal')">×</button>
+      <button class="modal-close" onclick="closeModal('entity-modal')">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="e-orig-name">
@@ -971,7 +971,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="form-row"><label>Jurisdiction</label><input type="text" id="e-jurisdiction" placeholder="e.g. Delaware, USA"></div>
         <div class="form-row"><label>Ownership %</label><input type="number" id="e-ownership" value="100" min="0" max="100" step="0.01"></div>
       </div>
-      <div class="form-row"><label>Notes</label><textarea id="e-notes" placeholder="Optional notes…"></textarea></div>
+      <div class="form-row"><label>Notes</label><textarea id="e-notes" placeholder="Optional notes..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('entity-modal')">Cancel</button>
@@ -981,13 +981,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 </div>
 
 <script>
-// ── State ──────────────────────────────────────────────────────────────────
+// -- State ------------------------------------------------------------------
 const state = {
   assets: [], entities: [], fxRates: [], history: [], snapshots: [], categories: [], currencies: [],
   sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true }, liabilities: { col: 'Name', asc: true } }
 };
 
-// ── Category colors ────────────────────────────────────────────────────────
+// -- Category colors --------------------------------------------------------
 const CAT_COLORS = {
   'Art/Jewelry/Other':                '#1B4F8A',
   'ART/JEWELRY/OTHER':                '#1B4F8A',
@@ -1021,7 +1021,7 @@ const CAT_COLORS = {
 };
 function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// -- Init -------------------------------------------------------------------
 window.onload = function(){
   document.getElementById('header-date').textContent = fmtDate(new Date().toISOString());
   document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
@@ -1030,7 +1030,7 @@ window.onload = function(){
 
 function loadData(){
   showLoading(true);
-  var _t=setTimeout(function(){showLoading(false);toast('Server took too long — try refreshing','error');},20000);
+  var _t=setTimeout(function(){showLoading(false);toast('Server took too long -- try refreshing','error');},20000);
   google.script.run
     .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
     .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
@@ -1038,7 +1038,7 @@ function loadData(){
 }
 
 function onDataLoaded(d){
-  if(!d){toast('Server returned no data — check console','error');showLoading(false);return;}
+  if(!d){toast('Server returned no data -- check console','error');showLoading(false);return;}
   state.assets      = d.assets      || [];
   state.liabilities = d.liabilities || [];
   state.entities    = d.entities    || [];
@@ -1074,7 +1074,7 @@ function onDataLoaded(d){
   renderTrendChart();
 }
 
-// ── Tabs ───────────────────────────────────────────────────────────────────
+// -- Tabs -------------------------------------------------------------------
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
@@ -1083,7 +1083,7 @@ function switchTab(name){
   if(name==='history')  ensureHistoryLoaded();
 }
 
-// ── History lazy-load ─────────────────────────────────────────────────────
+// -- History lazy-load -----------------------------------------------------
 let _histLoaded = false;
 function ensureHistoryLoaded(callback) {
   if (_histLoaded) { if(callback) callback(); return; }
@@ -1098,7 +1098,7 @@ function ensureHistoryLoaded(callback) {
     .getHistoryData();
 }
 
-// ── Org Chart ──────────────────────────────────────────────────────────────
+// -- Org Chart --------------------------------------------------------------
 let _ocLoaded = false;
 function loadAndRenderOrgChart() {
   if (_ocLoaded) { renderOrgChart(); return; }
@@ -1125,20 +1125,20 @@ const oc = {
 };
 
 const OC_NODE_TYPES = {
-  'Individual':          {color:'#1a4f7a',icon:'👤'},
-  'Trust (Revocable)':   {color:'#2d6a4f',icon:'🏛'},
-  'Trust (Irrevocable)': {color:'#2d6a4f',icon:'🏛'},
-  'LLC':                 {color:'#0e4d5c',icon:'🏢'},
-  'LP (Limited Partnership)':{color:'#0e4d5c',icon:'🏢'},
-  'Corporation':         {color:'#1e3a5c',icon:'🏭'},
-  'S-Corporation':       {color:'#1e3a5c',icon:'🏭'},
-  'Holding Company':     {color:'#0e4d5c',icon:'🏢'},
-  'Investment Group':    {color:'#5b2c87',icon:'💼'},
-  'Geographic Region':   {color:'#b5521a',icon:'🌎'},
-  'Investment Category': {color:'#8b6914',icon:'📊'},
-  'Brokerage Account':   {color:'#5b2c87',icon:'📈'},
-  'Real Estate':         {color:'#7a1f1f',icon:'🏠'},
-  'Other':               {color:'#4a5568',icon:'•'},
+  'Individual':          {color:'#1a4f7a',icon:'P'},
+  'Trust (Revocable)':   {color:'#2d6a4f',icon:'T'},
+  'Trust (Irrevocable)': {color:'#2d6a4f',icon:'T'},
+  'LLC':                 {color:'#0e4d5c',icon:'B'},
+  'LP (Limited Partnership)':{color:'#0e4d5c',icon:'B'},
+  'Corporation':         {color:'#1e3a5c',icon:'C'},
+  'S-Corporation':       {color:'#1e3a5c',icon:'C'},
+  'Holding Company':     {color:'#0e4d5c',icon:'B'},
+  'Investment Group':    {color:'#5b2c87',icon:'IG'},
+  'Geographic Region':   {color:'#b5521a',icon:'GR'},
+  'Investment Category': {color:'#8b6914',icon:'IC'},
+  'Brokerage Account':   {color:'#5b2c87',icon:'BA'},
+  'Real Estate':         {color:'#7a1f1f',icon:'RE'},
+  'Other':               {color:'#4a5568',icon:'*'},
   '':                    {color:'#1e3a5c',icon:''}
 };
 
@@ -1166,7 +1166,7 @@ function renderOrgChart() {
   const visible = ocVisibleNodes();
   const visibleIds = new Set(visible.map(n => n['ID']));
 
-  // ── Edges ──
+  // -- Edges --
   let edgeSVG = '';
   visible.forEach(node => {
     const parents = node.parents || [];
@@ -1186,19 +1186,19 @@ function renderOrgChart() {
   });
   document.getElementById('oc-edges').innerHTML = edgeSVG;
 
-  // ── Nodes ──
+  // -- Nodes --
   let nodesSVG = '';
   visible.forEach(node => {
     const H  = ocNodeHeight(node);
     const x  = node['X'];
     const y  = node['Y'];
-    const bg = node['Color'] || OC_NODE_TYPES[node['Node Type'] || '']?.color || '#1e3a5c';
+    const bg = node['Color'] || (OC_NODE_TYPES[node['Node Type'] || ''] || {}).color || '#1e3a5c';
     const tc = node['Text Color'] || '#ffffff';
     const ntype = node['Node Type'] || '';
     const owLines = node['Ownership'] ? node['Ownership'].split('\n').filter(Boolean).slice(0,3) : [];
 
     // Build text rows
-    let metaLine = [ntype, node['Jurisdiction']].filter(Boolean).join(' · ');
+    let metaLine = [ntype, node['Jurisdiction']].filter(Boolean).join('  |  ');
     let dateLine = node['Date Created'] ? 'Est. ' + node['Date Created'] : '';
     let taxLine  = node['Tax ID'] ? 'EIN: ' + node['Tax ID'] : '';
 
@@ -1273,7 +1273,7 @@ function ocZoomBy(factor) {
   document.getElementById('oc-viewport').setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
 }
 
-// Single click — only open modal if not a drag
+// Single click -- only open modal if not a drag
 function ocNodeClick(e, id) {
   if (oc.drag && (Math.abs(e.clientX - oc.drag.startMX) > 4 || Math.abs(e.clientY - oc.drag.startMY) > 4)) return;
   openOCNodeModal(id);
@@ -1305,7 +1305,7 @@ function ocCtxDelete() {
     .deleteOrgNode(oc._ctxId);
 }
 
-// Auto layout — positions nodes in a proper layered tree
+// Auto layout -- positions nodes in a proper layered tree
 function ocAutoLayout() {
   const visible = ocVisibleNodes();
   if (!visible.length) { toast('No nodes to lay out','error'); return; }
@@ -1361,7 +1361,7 @@ function ocAutoLayout() {
     .saveOrgPositions(JSON.stringify(posData));
 }
 
-// ── Mouse events ──
+// -- Mouse events --
 function ocNodeDown(e, id) {
   e.stopPropagation();
   const node = oc.nodes.find(n => n['ID'] == id);
@@ -1421,7 +1421,7 @@ function ocNodeDown(e, id) {
   });
 })();
 
-// ── Node Modal ──
+// -- Node Modal --
 let _ocSelectedParents = [];
 
 function openOCNodeModal(id) {
@@ -1543,7 +1543,7 @@ function deleteOCNode() {
     .deleteOrgNode(id);
 }
 
-// ── Dashboard ──────────────────────────────────────────────────────────────
+// -- Dashboard --------------------------------------------------------------
 function renderDashboard(){
   const assets = state.assets      || [];
   const liabs  = state.liabilities || [];
@@ -1651,9 +1651,9 @@ function renderLiabDonut(){
 }
 
 function daysSince(dateVal){
-  if(!dateVal)return'—';
+  if(!dateVal)return'--';
   const d=new Date(dateVal);
-  if(isNaN(d))return'—';
+  if(isNaN(d))return'--';
   const n=Math.floor((Date.now()-d.getTime())/86400000);
   if(n===0)return'today';
   if(n===1)return'1 day ago';
@@ -1664,7 +1664,7 @@ function renderMNWList(){
   const assets=state.assets||[];
   const liabs=state.liabilities||[];
 
-  // — Assets grouped by category —
+  // -- Assets grouped by category --
   const aCats={};
   assets.forEach(a=>{
     const c=a.Category||'Other';
@@ -1688,7 +1688,7 @@ function renderMNWList(){
         </div>
       </div>`;
       [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
-        // Parse due date tag — shown for Loans Receivable, Private Equity, and any asset with a maturity date
+        // Parse due date tag -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
         let loanTag='';
         try{
           let det={};
@@ -1700,7 +1700,7 @@ function renderMNWList(){
           if(a.Category==='Private Equity'){
             if(det.peRate) parts.push(esc(det.peRate));
           }
-          // Due date — check both loan and PE maturity fields
+          // Due date -- check both loan and PE maturity fields
           const dueRaw = det.loanDue || det.peMaturity || det['Due Date'] || '';
           if(dueRaw){
             const [y,m,d]=dueRaw.split('-').map(Number);
@@ -1713,7 +1713,7 @@ function renderMNWList(){
               parts.push(`<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`);
             }
           }
-          if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join(' · ')}</div>`;
+          if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
         aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
           <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}${loanTag}</span>
@@ -1728,7 +1728,7 @@ function renderMNWList(){
   document.getElementById('mnw-assets-list').innerHTML=aHtml;
   document.getElementById('mnw-assets-total').textContent=fmtUSD(assets.reduce((s,a)=>s+num(a['My Share USD']),0));
 
-  // — Liabilities grouped by type —
+  // -- Liabilities grouped by type --
   const lTypes={};
   liabs.forEach(l=>{
     const t=l.Type||'Other';
@@ -1766,7 +1766,7 @@ function renderMNWList(){
   document.getElementById('mnw-liab-total').textContent=fmtUSD(liabs.reduce((s,l)=>s+num(l['USD Value']),0));
 }
 
-// ── Assets Table ───────────────────────────────────────────────────────────
+// -- Assets Table -----------------------------------------------------------
 function buildCatFilter(){
   const sel=document.getElementById('asset-cat-filter');
   sel.innerHTML='<option value="">All Categories</option>';
@@ -1800,8 +1800,8 @@ function renderAssetsTable(){
       <td>${esc(a.Currency||'')}</td>
       <td>${fmtUSD(num(a['USD Value']))}</td>
       <td>${fmtUSD(num(a['My Share USD']))}</td>
-      <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'—'}</td>
-      <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'—'})()}</td>
+      <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'--'}</td>
+      <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'--'})()}</td>
       <td>${fmtDate(a['Last Updated'])}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-sm" onclick='openAssetModal(${JSON.stringify(a.ID)})'>Edit</button>
@@ -1818,7 +1818,7 @@ function sortTable(tbl,col){
   else renderEntitiesTable();
 }
 
-// ── Entities Table ─────────────────────────────────────────────────────────
+// -- Entities Table ---------------------------------------------------------
 function renderEntitiesTable(){
   const q=(document.getElementById('entity-search').value||'').toLowerCase();
   let rows=[...state.entities].filter(e=>{
@@ -1843,7 +1843,7 @@ function renderEntitiesTable(){
     </tr>`).join('');
 }
 
-// ── History Table ──────────────────────────────────────────────────────────
+// -- History Table ----------------------------------------------------------
 function fmtUSDShort(n){
   if(Math.abs(n)>=1e6)return'$'+(n/1e6).toFixed(2)+'M';
   if(Math.abs(n)>=1e3)return'$'+(n/1e3).toFixed(0)+'K';
@@ -1885,18 +1885,18 @@ function renderTrendChart(){
 }
 
 function takeSnapshot(){
-  toast('Taking snapshot…','success');
+  toast('Taking snapshot...','success');
   google.script.run
     .withSuccessHandler(function(r){
       if(r.alreadyDone){toast(r.msg,'error');return;}
-      toast('Snapshot saved — '+r.count+' assets recorded for '+r.monthKey,'success');
+      toast('Snapshot saved -- '+r.count+' assets recorded for '+r.monthKey,'success');
       loadData();
     })
     .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
     .takeMonthlySnapshot();
 }
 
-// ── Balance History Tab ────────────────────────────────────────────────────
+// -- Balance History Tab ----------------------------------------------------
 function renderBalanceHistory(){
   google.script.run
     .withSuccessHandler(renderBalanceData)
@@ -1930,7 +1930,7 @@ function renderBalanceData(data){
     months.map(m=>`<th style="${stickyHdr};background:#0d2137;color:#fff;text-align:right;font-size:12px">${fmtMo(m)}</th>`).join('');
 
   let html='';
-  const cell=(v,bold,color)=>`<td style="padding:7px 14px;text-align:right;font-weight:${bold?700:400};${color?'color:'+color:''}">${v!==null?fmtUSD(v):'—'}</td>`;
+  const cell=(v,bold,color)=>`<td style="padding:7px 14px;text-align:right;font-weight:${bold?700:400};${color?'color:'+color:''}">${v!==null?fmtUSD(v):'--'}</td>`;
   const stickyCell=(txt,bg,color,indent)=>`<td style="padding:7px 14px ${indent?'7px 22px':'7px 14px'};white-space:nowrap;position:sticky;left:0;background:${bg||'#fff'};border-right:1px solid #ddd;font-weight:600;color:${color||'#0d2137'};font-size:13px;${indent?'font-style:italic;font-weight:400':''}">${txt}</td>`;
 
   // NET WORTH row
@@ -1938,7 +1938,7 @@ function renderBalanceData(data){
 
   // % Change
   html+=`<tr>${stickyCell('% Change','#fff','#888')}${data.netWorthTotals.map((v,i)=>{
-    if(!i)return'<td style="padding:4px 14px;text-align:right;color:#888">—</td>';
+    if(!i)return'<td style="padding:4px 14px;text-align:right;color:#888">--</td>';
     const prev=data.netWorthTotals[i-1];
     const pct=prev?((v-prev)/Math.abs(prev)*100).toFixed(1):0;
     return`<td style="padding:4px 14px;text-align:right;font-size:12px;color:${pct>=0?'#1e8e3e':'#c5221f'}">${pct>=0?'+':''}${pct}%</td>`;
@@ -2019,7 +2019,7 @@ function renderHistoryTable(){
   }).join('');
 }
 
-// ── Asset Modal ────────────────────────────────────────────────────────────
+// -- Asset Modal ------------------------------------------------------------
 function openAssetModal(id){
   const asset=id?state.assets.find(a=>a.ID==id):null;
   document.getElementById('asset-modal-title').textContent=asset?'Edit Asset':'Add Asset';
@@ -2043,7 +2043,7 @@ function openAssetModal(id){
   document.getElementById('a-notes').value=asset?asset.Notes:'';
   // populate entity dropdown
   const sel=document.getElementById('a-entity');
-  sel.innerHTML='<option value="">— None —</option>';
+  sel.innerHTML='<option value="">-- None --</option>';
   state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option${asset&&asset.Entity===e.Name?' selected':''}>${esc(e.Name)}</option>`));
   toggleAddressField();
   updateUSDPreview();
@@ -2129,7 +2129,7 @@ function deleteAsset(id,name){
     .deleteAsset(id);
 }
 
-// ── Contact Rows (Who We Worked With) ─────────────────────────────────────
+// -- Contact Rows (Who We Worked With) -------------------------------------
 const CONTACT_TYPES = ['Broker / Agent','Attorney / Legal','Lender / Bank','Property Manager','Contractor','Accountant','Insurance Agent','Notary / Title','Other'];
 function addContactRow(type, name){
   const list = document.getElementById('d-contacts-list');
@@ -2147,7 +2147,7 @@ function addContactRow(type, name){
   list.appendChild(row);
 }
 
-// ── Asset Detail View ─────────────────────────────────────────────────────
+// -- Asset Detail View -----------------------------------------------------
 function openAssetDetail(id){
   const asset=state.assets.find(a=>a.ID==id);
   if(!asset)return;
@@ -2155,7 +2155,7 @@ function openAssetDetail(id){
   document.getElementById('detail-id').value=id;
   document.getElementById('detail-modal-title').textContent=asset.Name;
   document.getElementById('detail-asset-meta').textContent=
-    (asset.Category||'')+(asset.Entity?' · '+asset.Entity:'')+' · '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
+    (asset.Category||'')+(asset.Entity?'  |  '+asset.Entity:'')+'  |  '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
 
   let det={}; try{det=JSON.parse(asset.Details||'{}');}catch(e){det={}; }
 
@@ -2259,9 +2259,9 @@ function openAssetDetail(id){
   sv('d-loan-attorney',    det.loanAttorney||'');
   sv('d-loan-notes',       det.loanNotes||'');
 
-  // Asset-specific history — loaded lazily from server
+  // Asset-specific history -- loaded lazily from server
   const hDiv=document.getElementById('detail-history');
-  hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">Loading history…</p>';
+  hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">Loading history...</p>';
   google.script.run
     .withSuccessHandler(function(hist){
       if(!hist||!hist.length){
@@ -2387,7 +2387,7 @@ function saveAssetDetails(){
     .saveAssetDetails(id,JSON.stringify(details));
 }
 
-// ── Accounting format helpers ─────────────────────────────────────────────
+// -- Accounting format helpers ---------------------------------------------
 function fmtAcct(v) {
   const n = parseFloat(String(v||'').replace(/[$,\s]/g,''));
   return isNaN(n)||n===0 ? '' : '$'+Math.round(n).toLocaleString('en-US');
@@ -2405,7 +2405,7 @@ function onAcctFocus(el) {
   el.value = v || '';
 }
 
-// ── Drive link helper ─────────────────────────────────────────────────────
+// -- Drive link helper -----------------------------------------------------
 function updateDriveLink(inputId, linkId) {
   const v   = (document.getElementById(inputId)||{}).value||'';
   const a   = document.getElementById(linkId);
@@ -2414,7 +2414,7 @@ function updateDriveLink(inputId, linkId) {
   else { a.style.display = 'none'; }
 }
 
-// ── Private Equity log helpers ────────────────────────────────────────────
+// -- Private Equity log helpers --------------------------------------------
 function _peLogRow(listId, dateCls, amtCls, notesCls) {
   const list = document.getElementById(listId);
   if (!list.querySelector('.pe-log-header')) {
@@ -2431,7 +2431,7 @@ function _peLogRow(listId, dateCls, amtCls, notesCls) {
     `<input type="date" class="${dateCls}">` +
     `<input type="text" class="${amtCls}" placeholder="$0" style="text-align:right">` +
     `<input type="text" class="${notesCls}" placeholder="Notes">` +
-    `<button type="button" onclick="this.closest('.pe-log-row').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">×</button>`;
+    `<button type="button" onclick="this.closest('.pe-log-row').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>`;
   list.appendChild(row);
   const amtEl = row.querySelector('.'+amtCls);
   amtEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcPE); });
@@ -2460,8 +2460,8 @@ function recalcPE() {
                     .reduce((s,el)=>s+parseAcct(el.value), 0);
   const totalIn = initial + calls;
   const hasDist = dists > 0;
-  const moic    = (totalIn > 0 && hasDist) ? (dists / totalIn).toFixed(2)+'x' : '—';
-  const roi     = (totalIn > 0 && hasDist) ? (((dists-totalIn)/totalIn)*100).toFixed(1)+'%' : '—';
+  const moic    = (totalIn > 0 && hasDist) ? (dists / totalIn).toFixed(2)+'x' : '--';
+  const roi     = (totalIn > 0 && hasDist) ? (((dists-totalIn)/totalIn)*100).toFixed(1)+'%' : '--';
   const roiColor= (totalIn > 0 && hasDist) ? (dists >= totalIn ? '#1e8e3e' : '#c5221f') : '#555';
   const set=(id,v,c)=>{const el=document.getElementById(id);if(el){el.textContent=v;if(c)el.style.color=c;}};
   set('d-pe-total-invested', fmtUSD(totalIn));
@@ -2470,7 +2470,7 @@ function recalcPE() {
   set('d-pe-roi',            roi,            roiColor);
 }
 
-// ── Liabilities Table & Modal ─────────────────────────────────────────────
+// -- Liabilities Table & Modal ---------------------------------------------
 function renderLiabilitiesTable(){
   const q=(document.getElementById('liab-search').value||'').toLowerCase();
   const tf=document.getElementById('liab-type-filter').value;
@@ -2549,7 +2549,7 @@ function deleteLiab(id,name){
     .deleteLiability(id);
 }
 
-// ── Liability Detail View ─────────────────────────────────────────────────
+// -- Liability Detail View -------------------------------------------------
 function openLiabDetail(id){
   const liab=(state.liabilities||[]).find(l=>l.ID==id);
   if(!liab)return;
@@ -2557,7 +2557,7 @@ function openLiabDetail(id){
   document.getElementById('ld-id').value=id;
   document.getElementById('liab-detail-title').textContent=liab.Name;
   document.getElementById('liab-detail-meta').textContent=
-    (liab.Type||'')+(liab.Location?' · '+liab.Location:'')+' · '+fmtUSD(num(liab['USD Value']));
+    (liab.Type||'')+(liab.Location?'  |  '+liab.Location:'')+'  |  '+fmtUSD(num(liab['USD Value']));
   document.getElementById('liab-detail-edit-btn').onclick=()=>openLiabModal(id);
 
   let det={}; try{det=JSON.parse(liab.Details||'{}');}catch(e){det={}; }
@@ -2623,7 +2623,7 @@ function saveLiabilityDetails(){
     .saveLiabilityDetails(id,JSON.stringify(details));
 }
 
-// ── Entity Modal ───────────────────────────────────────────────────────────
+// -- Entity Modal -----------------------------------------------------------
 function openEntityModal(name){
   const entity=name?state.entities.find(e=>e.Name==name):null;
   document.getElementById('entity-modal-title').textContent=entity?'Edit Entity':'Add Entity';
@@ -2662,7 +2662,7 @@ function deleteEntity(name){
     .deleteEntity(name);
 }
 
-// ── Debug / Diagnose ─────────────────────────────────────────────────────────
+// -- Debug / Diagnose ---------------------------------------------------------
 function debugHeaders(){
   google.script.run
     .withSuccessHandler(function(r){
@@ -2696,12 +2696,12 @@ function diagnoseData(){
 function fixHeaders(){
   showLoading(true);
   google.script.run
-    .withSuccessHandler(function(){showLoading(false);toast('Headers fixed — reloading…');setTimeout(loadData,800);})
+    .withSuccessHandler(function(){showLoading(false);toast('Headers fixed -- reloading...');setTimeout(loadData,800);})
     .withFailureHandler(function(e){showLoading(false);toast('Error: '+e.message,'error');})
     .fixSheetHeaders();
 }
 
-// ── FX Refresh ─────────────────────────────────────────────────────────────
+// -- FX Refresh -------------------------------------------------------------
 function refreshRates(){
   showLoading(true);
   google.script.run
@@ -2711,16 +2711,16 @@ function refreshRates(){
 }
 
 
-// ── Property Values ─────────────────────────────────────────────────────────
+// -- Property Values ---------------------------------------------------------
 function syncAccounts(){
   showLoading(true);
-  toast('Syncing bank accounts…','success');
+  toast('Syncing bank accounts...','success');
   google.script.run
     .withSuccessHandler(function(r){
       showLoading(false);
       if(r&&r.success===false){toast(r.error||'Sync failed','error');return;}
       const updated=r&&r.synced!=null?r.synced:0;
-      toast('Accounts synced — '+updated+' account(s) updated');
+      toast('Accounts synced -- '+updated+' account(s) updated');
       loadData();
     })
     .withFailureHandler(function(e){showLoading(false);toast('Sync error: '+e.message,'error');})
@@ -2740,17 +2740,17 @@ function refreshProperties(){
     .refreshPropertyValues();
 }
 
-// ── Modal helpers ──────────────────────────────────────────────────────────
+// -- Modal helpers ----------------------------------------------------------
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.addEventListener('click',e=>{
   if(e.target.classList.contains('modal-overlay'))e.target.classList.remove('open');
 });
 
-// ── Loading ────────────────────────────────────────────────────────────────
+// -- Loading ----------------------------------------------------------------
 function showLoading(v){document.getElementById('loading').classList.toggle('open',v)}
 
-// ── Toast ──────────────────────────────────────────────────────────────────
+// -- Toast ------------------------------------------------------------------
 function toast(msg,type='success'){
   const el=document.createElement('div');
   el.className=`toast ${type}`;
@@ -2759,7 +2759,7 @@ function toast(msg,type='success'){
   setTimeout(()=>el.remove(),3000);
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// -- Helpers ----------------------------------------------------------------
 function esc(s){
   if(s==null)return'';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -2787,7 +2787,7 @@ function cmp(a,b,asc){
   return asc?r:-r;
 }
 
-// ── Plaid Bank Connection ───────────────────────────────────────────────────
+// -- Plaid Bank Connection ---------------------------------------------------
 var _plaidHandler = null;
 
 function connectBank() {
