@@ -328,6 +328,24 @@ function getSheet_(key) {
   return getSpreadsheet_().getSheetByName(sheetName_(key));
 }
 
+// Fast read — bypasses ensureSheets_() entirely, for use in getFullData()
+function getSheetDirect_(key) {
+  return getSpreadsheet_().getSheetByName(sheetName_(key));
+}
+
+function sheetToObjectsDirect_(key) {
+  var sheet = getSheetDirect_(key);
+  if (!sheet) return [];
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) return [];
+  var headers = data[0];
+  return data.slice(1).map(function(row) {
+    var obj = {};
+    headers.forEach(function(h, j) { obj[h] = row[j]; });
+    return obj;
+  });
+}
+
 function sheetToObjects_(key) {
   var sheet = getSheet_(key);
   var data  = sheet.getDataRange().getValues();
@@ -343,10 +361,10 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
-  ensureSheets_();
-
-  // Read ASSETS once and reuse for both ID assignment and data return
-  var assetSheet  = getSheet_('ASSETS');
+  // NOTE: deliberately does NOT call ensureSheets_() — setup belongs in setup
+  // functions, not in the hot data-read path. We read sheets directly.
+  var assetSheet  = getSheetDirect_('ASSETS');
+  if (!assetSheet) return { assets:[], liabilities:[], entities:[], fxRates:[], snapshots:[], categories:CATEGORIES, currencies:CURRENCIES, _error:'Assets sheet not found — run Setup Database Structure' };
   var assetData   = assetSheet.getDataRange().getValues();
   var assetHeader = assetData[0] || [];
 
@@ -387,9 +405,9 @@ function getFullData() {
 
   return {
     assets:      assets,
-    liabilities: clean(sheetToObjects_('LIABILITIES')),
-    entities:    clean(sheetToObjects_('ENTITIES')),
-    fxRates:     clean(sheetToObjects_('FX')),
+    liabilities: clean(sheetToObjectsDirect_('LIABILITIES')),
+    entities:    clean(sheetToObjectsDirect_('ENTITIES')),
+    fxRates:     clean(sheetToObjectsDirect_('FX')),
     // history omitted — fetched on demand via getAssetHistory() when detail panel opens
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
@@ -403,7 +421,7 @@ function getFullData() {
 
 // Fetch history for a single asset — called lazily when detail panel opens
 function getAssetHistory(assetName) {
-  return sheetToObjects_('HISTORY')
+  return sheetToObjectsDirect_('HISTORY')
     .filter(function(h) { return h['Asset Name'] === assetName; })
     .map(function(h) {
       var out = {};
@@ -414,7 +432,7 @@ function getAssetHistory(assetName) {
 
 // Fetch all history — called lazily when History tab is opened
 function getHistoryData() {
-  return sheetToObjects_('HISTORY').map(function(h) {
+  return sheetToObjectsDirect_('HISTORY').map(function(h) {
     var out = {};
     Object.keys(h).forEach(function(k) { out[k] = h[k] instanceof Date ? h[k].toISOString() : h[k]; });
     return out;
@@ -1303,7 +1321,7 @@ function normalizeMonthKey_(mk) {
 }
 
 function getSnapshotTrend() {
-  var data = sheetToObjects_('SNAPSHOTS');
+  var data = sheetToObjectsDirect_('SNAPSHOTS');
   var byMonth = {};
   data.forEach(function(row) {
     var mk = normalizeMonthKey_(row['Month Key']);
