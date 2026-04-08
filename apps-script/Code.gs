@@ -1416,20 +1416,22 @@ function exchangePlaidToken(publicToken) {
     var tokens = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
     if (tokens.indexOf(data.access_token) === -1) tokens.push(data.access_token);
     p.setProperty('PLAID_TOKENS', JSON.stringify(tokens));
-    return { success: true };
+    return { success: true, accessToken: data.access_token };
   } catch(e) {
     return { success: false, error: e.message };
   }
 }
 
 function syncPlaidAccounts() {
-  var cfg    = getPlaidConfig_();
-  var p      = PropertiesService.getScriptProperties();
-  var tokens = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var cfg     = getPlaidConfig_();
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
   if (!tokens.length) return { success: false, error: 'No Plaid accounts connected. Use Connect Bank first.' };
 
   var synced = 0;
   tokens.forEach(function(token) {
+    var institution = instMap[token] || '';
     try {
       var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get', {
         method: 'POST',
@@ -1442,7 +1444,7 @@ function syncPlaidAccounts() {
 
       data.accounts.forEach(function(acct) {
         var balance  = (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0;
-        var acctName = (acct.name || 'Account') + ' ···' + (acct.mask || '');
+        var acctName = (institution ? institution + ' - ' : '') + (acct.name || 'Account') + ' ···' + (acct.mask || '');
         var acctId   = acct.account_id;
         var sheet    = getSheet_('ASSETS');
         var rows     = sheet.getDataRange().getValues();
@@ -1525,15 +1527,40 @@ function openPlaidLink() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-function handlePlaidSuccess(publicToken) {
+function handlePlaidSuccess(publicToken, institutionName) {
   try {
     var exchResult = exchangePlaidToken(publicToken);
     if (!exchResult.success) return { success: false, message: exchResult.error };
+    if (institutionName && exchResult.accessToken) {
+      var p       = PropertiesService.getScriptProperties();
+      var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+      instMap[exchResult.accessToken] = institutionName;
+      p.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
+    }
     var syncResult = syncPlaidAccounts();
     return { success: true, message: 'Bank connected! ' + (syncResult.synced || 0) + ' account(s) synced to Assets tab.' };
   } catch(e) {
     return { success: false, message: 'Error: ' + e.message };
   }
+}
+
+function getPlaidConnections() {
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  return tokens.map(function(token, i) {
+    return { index: i, name: instMap[token] || '', tokenHint: '···' + token.slice(-4) };
+  });
+}
+
+function setPlaidInstitutionName(index, name) {
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (index < 0 || index >= tokens.length) return { success: false, error: 'Invalid index' };
+  instMap[tokens[index]] = name;
+  p.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
+  return { success: true };
 }
 
 function removePlaidConnection() {

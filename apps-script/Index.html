@@ -212,6 +212,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
+        <button class="btn btn-secondary" onclick="manageBankNames()" style="opacity:.75;font-size:12px">Bank Names</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
         <button class="btn btn-secondary" onclick="diagnoseData()" style="opacity:.6;font-size:11px">Diagnose</button>
       </div>
@@ -2862,7 +2863,8 @@ function connectBank() {
       script.onload = function() {
         _plaidHandler = Plaid.create({
           token: result.linkToken,
-          onSuccess: function(publicToken) {
+          onSuccess: function(publicToken, metadata) {
+            var institutionName = (metadata && metadata.institution) ? metadata.institution.name : '';
             toast('Syncing accounts...', 'success');
             google.script.run
               .withSuccessHandler(function(r) {
@@ -2874,7 +2876,7 @@ function connectBank() {
                 }
               })
               .withFailureHandler(function(e) { toast('Error: ' + e.message, 'error'); })
-              .handlePlaidSuccess(publicToken);
+              .handlePlaidSuccess(publicToken, institutionName);
           },
           onExit: function(err) {
             if (err) toast(err.display_message || err.error_message || 'Cancelled', 'error');
@@ -2886,6 +2888,52 @@ function connectBank() {
     })
     .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
     .getPlaidLinkToken();
+}
+
+function manageBankNames() {
+  google.script.run
+    .withSuccessHandler(function(connections) {
+      if (!connections || !connections.length) {
+        toast('No connected banks found.', 'error');
+        return;
+      }
+      var html = '<div style="padding:20px;font-family:sans-serif;min-width:340px">';
+      html += '<h3 style="margin:0 0 14px;font-size:15px">Set Bank Names for Plaid Connections</h3>';
+      html += '<p style="font-size:12px;color:#666;margin:0 0 14px">Enter the display name for each connected bank (e.g. "Chase", "Oriental").</p>';
+      connections.forEach(function(c) {
+        html += '<div style="margin-bottom:12px">';
+        html += '<label style="font-size:12px;color:#888;display:block;margin-bottom:4px">Connection ' + (c.index+1) + ' (' + c.tokenHint + ')</label>';
+        html += '<input id="bank-name-' + c.index + '" type="text" value="' + (c.name||'') + '" placeholder="e.g. Chase" style="width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;box-sizing:border-box">';
+        html += '</div>';
+      });
+      html += '<div style="display:flex;gap:8px;margin-top:16px">';
+      html += '<button onclick="saveBankNames(' + connections.length + ')" style="flex:1;padding:8px;background:#1e3a5c;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Save Names</button>';
+      html += '<button onclick="document.getElementById(\'bank-name-modal\').remove()" style="flex:1;padding:8px;background:#ccc;border:none;border-radius:4px;cursor:pointer;font-size:13px">Cancel</button>';
+      html += '</div></div>';
+      var overlay = document.createElement('div');
+      overlay.id = 'bank-name-modal';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+      overlay.innerHTML = '<div style="background:#fff;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,.3)">' + html + '</div>';
+      document.body.appendChild(overlay);
+    })
+    .withFailureHandler(function(e) { toast('Error: ' + e.message, 'error'); })
+    .getPlaidConnections();
+}
+
+function saveBankNames(count) {
+  var pending = count;
+  var success = 0;
+  function done() { pending--; if (pending === 0) { document.getElementById('bank-name-modal').remove(); toast(success + ' bank name(s) saved. Syncing...', 'success'); syncAccounts(); } }
+  for (var i = 0; i < count; i++) {
+    var el = document.getElementById('bank-name-' + i);
+    var name = el ? el.value.trim() : '';
+    (function(idx, n) {
+      google.script.run
+        .withSuccessHandler(function(r) { if (r && r.success) success++; done(); })
+        .withFailureHandler(function() { done(); })
+        .setPlaidInstitutionName(idx, n);
+    })(i, name);
+  }
 }
 </script>
 </body>
