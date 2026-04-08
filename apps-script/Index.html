@@ -1059,7 +1059,7 @@ window.onload = function(){
 
 function loadData(){
   showLoading(true);
-  var _t=setTimeout(function(){showLoading(false);toast('Server took too long -- try refreshing','error');},20000);
+  var _t=setTimeout(function(){toast('Still loading — GAS cold start can take up to 45s on first load…','error');},45000);
   google.script.run
     .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
     .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
@@ -1730,7 +1730,9 @@ function renderMNWList(){
             if(det.peRate) parts.push(esc(det.peRate));
           }
           // Due date -- check both loan and PE maturity fields
-          const dueRaw = det.loanDue || det.peMaturity || det['Due Date'] || '';
+          const dueRaw = (a.Category==='Loans Receivable' ? det.loanDue : '')
+                      || (a.Category==='Private Equity'   ? det.peMaturity : '')
+                      || det['Due Date'] || '';
           if(dueRaw){
             const [y,m,d]=dueRaw.split('-').map(Number);
             const due=(y&&m&&d)?new Date(y,m-1,d):new Date(dueRaw);
