@@ -756,6 +756,35 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
 
+      <!-- Automobile -- only shown for Automobile category -->
+      <div class="detail-section" id="d-auto-section" style="display:none">
+        <div class="detail-section-title">Vehicle Details</div>
+        <div class="form-two">
+          <div class="form-row"><label>Vehicle (Make / Model)</label><input type="text" id="d-auto-vehicle" placeholder="e.g. Mercedes GLE 450"></div>
+          <div class="form-row"><label>Year</label><input type="number" id="d-auto-year" placeholder="e.g. 2024" min="1900" max="2099"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>VIN</label><input type="text" id="d-auto-vin" placeholder="17-character VIN"></div>
+          <div class="form-row"><label>License Plate</label><input type="text" id="d-auto-plate" placeholder="e.g. ABC-1234"></div>
+        </div>
+        <div class="detail-section-title" style="margin-top:16px;font-size:12px">Insurance</div>
+        <div class="form-two">
+          <div class="form-row"><label>Insurance Provider</label><input type="text" id="d-auto-ins-provider" placeholder="e.g. GEICO, State Farm"></div>
+          <div class="form-row"><label>Policy Number</label><input type="text" id="d-auto-ins-policy" placeholder="Policy #"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Policy Start Date</label><input type="date" id="d-auto-ins-start"></div>
+          <div class="form-row"><label>Policy End Date</label><input type="date" id="d-auto-ins-end"></div>
+        </div>
+        <div class="form-row" style="max-width:calc(50% - 6px)"><label>Renewal Date</label><input type="date" id="d-auto-ins-renewal"></div>
+        <div class="form-row" style="margin-top:8px"><label>Google Drive Folder</label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="d-auto-drive" placeholder="Paste Drive link here" style="flex:1" oninput="updateDriveLink('d-auto-drive','d-auto-drive-link')">
+            <a id="d-auto-drive-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
+          </div>
+        </div>
+      </div>
+
       <div class="detail-section" id="d-re-section">
         <div class="detail-section-title">Financial Breakdown</div>
         <div class="form-two">
@@ -2168,11 +2197,13 @@ function openAssetDetail(id){
   const isCash   = cat.startsWith('Cash');
   const isPE     = cat === 'Private Equity';
   const isEquity = cat.includes('Equity') && !isPE; // Public equity only
+  const isAuto   = cat === 'Automobile';
   document.getElementById('d-loan-section').style.display         = isLoan   ? 'block' : 'none';
   document.getElementById('d-re-section').style.display           = isRE     ? 'block' : 'none';
   document.getElementById('d-cash-section').style.display         = isCash   ? 'block' : 'none';
   document.getElementById('d-equity-section').style.display       = isEquity ? 'block' : 'none';
   document.getElementById('d-pe-section').style.display           = isPE     ? 'block' : 'none';
+  document.getElementById('d-auto-section').style.display         = isAuto   ? 'block' : 'none';
   document.getElementById('d-overview-re-fields').style.display   = isRE     ? ''      : 'none';
 
   // Overview fields
@@ -2207,6 +2238,21 @@ function openAssetDetail(id){
     document.getElementById('d-pe-dist-list').innerHTML='';
     (det.distributions||[]).forEach(function(d){ addPEDistRow(d.date,d.amount,d.notes); });
     recalcPE();
+  }
+
+  // Automobile fields
+  if(isAuto){
+    sv('d-auto-vehicle',      det.autoVehicle||'');
+    sv('d-auto-year',         det.autoYear||'');
+    sv('d-auto-vin',          det.autoVin||'');
+    sv('d-auto-plate',        det.autoPlate||'');
+    sv('d-auto-ins-provider', det.autoInsProvider||'');
+    sv('d-auto-ins-policy',   det.autoInsPolicy||'');
+    sv('d-auto-ins-start',    det.autoInsStart||'');
+    sv('d-auto-ins-end',      det.autoInsEnd||'');
+    sv('d-auto-ins-renewal',  det.autoInsRenewal||'');
+    sv('d-auto-drive',        det.autoDrive||'');
+    updateDriveLink('d-auto-drive','d-auto-drive-link');
   }
 
   // Real estate fields
@@ -2364,6 +2410,17 @@ function saveAssetDetails(){
     peMaturity:      gv('d-pe-maturity'),
     peRate:          gv('d-pe-rate'),
     peNotes:         gv('d-pe-notes'),
+    // Automobile fields
+    autoVehicle:     gv('d-auto-vehicle'),
+    autoYear:        gv('d-auto-year'),
+    autoVin:         gv('d-auto-vin'),
+    autoPlate:       gv('d-auto-plate'),
+    autoInsProvider: gv('d-auto-ins-provider'),
+    autoInsPolicy:   gv('d-auto-ins-policy'),
+    autoInsStart:    gv('d-auto-ins-start'),
+    autoInsEnd:      gv('d-auto-ins-end'),
+    autoInsRenewal:  gv('d-auto-ins-renewal'),
+    autoDrive:       gv('d-auto-drive'),
     capitalCalls: Array.from(document.querySelectorAll('#d-pe-calls-list .pe-log-row')).map(function(row){
       return {
         date:   row.querySelector('.pe-call-date').value,
