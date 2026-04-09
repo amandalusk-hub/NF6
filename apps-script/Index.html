@@ -643,7 +643,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="form-two">
           <div class="form-row"><label>Shares / Units Held</label><input type="number" id="d-eq-shares" placeholder="0"></div>
-          <div class="form-row"><label>Avg Cost Per Share</label><input type="number" id="d-eq-cost" placeholder="0.00"></div>
+          <div class="form-row"><label>Avg Cost Per Share</label><input type="text" id="d-eq-cost" placeholder="$0.00" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-row"><label>Investment Notes</label><textarea id="d-eq-notes" placeholder="Strategy, thesis, dividend info..." style="min-height:60px"></textarea></div>
       </div>
@@ -656,8 +656,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Borrower Contact</label><input type="text" id="d-borrower-contact" placeholder="Phone, email"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Original Loan Amount</label><input type="number" id="d-loan-original" placeholder="0"></div>
-          <div class="form-row"><label>Current Balance Owed</label><input type="number" id="d-loan-balance" placeholder="0"></div>
+          <div class="form-row"><label>Original Loan Amount</label><input type="text" id="d-loan-original" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Current Balance Owed</label><input type="text" id="d-loan-balance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
           <div class="form-row"><label>Interest Rate</label><input type="text" id="d-loan-rate" placeholder="e.g. 5%, 8% annual"></div>
@@ -680,10 +680,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
               <option>Annual</option><option>Lump Sum at Maturity</option><option>Interest Only</option><option>Other</option>
             </select>
           </div>
-          <div class="form-row"><label>Payment Amount</label><input type="number" id="d-loan-payment" placeholder="0 per period"></div>
+          <div class="form-row"><label>Payment Amount</label><input type="text" id="d-loan-payment" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Total Received to Date</label><input type="number" id="d-loan-received" placeholder="0"></div>
+          <div class="form-row"><label>Total Received to Date</label><input type="text" id="d-loan-received" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           <div class="form-row"><label>Collateral</label><input type="text" id="d-loan-collateral" placeholder="e.g. Real estate, equity stake"></div>
         </div>
         <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
@@ -952,27 +952,27 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="detail-section" id="d-re-section">
         <div class="detail-section-title">Financial Breakdown</div>
         <div class="form-two">
-          <div class="form-row"><label>Purchase Price</label><input type="number" id="d-purchase-price" placeholder="0"></div>
+          <div class="form-row"><label>Purchase Price</label><input type="text" id="d-purchase-price" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           <div class="form-row"><label>Purchase Date</label><input type="date" id="d-purchase-date"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Closing Costs</label><input type="number" id="d-closing-costs" placeholder="0"></div>
-          <div class="form-row"><label>Permits &amp; Licenses</label><input type="number" id="d-permits" placeholder="0"></div>
+          <div class="form-row"><label>Closing Costs</label><input type="text" id="d-closing-costs" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Permits &amp; Licenses</label><input type="text" id="d-permits" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Revenue / Month</label><input type="number" id="d-revenue" placeholder="0"></div>
-          <div class="form-row"><label>Operating Expenses / Month</label><input type="number" id="d-opex" placeholder="0"></div>
+          <div class="form-row"><label>Revenue / Month</label><input type="text" id="d-revenue" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Operating Expenses / Month</label><input type="text" id="d-opex" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Property Taxes / Year</label><input type="number" id="d-taxes" placeholder="0"></div>
-          <div class="form-row"><label>Insurance Premiums / Year</label><input type="number" id="d-insurance" placeholder="0"></div>
+          <div class="form-row"><label>Property Taxes / Year</label><input type="text" id="d-taxes" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Insurance Premiums / Year</label><input type="text" id="d-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>HOA Fees / Month</label><input type="number" id="d-hoa" placeholder="0"></div>
-          <div class="form-row"><label>Maintenance &amp; Repairs / Month</label><input type="number" id="d-maintenance" placeholder="0"></div>
+          <div class="form-row"><label>HOA Fees / Month</label><input type="text" id="d-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Maintenance &amp; Repairs / Month</label><input type="text" id="d-maintenance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Utilities / Month</label><input type="number" id="d-utilities" placeholder="0"></div>
+          <div class="form-row"><label>Utilities / Month</label><input type="text" id="d-utilities" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           <div class="form-row"><label>Loan Details</label><input type="text" id="d-loan" placeholder="e.g. $1.4M at 6.5% Oriental Bank"></div>
         </div>
         <div class="form-row"><label>Additional Financial Notes</label><textarea id="d-fin-notes" placeholder="Revenue details, deal terms, etc."></textarea></div>
@@ -1088,8 +1088,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Original Loan Amount</label><input type="number" id="ld-original" placeholder="0"></div>
-          <div class="form-row"><label>Current Balance</label><input type="number" id="ld-balance" placeholder="0"></div>
+          <div class="form-row"><label>Original Loan Amount</label><input type="text" id="ld-original" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Current Balance</label><input type="text" id="ld-balance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
           <div class="form-row"><label>Start Date</label><input type="date" id="ld-start-date"></div>
@@ -1104,18 +1104,18 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="detail-section">
         <div class="detail-section-title">Monthly Payment Breakdown</div>
         <div class="form-two">
-          <div class="form-row"><label>Total Monthly Payment</label><input type="number" id="ld-payment" placeholder="0"></div>
-          <div class="form-row"><label>Principal Portion</label><input type="number" id="ld-principal" placeholder="0"></div>
+          <div class="form-row"><label>Total Monthly Payment</label><input type="text" id="ld-payment" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Principal Portion</label><input type="text" id="ld-principal" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Interest Portion</label><input type="number" id="ld-interest-pmt" placeholder="0"></div>
-          <div class="form-row"><label>Escrow (Taxes + Insurance)</label><input type="number" id="ld-escrow" placeholder="0"></div>
+          <div class="form-row"><label>Interest Portion</label><input type="text" id="ld-interest-pmt" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Escrow (Taxes + Insurance)</label><input type="text" id="ld-escrow" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Property Tax / Year</label><input type="number" id="ld-tax" placeholder="0"></div>
-          <div class="form-row"><label>Insurance / Year</label><input type="number" id="ld-insurance" placeholder="0"></div>
+          <div class="form-row"><label>Property Tax / Year</label><input type="text" id="ld-tax" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Insurance / Year</label><input type="text" id="ld-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
-        <div class="form-row"><label>HOA / Month</label><input type="number" id="ld-hoa" placeholder="0"></div>
+        <div class="form-row"><label>HOA / Month</label><input type="text" id="ld-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
       </div>
 
       <div class="detail-section">
@@ -2437,19 +2437,19 @@ function openAssetDetail(id){
   }
 
   // Real estate fields
-  sv('d-purchase-price',det.purchasePrice||'');
-  sv('d-purchase-date',det.purchaseDate||'');
-  sv('d-closing-costs',det.closingCosts||'');
-  sv('d-permits',      det.permits||'');
-  sv('d-revenue',      det.revenue||'');
-  sv('d-opex',         det.opex||'');
-  sv('d-taxes',        det.taxes||'');
-  sv('d-insurance',    det.insurance||'');
-  sv('d-hoa',          det.hoa||'');
-  sv('d-maintenance',  det.maintenance||'');
-  sv('d-utilities',    det.utilities||'');
-  sv('d-loan',         det.loan||'');
-  sv('d-fin-notes',    det.finNotes||'');
+  sv('d-purchase-price', det.purchasePrice ? fmtAcct(det.purchasePrice) : '');
+  sv('d-purchase-date',  det.purchaseDate||'');
+  sv('d-closing-costs',  det.closingCosts  ? fmtAcct(det.closingCosts)  : '');
+  sv('d-permits',        det.permits       ? fmtAcct(det.permits)       : '');
+  sv('d-revenue',        det.revenue       ? fmtAcct(det.revenue)       : '');
+  sv('d-opex',           det.opex          ? fmtAcct(det.opex)          : '');
+  sv('d-taxes',          det.taxes         ? fmtAcct(det.taxes)         : '');
+  sv('d-insurance',      det.insurance     ? fmtAcct(det.insurance)     : '');
+  sv('d-hoa',            det.hoa           ? fmtAcct(det.hoa)           : '');
+  sv('d-maintenance',    det.maintenance   ? fmtAcct(det.maintenance)   : '');
+  sv('d-utilities',      det.utilities     ? fmtAcct(det.utilities)     : '');
+  sv('d-loan',           det.loan||'');
+  sv('d-fin-notes',      det.finNotes||'');
 
   // Cash section
   sv('d-cash-bank',      det.cashBank||'');
@@ -2460,7 +2460,7 @@ function openAssetDetail(id){
   sv('d-eq-broker', det.eqBroker||'');
   sv('d-eq-acct',   det.eqAcct||'');
   sv('d-eq-shares', det.eqShares||'');
-  sv('d-eq-cost',   det.eqCost||'');
+  sv('d-eq-cost',   det.eqCost ? fmtAcct(det.eqCost) : '');
   sv('d-eq-notes',  det.eqNotes||'');
 
   // Dynamic contact rows
@@ -2472,15 +2472,15 @@ function openAssetDetail(id){
   // Loan receivable fields
   sv('d-borrower',         det.borrower||'');
   sv('d-borrower-contact', det.borrowerContact||'');
-  sv('d-loan-original',    det.loanOriginal||'');
-  sv('d-loan-balance',     det.loanBalance||'');
+  sv('d-loan-original',    det.loanOriginal ? fmtAcct(det.loanOriginal) : '');
+  sv('d-loan-balance',     det.loanBalance  ? fmtAcct(det.loanBalance)  : '');
   sv('d-loan-rate',        det.loanRate||'');
   sv('d-loan-status',      det.loanStatus||'');
   sv('d-loan-date',        det.loanDate||'');
   sv('d-loan-due',         det.loanDue||'');
   sv('d-loan-terms',       det.loanTerms||'');
-  sv('d-loan-payment',     det.loanPayment||'');
-  sv('d-loan-received',    det.loanReceived||'');
+  sv('d-loan-payment',     det.loanPayment  ? fmtAcct(det.loanPayment)  : '');
+  sv('d-loan-received',    det.loanReceived ? fmtAcct(det.loanReceived) : '');
   sv('d-loan-collateral',  det.loanCollateral||'');
   sv('d-loan-drive',       det.loanDrive||'');
   sv('d-loan-attorney',    det.loanAttorney||'');
@@ -2983,19 +2983,19 @@ function openLiabDetail(id){
   sv('ld-account',    det.account||'');
   sv('ld-rate',       det.rate||'');
   sv('ld-loan-type',  det.loanType||'');
-  sv('ld-original',   det.original||'');
-  sv('ld-balance',    det.balance||'');
-  sv('ld-start-date', det.startDate||'');
-  sv('ld-maturity',   det.maturity||'');
-  sv('ld-term',       det.term||'');
-  sv('ld-remaining',  det.remaining||'');
-  sv('ld-payment',    det.payment||'');
-  sv('ld-principal',  det.principal||'');
-  sv('ld-interest-pmt',det.interestPmt||'');
-  sv('ld-escrow',     det.escrow||'');
-  sv('ld-tax',        det.tax||'');
-  sv('ld-insurance',  det.insurance||'');
-  sv('ld-hoa',        det.hoa||'');
+  sv('ld-original',    det.original    ? fmtAcct(det.original)    : '');
+  sv('ld-balance',     det.balance     ? fmtAcct(det.balance)     : '');
+  sv('ld-start-date',  det.startDate||'');
+  sv('ld-maturity',    det.maturity||'');
+  sv('ld-term',        det.term||'');
+  sv('ld-remaining',   det.remaining||'');
+  sv('ld-payment',     det.payment     ? fmtAcct(det.payment)     : '');
+  sv('ld-principal',   det.principal   ? fmtAcct(det.principal)   : '');
+  sv('ld-interest-pmt',det.interestPmt ? fmtAcct(det.interestPmt) : '');
+  sv('ld-escrow',      det.escrow      ? fmtAcct(det.escrow)      : '');
+  sv('ld-tax',         det.tax         ? fmtAcct(det.tax)         : '');
+  sv('ld-insurance',   det.insurance   ? fmtAcct(det.insurance)   : '');
+  sv('ld-hoa',         det.hoa         ? fmtAcct(det.hoa)         : '');
   sv('ld-officer',    det.officer||'');
   sv('ld-attorney',   det.attorney||'');
   sv('ld-ins-agent',  det.insAgent||'');

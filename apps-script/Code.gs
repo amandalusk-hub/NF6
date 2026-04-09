@@ -609,21 +609,8 @@ function saveAssetDetails(id, detailsJson) {
       var newRow = assetsData[i].slice();
       if (detailsCol  > 0) newRow[detailsCol  - 1] = detailsJson || '';
       if (lastUpdCol  > 0) newRow[lastUpdCol   - 1] = new Date();
-
-      // For Private Equity: auto-update asset value to total invested (initial + all capital calls)
-      var category = categoryCol > 0 ? String(assetsData[i][categoryCol - 1] || '') : '';
-      if (category === 'Private Equity') {
-        var peInitial     = parseFloat(det.peInitial) || 0;
-        var callsTotal    = (det.capitalCalls || []).reduce(function(s, c) { return s + (parseFloat(c.amount) || 0); }, 0);
-        var totalInvested = peInitial + callsTotal;
-        if (totalInvested > 0) {
-          var sharePct = shareCol > 0 ? (parseFloat(assetsData[i][shareCol - 1]) || 100) : 100;
-          var usdValue = sharePct > 0 ? totalInvested / (sharePct / 100) : totalInvested;
-          if (localValCol > 0) newRow[localValCol - 1] = usdValue;
-          if (usdValCol   > 0) newRow[usdValCol   - 1] = usdValue;
-          if (shareUsdCol > 0) newRow[shareUsdCol  - 1] = totalInvested;
-        }
-      }
+      // Note: asset value (Local Value / My Share USD) is managed by updateAsset().
+      // saveAssetDetails only persists the details JSON blob; it does not override value columns.
 
       assetsSheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
       break;
