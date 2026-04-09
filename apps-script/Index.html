@@ -570,7 +570,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div id="da-value-row" style="display:none;margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-local-label">Current Value</span>
-            <input type="number" id="da-local" placeholder="0" min="0" style="width:130px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" oninput="updateDetailPreview()">
+            <input type="text" id="da-local" placeholder="$0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview()" onfocus="onAcctFocus(this)">
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-share-label">Share %</span>
@@ -2255,7 +2255,7 @@ function onDetailCategoryChange(){
   if(el('d-overview-re-fields')) el('d-overview-re-fields').style.display = isRE ? '' : 'none';
 }
 function updateDetailPreview(){
-  var loc = parseFloat((document.getElementById('da-local')||{value:'0'}).value)||0;
+  var loc = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   var shr = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
   var el  = document.getElementById('da-preview');
   if (!el) return;
@@ -2365,10 +2365,10 @@ function openAssetDetail(id){
   // For non-PE: da-local = Local Value; da-share = My Share %
   var det0={}; try{det0=JSON.parse(asset.Details||'{}');}catch(e){}
   if (_daIsPE) {
-    document.getElementById('da-local').value = num(asset['My Share USD'])||'';
+    document.getElementById('da-local').value = fmtAcct(num(asset['My Share USD']))||'';
     document.getElementById('da-share').value = det0.peOwnership || num(asset['My Share %'])||100;
   } else {
-    document.getElementById('da-local').value  = num(asset['Local Value'])||'';
+    document.getElementById('da-local').value  = fmtAcct(num(asset['Local Value']))||'';
     document.getElementById('da-share').value  = num(asset['My Share %'])||100;
   }
 
@@ -2653,7 +2653,7 @@ function saveAssetDetails(){
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
   var _daShr  = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
-  var _daLoc  = parseFloat((document.getElementById('da-local')||{value:'0'}).value)||0;
+  var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   var _daIsPE = _daCat === 'Private Equity';
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur };
   if (_daIsPE) {
