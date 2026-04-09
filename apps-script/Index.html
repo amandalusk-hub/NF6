@@ -749,7 +749,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <div style="display:flex;gap:8px;align-items:center">
               <span id="pe-calls-total" style="font-size:12px;color:#8ab;font-weight:400"></span>
               <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPECallRow()">+ Add</button>
-              <span class="pe-block-chevron">▶</span>
+              <span class="pe-block-chevron">+</span>
             </div>
           </div>
           <div id="pe-calls-body" class="pe-block-body" style="display:none">
@@ -773,7 +773,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <div style="display:flex;gap:8px;align-items:center">
               <span id="pe-dist-total" style="font-size:12px;color:#4ade80;font-weight:400"></span>
               <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPEDistRow()">+ Add</button>
-              <span class="pe-block-chevron">▶</span>
+              <span class="pe-block-chevron">+</span>
             </div>
           </div>
           <div id="pe-dist-body" class="pe-block-body" style="display:none">
@@ -805,7 +805,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <div style="display:flex;gap:8px;align-items:center">
               <span id="pe-k1-total" style="font-size:12px;color:#8ab;font-weight:400"></span>
               <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPEK1Row()">+ Add Year</button>
-              <span class="pe-block-chevron">▶</span>
+              <span class="pe-block-chevron">+</span>
             </div>
           </div>
           <div id="pe-k1-body" class="pe-block-body" style="display:none">
@@ -821,7 +821,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="pe-block">
           <div class="pe-block-hdr" onclick="togglePEBlock('pe-inv-body')">
             <span>Investment Details</span>
-            <span class="pe-block-chevron">▶</span>
+            <span class="pe-block-chevron">+</span>
           </div>
           <div id="pe-inv-body" class="pe-block-body" style="display:none">
             <div class="form-two">
@@ -904,7 +904,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="pe-block">
           <div class="pe-block-hdr" onclick="togglePEBlock('pe-notes-body')">
             <span>Notes</span>
-            <span class="pe-block-chevron">▶</span>
+            <span class="pe-block-chevron">+</span>
           </div>
           <div id="pe-notes-body" class="pe-block-body" style="display:none">
             <div class="form-row"><label>Investment Notes</label>
@@ -1221,7 +1221,7 @@ window.onload = function(){
 
 function loadData(){
   showLoading(true);
-  var _t=setTimeout(function(){toast('Still loading — GAS cold start can take up to 45s on first load…','error');},45000);
+  var _t=setTimeout(function(){toast('Still loading - GAS cold start can take up to 45s on first load...','error');},45000);
   google.script.run
     .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
     .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
@@ -2705,7 +2705,7 @@ function togglePEBlock(bodyId) {
   body.style.display = open ? 'none' : 'block';
   const hdr = body.previousElementSibling;
   const chev = hdr && hdr.querySelector('.pe-block-chevron');
-  if (chev) chev.textContent = open ? '▶' : '▼';
+  if (chev) chev.textContent = open ? '+' : '-';
 }
 
 function addPEK1Row(year, pl) {
@@ -2721,9 +2721,9 @@ function addPEK1Row(year, pl) {
   row.className = 'pe-k1-row';
   row.style.cssText = 'display:grid;grid-template-columns:90px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
   row.innerHTML =
-    `<input type="number" class="pe-k1-year" placeholder="${new Date().getFullYear()}" min="2000" max="2099" style="padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">` +
-    `<input type="text" class="pe-k1-pl" placeholder="$0 (negative = loss)" style="text-align:right;padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">` +
-    `<button type="button" onclick="this.closest('.pe-k1-row').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">&times;</button>`;
+    '<input type="number" class="pe-k1-year" placeholder="' + new Date().getFullYear() + '" min="2000" max="2099" style="padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+    '<input type="text" class="pe-k1-pl" placeholder="$0 (negative = loss)" style="text-align:right;padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+    '<button type="button" onclick="this.closest(\'.pe-k1-row\').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
   list.appendChild(row);
   const plEl = row.querySelector('.pe-k1-pl');
   plEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcPE); });
