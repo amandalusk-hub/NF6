@@ -89,8 +89,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .form-row input:focus,.form-row select:focus,.form-row textarea:focus{border-color:#1a73e8}
 .form-row textarea{resize:vertical;min-height:70px}
 .form-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.usd-preview{background:#f0f7ff;border:1px solid #c8e0ff;border-radius:6px;padding:10px 12px;font-size:13px;color:#1a3a5c;margin-bottom:14px}
-.usd-preview span{font-weight:700}
 .modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
 /* MNW4-style grouped list */
 .mnw-section-hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
@@ -499,20 +497,17 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
 <!-- Asset Modal -->
 <div class="modal-overlay" id="asset-modal">
-  <div class="modal">
+  <div class="modal" style="max-width:480px">
     <div class="modal-header">
-      <div class="modal-title" id="asset-modal-title">Add Asset</div>
+      <div class="modal-title">Add Asset</div>
       <button class="modal-close" onclick="closeModal('asset-modal')">x</button>
     </div>
     <div class="modal-body">
-      <input type="hidden" id="a-id">
-      <div id="a-current-value" style="display:none;background:#f0fff4;border:1px solid #b7ebc8;border-radius:6px;padding:10px 12px;font-size:13px;color:#155724;margin-bottom:14px">
-        Current Value on File: <strong id="a-cv-total"></strong> total &nbsp;|&nbsp; Mike's Share: <strong id="a-cv-share"></strong>
-      </div>
+      <p style="font-size:12px;color:#888;margin-bottom:14px">Enter a name and category to create the asset. All other details (value, share%, capital calls, etc.) are filled in on the next screen.</p>
       <div class="form-two">
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
-          <select id="a-category" onchange="onCategoryChange()">
+          <select id="a-category">
             <option>Real Estate - United States</option>
             <option>Real Estate - Colombia</option>
             <option>Real Estate - Puerto Rico</option>
@@ -534,41 +529,19 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-two">
-        <div class="form-row"><label>Entity</label><select id="a-entity" onchange="onEntityChange()"><option value="">-- None --</option></select></div>
+        <div class="form-row"><label>Entity</label><select id="a-entity"><option value="">-- None --</option></select></div>
         <div class="form-row"><label>Currency</label>
-          <select id="a-currency" onchange="updateUSDPreview()">
+          <select id="a-currency">
             <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
             <option>BRL</option><option>MXN</option><option>CAD</option><option>JPY</option>
             <option>CHF</option><option>AUD</option><option>DOP</option>
           </select>
         </div>
       </div>
-      <div class="form-two">
-        <div class="form-row" id="a-share-row">
-          <label id="a-share-label">Mike's Share %</label>
-          <input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()">
-        </div>
-        <div class="form-row">
-          <label id="a-local-label">Current Total Value</label>
-          <input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()">
-          <div id="a-local-hint" style="font-size:11px;color:#888;margin-top:3px"></div>
-        </div>
-      </div>
-      <div class="form-row">
-        <label>Mike's Cost Basis <span style="font-weight:400;color:#888">(what Mike paid for his share)</span></label>
-        <input type="number" id="a-cost-basis" placeholder="0.00" min="0" oninput="updateUSDPreview()">
-      </div>
-      <div class="usd-preview"><span id="usd-preview-label">Mike's Share:</span> <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
-      <div class="form-row" id="a-address-row" style="display:none">
-        <label>Address <span style="font-weight:400;color:#888">(saved for records -- enter value manually below)</span></label>
-        <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="width:100%">
-        <div style="font-size:11px;color:#888;margin-top:4px">Tip: look up the value on Zillow or Redfin, then enter it in "Current Total Value" above.</div>
-      </div>
-      <div class="form-row"><label>Notes</label><textarea id="a-notes" placeholder="Optional notes..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('asset-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveAsset()">Save Asset</button>
+      <button class="btn btn-primary" onclick="saveAsset()">Create Asset</button>
     </div>
   </div>
 </div>
@@ -1249,11 +1222,11 @@ window.onload = function(){
   loadData();
 };
 
-function loadData(){
+function loadData(cb){
   showLoading(true);
   var _t=setTimeout(function(){toast('Still loading - GAS cold start can take up to 45s on first load...','error');},45000);
   google.script.run
-    .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);})
+    .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);if(cb)cb();})
     .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
     .getFullData();
 }
@@ -2027,7 +2000,7 @@ function renderAssetsTable(){
       <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'--'})()}</td>
       <td>${fmtDate(a['Last Updated'])}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">
-        <button class="btn btn-secondary btn-sm" onclick='openAssetModal(${JSON.stringify(a.ID)})'>Edit</button>
+        <button class="btn btn-secondary btn-sm" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>Edit</button>
         <button class="btn btn-danger btn-sm" onclick='deleteAsset(${JSON.stringify(a.ID)},${JSON.stringify(a.Name)})'>Del</button>
       </td>
     </tr>`).join('');
@@ -2242,73 +2215,17 @@ function renderHistoryTable(){
   }).join('');
 }
 
-// -- Asset Modal ------------------------------------------------------------
-function openAssetModal(id){
-  const asset=id?state.assets.find(a=>a.ID==id):null;
-  document.getElementById('asset-modal-title').textContent=asset?'Edit Asset':'Add Asset';
-  document.getElementById('a-id').value=asset?asset.ID:'';
-  document.getElementById('a-name').value=asset?asset.Name:'';
-  document.getElementById('a-category').value=asset?asset.Category:'Real Estate';
-  document.getElementById('a-currency').value=asset?asset.Currency:'USD';
-  const _editSharePct = asset ? (num(asset['My Share %'])||100) : 100;
-  document.getElementById('a-share').value = _editSharePct;
-  if (asset) {
-    const _editIsPE = (asset.Category||'') === 'Private Equity';
-    const _storedLocal = num(asset['Local Value'])||0;
-    // For PE: show Mike's Share USD (his NAV), not the company total
-    const _displayVal = (_editIsPE && _editSharePct > 0 && _editSharePct < 100)
-      ? _storedLocal * (_editSharePct / 100)
-      : _storedLocal;
-    document.getElementById('a-local').value = _displayVal || '';
-  } else {
-    document.getElementById('a-local').value = '';
-  }
-  document.getElementById('a-cost-basis').value=asset?(num(asset['Cost Basis'])||''):'';
-  // Show current stored value banner when editing
-  const cvDiv=document.getElementById('a-current-value');
-  if(asset && num(asset['USD Value'])>0){
-    cvDiv.style.display='block';
-    document.getElementById('a-cv-total').textContent=fmtUSD(num(asset['USD Value']));
-    document.getElementById('a-cv-share').textContent=fmtUSD(num(asset['My Share USD']));
-  }else{
-    cvDiv.style.display='none';
-  }
-  document.getElementById('a-address').value=asset?asset.Address||'':'';
-  document.getElementById('a-notes').value=asset?asset.Notes:'';
-  // populate entity dropdown
+// -- Asset Modal (Add only) -------------------------------------------------
+function openAssetModal(){
+  document.getElementById('a-name').value='';
+  document.getElementById('a-category').value='Real Estate - United States';
+  document.getElementById('a-currency').value='USD';
   const sel=document.getElementById('a-entity');
   sel.innerHTML='<option value="">-- None --</option>';
-  state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option${asset&&asset.Entity===e.Name?' selected':''}>${esc(e.Name)}</option>`));
-  onCategoryChange();
+  state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option>${esc(e.Name)}</option>`));
   openModal('asset-modal');
 }
 
-function onCategoryChange(){
-  var cat = document.getElementById('a-category').value;
-  var isPE = cat === 'Private Equity';
-  var isRE = cat.startsWith('Real Estate');
-  // Address row (RE only)
-  document.getElementById('a-address-row').style.display = isRE ? 'block' : 'none';
-  // Dynamic labels
-  var lbl  = document.getElementById('a-local-label');
-  var hint = document.getElementById('a-local-hint');
-  var sLbl = document.getElementById('a-share-label');
-  if (isPE) {
-    lbl.textContent  = "Current NAV (Mike's Value)";
-    hint.textContent = "Enter Mike's stake value directly -- e.g. what his share is worth today, not the company total.";
-    sLbl.textContent = "Ownership % (info)";
-  } else if (isRE) {
-    lbl.textContent  = "Current Property Value";
-    hint.textContent = "Full market value -- Mike's share is calculated below";
-    sLbl.textContent = "Mike's Share %";
-    hint.textContent = '';
-  } else {
-    lbl.textContent  = "Current Total Value";
-    hint.textContent = '';
-    sLbl.textContent = "Mike's Share %";
-  }
-  updateUSDPreview();
-}
 
 function onDetailCategoryChange(){
   var cat = document.getElementById('da-category').value;
@@ -2344,79 +2261,31 @@ function updateDetailPreview(){
   el.textContent = shr < 100 ? 'Mike: ' + fmtUSD(share) : '';
 }
 
-function onEntityChange(){
-  const entityName=document.getElementById('a-entity').value;
-  if(!entityName)return;
-  const entity=state.entities.find(e=>e.Name===entityName);
-  if(entity&&entity['Ownership %']!=null){
-    document.getElementById('a-share').value=num(entity['Ownership %']);
-    updateUSDPreview();
-  }
-}
-
-function updateUSDPreview(){
-  var currency  = document.getElementById('a-currency').value;
-  var enteredVal= parseFloat(document.getElementById('a-local').value)||0;
-  var share     = parseFloat(document.getElementById('a-share').value)||100;
-  var costBasis = parseFloat(document.getElementById('a-cost-basis').value)||0;
-  var fx        = state.fxRates.find(function(r){return r.Currency===currency;});
-  var rate      = fx ? num(fx['Rate to USD']) : 1;
-  var isPE      = document.getElementById('a-category').value === 'Private Equity';
-  // For PE: entered value IS already Mike's NAV -- no share multiplication
-  var mikeShareUsd = isPE ? enteredVal * rate : enteredVal * rate * (share / 100);
-  var costBasisUsd = costBasis * rate;
-  var gainLoss     = mikeShareUsd - costBasisUsd;
-  var previewLbl   = document.getElementById('usd-preview-label');
-  if (previewLbl) previewLbl.textContent = isPE ? "Current NAV:" : "Mike's Share:";
-  document.getElementById('usd-preview').textContent = fmtUSD(mikeShareUsd);
-  document.getElementById('basis-preview').textContent = costBasis > 0 ? fmtUSD(costBasisUsd) : 'not set';
-  var gEl = document.getElementById('gain-preview');
-  if (costBasis <= 0) {
-    gEl.textContent = 'enter cost basis above';
-    gEl.style.color = '#888';
-  } else {
-    gEl.textContent = (gainLoss >= 0 ? '+' : '') + fmtUSD(gainLoss);
-    gEl.style.color  = gainLoss >= 0 ? '#1e8e3e' : '#c5221f';
-  }
-}
 
 function saveAsset(){
-  const id=document.getElementById('a-id').value;
-  const _sharePct=parseFloat(document.getElementById('a-share').value)||100;
-  const _enteredVal=parseFloat(document.getElementById('a-local').value)||0;
-  const _costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
-  const _cat=document.getElementById('a-category').value;
-  const _isPE = _cat === 'Private Equity';
-  // For PE: user enters Mike's NAV directly. Reverse-calc so backend's (localValue * share%) = Mike's NAV.
-  const _localValue = (_isPE && _sharePct > 0 && _sharePct < 100)
-    ? _enteredVal / (_sharePct / 100)
-    : _enteredVal;
+  const name = document.getElementById('a-name').value.trim();
+  if(!name){toast('Asset name is required','error');return;}
   const data={
-    id:id,
-    name:document.getElementById('a-name').value.trim(),
-    category:_cat,
-    entity:document.getElementById('a-entity').value,
-    currency:document.getElementById('a-currency').value,
-    mySharePct:_sharePct,
-    localValue:_localValue,
-    costBasis:_costBasis,
-    address:document.getElementById('a-address').value.trim(),
-    notes:document.getElementById('a-notes').value.trim()
+    name: name,
+    category: document.getElementById('a-category').value,
+    entity:   document.getElementById('a-entity').value,
+    currency: document.getElementById('a-currency').value,
+    mySharePct: 100,
+    localValue: 0,
+    costBasis: 0
   };
-  if(!data.name){toast('Asset name is required','error');return;}
   showLoading(true);
   closeModal('asset-modal');
-  if(id){
-    google.script.run
-      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Update failed','error');}else{toast('Asset updated');loadData();}})
-      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
-      .updateAsset(data);
-  }else{
-    google.script.run
-      .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Asset added');loadData();}})
-      .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
-      .addAsset(data);
-  }
+  google.script.run
+    .withSuccessHandler(function(r){
+      showLoading(false);
+      if(r&&r.success===false){toast(r.error||'Add failed','error');return;}
+      toast('Asset created -- fill in the details below');
+      // Reload data then open the detail modal for the new asset
+      loadData(function(){ openAssetDetail(r.id); });
+    })
+    .withFailureHandler(function(e){showLoading(false);toast(e.message,'error');})
+    .addAsset(data);
 }
 
 function deleteAsset(id,name){
@@ -2770,17 +2639,13 @@ function saveAssetDetails(){
   var _daShr  = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
   var _daLoc  = parseFloat((document.getElementById('da-local')||{value:'0'}).value)||0;
   var _daIsPE = _daCat === 'Private Equity';
-  // For non-PE: save the entered local value directly; for PE the value is tracked via PE section
-  var _daLocalForSave = _daIsPE ? (_daLoc * (_daShr > 0 ? 100/_daShr : 1)) : _daLoc;
-  var coreData = {
-    id: id,
-    name: _daName || undefined,
-    category: _daCat,
-    entity: _daEnt,
-    currency: _daCur,
-    mySharePct: _daShr,
-    localValue: _daIsPE ? 0 : _daLocalForSave  // PE value managed separately
-  };
+  // For PE: don't touch localValue/mySharePct -- updateAsset keeps existing values when fields are undefined.
+  // For non-PE: save the value row fields from the detail header.
+  var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur };
+  if (!_daIsPE) {
+    coreData.mySharePct = _daShr;
+    coreData.localValue = _daLoc;
+  }
   if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
   showLoading(true);
   closeModal('detail-modal');
