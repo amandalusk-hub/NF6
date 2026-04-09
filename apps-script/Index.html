@@ -512,7 +512,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="form-two">
         <div class="form-row"><label>Name</label><input type="text" id="a-name" placeholder="Asset name"></div>
         <div class="form-row"><label>Category</label>
-          <select id="a-category" onchange="toggleAddressField()">
+          <select id="a-category" onchange="onCategoryChange()">
             <option>Real Estate - United States</option>
             <option>Real Estate - Colombia</option>
             <option>Real Estate - Puerto Rico</option>
@@ -544,14 +544,21 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
       <div class="form-two">
-        <div class="form-row"><label>Mike's Share %</label><input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()"></div>
-        <div class="form-row"><label>Current Total Value</label><input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()"></div>
+        <div class="form-row" id="a-share-row">
+          <label id="a-share-label">Mike's Share %</label>
+          <input type="number" id="a-share" value="100" min="0" max="100" step="0.01" oninput="updateUSDPreview()">
+        </div>
+        <div class="form-row">
+          <label id="a-local-label">Current Total Value</label>
+          <input type="number" id="a-local" placeholder="0.00" min="0" oninput="updateUSDPreview()">
+          <div id="a-local-hint" style="font-size:11px;color:#888;margin-top:3px"></div>
+        </div>
       </div>
       <div class="form-row">
         <label>Mike's Cost Basis <span style="font-weight:400;color:#888">(what Mike paid for his share)</span></label>
         <input type="number" id="a-cost-basis" placeholder="0.00" min="0" oninput="updateUSDPreview()">
       </div>
-      <div class="usd-preview">Mike's Share: <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
+      <div class="usd-preview"><span id="usd-preview-label">Mike's Share:</span> <span id="usd-preview">$0</span> &nbsp;|&nbsp; Cost Basis: <span id="basis-preview">$0</span> &nbsp;|&nbsp; Gain/Loss: <span id="gain-preview" style="font-weight:700">$0</span></div>
       <div class="form-row" id="a-address-row" style="display:none">
         <label>Address <span style="font-weight:400;color:#888">(saved for records -- enter value manually below)</span></label>
         <input type="text" id="a-address" placeholder="123 Main St, Houston, TX 77001" style="width:100%">
@@ -569,15 +576,38 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <!-- Asset Detail Modal -->
 <div class="modal-overlay" id="detail-modal">
   <div class="modal" style="max-width:780px">
-    <div class="modal-header">
-      <div>
-        <div class="modal-title" id="detail-modal-title">Asset Details</div>
-        <div class="detail-meta" id="detail-asset-meta"></div>
+    <div class="modal-header" style="align-items:flex-start">
+      <div style="flex:1;min-width:0">
+        <input type="text" id="da-name" placeholder="Asset name" style="font-size:16px;font-weight:600;width:100%;background:none;border:none;border-bottom:1px solid #2a4060;color:inherit;padding:2px 0 4px;outline:none;margin-bottom:8px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <select id="da-category" onchange="onDetailCategoryChange()" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px">
+            <option>Real Estate - United States</option><option>Real Estate - Colombia</option><option>Real Estate - Puerto Rico</option>
+            <option>Real Estate - Dominican Republic</option><option>Real Estate - Europe</option>
+            <option>Cash - Personal</option><option>Cash - Business</option>
+            <option>Private Equity</option><option>Public Equity (Dividends)</option><option>Public Equity (Growth)</option>
+            <option>Loans Receivable</option><option>Automobile</option><option>Art/Jewelry/Other</option>
+            <option>Crypto</option><option>VIP Medical Group</option><option>Insurance</option><option>Other</option>
+          </select>
+          <select id="da-entity" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px"><option value="">-- Entity --</option></select>
+          <select id="da-currency" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px">
+            <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option><option>BRL</option>
+            <option>MXN</option><option>CAD</option><option>JPY</option><option>CHF</option><option>AUD</option><option>DOP</option>
+          </select>
+        </div>
+        <!-- Non-PE value row (shown for RE, Cash, Equity, etc.) -->
+        <div id="da-value-row" style="display:none;margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
+            <span id="da-local-label">Current Value</span>
+            <input type="number" id="da-local" placeholder="0" min="0" style="width:120px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" oninput="updateDetailPreview()">
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
+            <span>Share %</span>
+            <input type="number" id="da-share" value="100" min="0" max="100" step="0.01" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" oninput="updateDetailPreview()">
+          </div>
+          <div id="da-preview" style="font-size:12px;color:#4ade80"></div>
+        </div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-secondary btn-sm" id="detail-edit-btn" onclick="openAssetModal(state._detailId)">Edit Core Fields</button>
-        <button class="modal-close" onclick="closeModal('detail-modal')">x</button>
-      </div>
+      <button class="modal-close" onclick="closeModal('detail-modal')" style="margin-left:8px;flex-shrink:0">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="detail-id">
@@ -2220,8 +2250,19 @@ function openAssetModal(id){
   document.getElementById('a-name').value=asset?asset.Name:'';
   document.getElementById('a-category').value=asset?asset.Category:'Real Estate';
   document.getElementById('a-currency').value=asset?asset.Currency:'USD';
-  document.getElementById('a-share').value=asset?asset['My Share %']:100;
-  document.getElementById('a-local').value=asset?(num(asset['Local Value'])||''):'';
+  const _editSharePct = asset ? (num(asset['My Share %'])||100) : 100;
+  document.getElementById('a-share').value = _editSharePct;
+  if (asset) {
+    const _editIsPE = (asset.Category||'') === 'Private Equity';
+    const _storedLocal = num(asset['Local Value'])||0;
+    // For PE: show Mike's Share USD (his NAV), not the company total
+    const _displayVal = (_editIsPE && _editSharePct > 0 && _editSharePct < 100)
+      ? _storedLocal * (_editSharePct / 100)
+      : _storedLocal;
+    document.getElementById('a-local').value = _displayVal || '';
+  } else {
+    document.getElementById('a-local').value = '';
+  }
   document.getElementById('a-cost-basis').value=asset?(num(asset['Cost Basis'])||''):'';
   // Show current stored value banner when editing
   const cvDiv=document.getElementById('a-current-value');
@@ -2238,14 +2279,69 @@ function openAssetModal(id){
   const sel=document.getElementById('a-entity');
   sel.innerHTML='<option value="">-- None --</option>';
   state.entities.forEach(e=>sel.insertAdjacentHTML('beforeend',`<option${asset&&asset.Entity===e.Name?' selected':''}>${esc(e.Name)}</option>`));
-  toggleAddressField();
-  updateUSDPreview();
+  onCategoryChange();
   openModal('asset-modal');
 }
 
-function toggleAddressField(){
-  const cat=document.getElementById('a-category').value;
-  document.getElementById('a-address-row').style.display=cat.startsWith('Real Estate')?'block':'none';
+function onCategoryChange(){
+  var cat = document.getElementById('a-category').value;
+  var isPE = cat === 'Private Equity';
+  var isRE = cat.startsWith('Real Estate');
+  // Address row (RE only)
+  document.getElementById('a-address-row').style.display = isRE ? 'block' : 'none';
+  // Dynamic labels
+  var lbl  = document.getElementById('a-local-label');
+  var hint = document.getElementById('a-local-hint');
+  var sLbl = document.getElementById('a-share-label');
+  if (isPE) {
+    lbl.textContent  = "Current NAV (Mike's Value)";
+    hint.textContent = "Enter Mike's stake value directly -- e.g. what his share is worth today, not the company total.";
+    sLbl.textContent = "Ownership % (info)";
+  } else if (isRE) {
+    lbl.textContent  = "Current Property Value";
+    hint.textContent = "Full market value -- Mike's share is calculated below";
+    sLbl.textContent = "Mike's Share %";
+    hint.textContent = '';
+  } else {
+    lbl.textContent  = "Current Total Value";
+    hint.textContent = '';
+    sLbl.textContent = "Mike's Share %";
+  }
+  updateUSDPreview();
+}
+
+function onDetailCategoryChange(){
+  var cat = document.getElementById('da-category').value;
+  var isPE = cat === 'Private Equity';
+  // PE tracks its own value via capital calls / NAV in PE section; hide the value row for PE
+  var valRow = document.getElementById('da-value-row');
+  if (valRow) valRow.style.display = isPE ? 'none' : 'flex';
+  var lbl = document.getElementById('da-local-label');
+  if (lbl) lbl.textContent = cat.startsWith('Real Estate') ? 'Property Value' : 'Current Value';
+  // Mirror changes to the asset detail section visibility
+  var id = (document.getElementById('detail-id')||{}).value;
+  var asset = id ? (state.assets||[]).find(function(a){return a.ID==id;}) : null;
+  var isRE   = cat.startsWith('Real Estate');
+  var isCash = cat.startsWith('Cash');
+  var isLoan = cat === 'Loans Receivable';
+  var isEquity = cat.includes('Equity') && !isPE;
+  var isAuto = cat === 'Automobile';
+  var el = function(i){return document.getElementById(i);};
+  if(el('d-loan-section'))   el('d-loan-section').style.display   = isLoan   ? 'block' : 'none';
+  if(el('d-re-section'))     el('d-re-section').style.display     = isRE     ? 'block' : 'none';
+  if(el('d-cash-section'))   el('d-cash-section').style.display   = isCash   ? 'block' : 'none';
+  if(el('d-equity-section')) el('d-equity-section').style.display = isEquity ? 'block' : 'none';
+  if(el('d-pe-section'))     el('d-pe-section').style.display     = isPE     ? 'block' : 'none';
+  if(el('d-auto-section'))   el('d-auto-section').style.display   = isAuto   ? 'block' : 'none';
+  if(el('d-overview-re-fields')) el('d-overview-re-fields').style.display = isRE ? '' : 'none';
+}
+function updateDetailPreview(){
+  var loc = parseFloat((document.getElementById('da-local')||{value:'0'}).value)||0;
+  var shr = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
+  var el  = document.getElementById('da-preview');
+  if (!el) return;
+  var share = loc * (shr/100);
+  el.textContent = shr < 100 ? 'Mike: ' + fmtUSD(share) : '';
 }
 
 function onEntityChange(){
@@ -2259,36 +2355,46 @@ function onEntityChange(){
 }
 
 function updateUSDPreview(){
-  var currency=document.getElementById('a-currency').value;
-  var totalVal=parseFloat(document.getElementById('a-local').value)||0;
-  var share=parseFloat(document.getElementById('a-share').value)||100;
-  var costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
-  var fx=state.fxRates.find(function(r){return r.Currency===currency;});
-  var rate=fx?num(fx['Rate to USD']):1;
-  var mikeShareUsd=totalVal*rate*(share/100);
-  var costBasisUsd=costBasis*rate;
-  var gainLoss=mikeShareUsd-costBasisUsd;
-  document.getElementById('usd-preview').textContent=fmtUSD(mikeShareUsd);
-  document.getElementById('basis-preview').textContent=costBasis>0?fmtUSD(costBasisUsd):'not set';
-  var gEl=document.getElementById('gain-preview');
-  if(costBasis<=0){
-    gEl.textContent='enter cost basis above';
-    gEl.style.color='#888';
-  }else{
-    gEl.textContent=(gainLoss>=0?'+':'')+fmtUSD(gainLoss);
-    gEl.style.color=gainLoss>=0?'#1e8e3e':'#c5221f';
+  var currency  = document.getElementById('a-currency').value;
+  var enteredVal= parseFloat(document.getElementById('a-local').value)||0;
+  var share     = parseFloat(document.getElementById('a-share').value)||100;
+  var costBasis = parseFloat(document.getElementById('a-cost-basis').value)||0;
+  var fx        = state.fxRates.find(function(r){return r.Currency===currency;});
+  var rate      = fx ? num(fx['Rate to USD']) : 1;
+  var isPE      = document.getElementById('a-category').value === 'Private Equity';
+  // For PE: entered value IS already Mike's NAV -- no share multiplication
+  var mikeShareUsd = isPE ? enteredVal * rate : enteredVal * rate * (share / 100);
+  var costBasisUsd = costBasis * rate;
+  var gainLoss     = mikeShareUsd - costBasisUsd;
+  var previewLbl   = document.getElementById('usd-preview-label');
+  if (previewLbl) previewLbl.textContent = isPE ? "Current NAV:" : "Mike's Share:";
+  document.getElementById('usd-preview').textContent = fmtUSD(mikeShareUsd);
+  document.getElementById('basis-preview').textContent = costBasis > 0 ? fmtUSD(costBasisUsd) : 'not set';
+  var gEl = document.getElementById('gain-preview');
+  if (costBasis <= 0) {
+    gEl.textContent = 'enter cost basis above';
+    gEl.style.color = '#888';
+  } else {
+    gEl.textContent = (gainLoss >= 0 ? '+' : '') + fmtUSD(gainLoss);
+    gEl.style.color  = gainLoss >= 0 ? '#1e8e3e' : '#c5221f';
   }
 }
 
 function saveAsset(){
   const id=document.getElementById('a-id').value;
   const _sharePct=parseFloat(document.getElementById('a-share').value)||100;
-  const _localValue=parseFloat(document.getElementById('a-local').value)||0;
+  const _enteredVal=parseFloat(document.getElementById('a-local').value)||0;
   const _costBasis=parseFloat(document.getElementById('a-cost-basis').value)||0;
+  const _cat=document.getElementById('a-category').value;
+  const _isPE = _cat === 'Private Equity';
+  // For PE: user enters Mike's NAV directly. Reverse-calc so backend's (localValue * share%) = Mike's NAV.
+  const _localValue = (_isPE && _sharePct > 0 && _sharePct < 100)
+    ? _enteredVal / (_sharePct / 100)
+    : _enteredVal;
   const data={
     id:id,
     name:document.getElementById('a-name').value.trim(),
-    category:document.getElementById('a-category').value,
+    category:_cat,
     entity:document.getElementById('a-entity').value,
     currency:document.getElementById('a-currency').value,
     mySharePct:_sharePct,
@@ -2362,29 +2468,35 @@ function openAssetDetail(id){
   if(!asset)return;
   state._detailId=id;
   document.getElementById('detail-id').value=id;
-  document.getElementById('detail-modal-title').textContent=asset.Name;
-  document.getElementById('detail-asset-meta').textContent=
-    (asset.Category||'')+(asset.Entity?'  |  '+asset.Entity:'')+'  |  '+fmtUSD(num(asset['My Share USD']))+' ('+num(asset['My Share %'])+'% share)';
+  // Populate header core fields
+  document.getElementById('da-name').value = asset.Name||'';
+  document.getElementById('da-category').value = asset.Category||'';
+  // Entity dropdown
+  var daSel = document.getElementById('da-entity');
+  daSel.innerHTML = '<option value="">-- Entity --</option>';
+  (state.entities||[]).forEach(function(e){
+    daSel.insertAdjacentHTML('beforeend','<option'+(asset.Entity===e.Name?' selected':'')+'>'+esc(e.Name)+'</option>');
+  });
+  document.getElementById('da-currency').value = asset.Currency||'USD';
+  var _daPct = num(asset['My Share %'])||100;
+  document.getElementById('da-share').value = _daPct;
+  var _daCat = asset.Category||'';
+  var _daIsPE = _daCat === 'Private Equity';
+  var _daStoredLocal = num(asset['Local Value'])||0;
+  // For non-PE: show the stored local value; shown in the value row
+  document.getElementById('da-local').value = _daStoredLocal||'';
+  onDetailCategoryChange();
 
   let det={}; try{det=JSON.parse(asset.Details||'{}');}catch(e){det={}; }
 
   const sv=(elId,val)=>{const el=document.getElementById(elId);if(el)el.value=val||'';};
 
-  // Show/hide sections based on category
-  const cat = asset.Category||'';
+  // Section visibility handled by onDetailCategoryChange() called above
+  const cat      = asset.Category||'';
   const isLoan   = cat === 'Loans Receivable';
   const isRE     = cat.startsWith('Real Estate');
-  const isCash   = cat.startsWith('Cash');
   const isPE     = cat === 'Private Equity';
-  const isEquity = cat.includes('Equity') && !isPE; // Public equity only
   const isAuto   = cat === 'Automobile';
-  document.getElementById('d-loan-section').style.display         = isLoan   ? 'block' : 'none';
-  document.getElementById('d-re-section').style.display           = isRE     ? 'block' : 'none';
-  document.getElementById('d-cash-section').style.display         = isCash   ? 'block' : 'none';
-  document.getElementById('d-equity-section').style.display       = isEquity ? 'block' : 'none';
-  document.getElementById('d-pe-section').style.display           = isPE     ? 'block' : 'none';
-  document.getElementById('d-auto-section').style.display         = isAuto   ? 'block' : 'none';
-  document.getElementById('d-overview-re-fields').style.display   = isRE     ? ''      : 'none';
 
   // Overview fields
   sv('d-status',       det.status||(isLoan?'Active':'Active'));
@@ -2650,12 +2762,38 @@ function saveAssetDetails(){
       };
     })
   };
+  // Also gather core field changes from the detail modal header
+  var _daName = (document.getElementById('da-name')||{value:''}).value.trim();
+  var _daCat  = (document.getElementById('da-category')||{value:''}).value;
+  var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
+  var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
+  var _daShr  = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
+  var _daLoc  = parseFloat((document.getElementById('da-local')||{value:'0'}).value)||0;
+  var _daIsPE = _daCat === 'Private Equity';
+  // For non-PE: save the entered local value directly; for PE the value is tracked via PE section
+  var _daLocalForSave = _daIsPE ? (_daLoc * (_daShr > 0 ? 100/_daShr : 1)) : _daLoc;
+  var coreData = {
+    id: id,
+    name: _daName || undefined,
+    category: _daCat,
+    entity: _daEnt,
+    currency: _daCur,
+    mySharePct: _daShr,
+    localValue: _daIsPE ? 0 : _daLocalForSave  // PE value managed separately
+  };
+  if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
   showLoading(true);
   closeModal('detail-modal');
+  // Save core fields first, then details
   google.script.run
-    .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
+    .withSuccessHandler(function(){
+      google.script.run
+        .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Saved');loadData();}})
+        .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
+        .saveAssetDetails(id,JSON.stringify(details));
+    })
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
-    .saveAssetDetails(id,JSON.stringify(details));
+    .updateAsset(coreData);
 }
 
 // -- Accounting format helpers ---------------------------------------------
