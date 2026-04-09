@@ -2713,7 +2713,12 @@ function saveAssetDetails(){
 // -- Accounting format helpers ---------------------------------------------
 function fmtAcct(v) {
   const n = parseFloat(String(v||'').replace(/[$,\s]/g,''));
-  return isNaN(n)||n===0 ? '' : '$'+Math.round(n).toLocaleString('en-US');
+  if (isNaN(n) || n === 0) return '';
+  // Show cents only when they are non-zero (e.g. $1,500 vs $1,500.50)
+  const cents = Math.round(Math.abs(n) * 100) % 100;
+  return cents !== 0
+    ? '$' + n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+    : '$' + Math.round(n).toLocaleString('en-US');
 }
 function parseAcct(s) {
   return parseFloat(String(s||'').replace(/[$,\s]/g,''))||0;
@@ -3069,11 +3074,17 @@ function saveLiabilityDetails(){
     contacts:    gv('ld-contacts'),
     notes:       gv('ld-notes')
   };
-  showLoading(true);
   closeModal('liab-detail-modal');
+  // Optimistic local update so reopening modal immediately shows saved data
+  const _liab = (state.liabilities||[]).find(l=>String(l.ID)===String(id));
+  if (_liab) _liab.Details = JSON.stringify(details);
+  toast('Saving...');
   google.script.run
-    .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Details saved');loadData();}})
-    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
+    .withSuccessHandler(r=>{
+      if(r&&r.success===false){toast(r.error||'Save failed','error');loadData();}
+      else{toast('Saved');}
+    })
+    .withFailureHandler(e=>{toast(e.message,'error');loadData();})
     .saveLiabilityDetails(id,JSON.stringify(details));
 }
 
