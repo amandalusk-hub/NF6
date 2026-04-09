@@ -821,37 +821,68 @@ function saveLiabilityDetails(id, detailsJson) {
   // 1. Write JSON blob to LIABILITIES.Details column
   var liabSheet  = getSheet_('LIABILITIES');
   var liabData   = liabSheet.getDataRange().getValues();
-  var detailsCol = liabData[0].indexOf('Details') + 1;
-  var lastUpdCol = liabData[0].indexOf('Last Updated') + 1;
-  var liabName   = '';
+  var headers    = liabData[0];
+  var detailsCol = headers.indexOf('Details') + 1;
+  var lastUpdCol = headers.indexOf('Last Updated') + 1;
+  var amtCol     = headers.indexOf('Amount') + 1;
+  var usdCol     = headers.indexOf('USD Value') + 1;
+  var currCol    = headers.indexOf('Currency') + 1;
+
+  // Add Details column if it's missing (schema may have been updated after sheet was created)
+  if (detailsCol === 0) {
+    detailsCol = liabSheet.getLastColumn() + 1;
+    liabSheet.getRange(1, detailsCol).setValue('Details')
+      .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+    CacheService.getScriptCache().remove('sheets_ready');
+  }
+
+  // Parse balance from details (stored as "$1,234" string from accounting format)
+  var balanceNum = 0;
+  if (det.balance) {
+    balanceNum = parseFloat(String(det.balance).replace(/[$,\s]/g, '')) || 0;
+  }
+
+  var liabName = '';
+  var currency = 'USD';
   for (var i = 1; i < liabData.length; i++) {
-    if (String(liabData[i][0]) === String(id)) {
-      liabName = String(liabData[i][1] || '');
-      if (detailsCol > 0) liabSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
-      if (lastUpdCol > 0) liabSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
-      break;
+    if (String(liabData[i][0]) !== String(id)) continue;
+    liabName = String(liabData[i][1] || '');
+    currency = (currCol > 0 ? liabData[i][currCol - 1] : '') || 'USD';
+    liabSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
+    if (lastUpdCol > 0) liabSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
+    // Sync current balance → Amount + USD Value so the dashboard reflects it
+    if (balanceNum > 0 && amtCol > 0 && usdCol > 0) {
+      var fxRate = getFxRate_(currency);
+      liabSheet.getRange(i + 1, amtCol).setValue(balanceNum);
+      liabSheet.getRange(i + 1, usdCol).setValue(balanceNum * fxRate);
     }
+    break;
   }
 
   // 2. Upsert row in Liability Details sheet (flat columns)
-  var detSheet   = getSheet_('LIABILITY_DETAILS');
-  var detData    = detSheet.getDataRange().getValues();
-  var detHeaders = detData[0];
-  var colLookup  = { 'Liability ID': id, 'Liability Name': liabName };
-  LIAB_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
-  var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
-
-  var existingRow = -1;
-  for (var j = 1; j < detData.length; j++) {
-    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+  try {
+    var detSheet   = getSheet_('LIABILITY_DETAILS');
+    var detData    = detSheet.getDataRange().getValues();
+    var detHeaders = detData[0] || [];
+    if (detHeaders.length > 0 && detHeaders[0] !== '') {
+      var colLookup  = { 'Liability ID': id, 'Liability Name': liabName };
+      LIAB_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+      var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
+      var existingRow = -1;
+      for (var j = 1; j < detData.length; j++) {
+        if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+      }
+      if (existingRow > 0) {
+        detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+      } else {
+        detSheet.appendRow(rowData);
+      }
+    }
+  } catch(e) {
+    Logger.log('LIABILITY_DETAILS write failed: ' + e.message);
   }
-  if (existingRow > 0) {
-    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
-  } else {
-    detSheet.appendRow(rowData);
-  }
 
-  return { success: true };
+  return { success: true, balance: balanceNum, currency: currency };
 }
 
 function deleteLiability(id) {
