@@ -2324,20 +2324,36 @@ function deleteAsset(id,name){
 
 // -- Contact Rows (Who We Worked With) -------------------------------------
 const CONTACT_TYPES = ['Broker / Agent','Attorney / Legal','Lender / Bank','Property Manager','Contractor','Accountant','Insurance Agent','Notary / Title','Other'];
-function addContactRow(type, name){
-  const list = document.getElementById('d-contacts-list');
-  const row  = document.createElement('div');
-  row.className = 'contact-row';
-  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
-  const opts = CONTACT_TYPES.map(t=>`<option value="${t}"${t===type?' selected':''}>${t}</option>`).join('');
-  row.innerHTML = `
-    <select class="contact-type" style="flex:0 0 180px;padding:6px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:6px;">
-      <option value="">-- Type --</option>${opts}
-    </select>
-    <input type="text" class="contact-name" value="${(name||'').replace(/"/g,'&quot;')}" placeholder="Name, firm, phone / email" style="flex:1;padding:6px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:6px;">
-    <button type="button" onclick="this.parentElement.remove()" style="background:transparent;border:none;color:#e57373;font-size:18px;cursor:pointer;line-height:1;">&times;</button>
-  `;
-  list.appendChild(row);
+function addContactRow(type, data) {
+  var cd = (typeof data === 'object' && data !== null) ? data : {name: data||''};
+  var name = cd.name||'', email = cd.email||'', phone = cd.phone||'', desc = cd.description||'';
+  var list = document.getElementById('d-contacts-list');
+  var wrap = document.createElement('div');
+  wrap.className = 'contact-row';
+  wrap.style.cssText = 'border:1px solid #2a4060;border-radius:6px;padding:8px;margin-bottom:8px;background:#0d2137';
+  var opts = CONTACT_TYPES.map(function(t){ return '<option value="'+t+'"'+(t===type?' selected':'')+'>'+t+'</option>'; }).join('');
+  wrap.innerHTML =
+    '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">' +
+      '<select class="contact-type" onchange="toggleContactDesc(this)" style="flex:0 0 160px;padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+        '<option value="">-- Type --</option>' + opts +
+      '</select>' +
+      '<input type="text" class="contact-name" value="'+name.replace(/"/g,'&quot;')+'" placeholder="Full name" style="flex:1;padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+      '<button type="button" onclick="this.closest(\'.contact-row\').remove()" style="background:none;border:none;color:#e57373;font-size:18px;cursor:pointer;padding:0;line-height:1">x</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
+      '<input type="email" class="contact-email" value="'+email.replace(/"/g,'&quot;')+'" placeholder="Email" style="padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+      '<input type="tel" class="contact-phone" value="'+phone.replace(/"/g,'&quot;')+'" placeholder="Phone" style="padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
+    '</div>' +
+    '<div class="contact-desc-row" style="margin-top:6px;display:'+(type==='Other'?'block':'none')+'">' +
+      '<input type="text" class="contact-description" value="'+desc.replace(/"/g,'&quot;')+'" placeholder="Who they are / role" style="width:100%;padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px;box-sizing:border-box">' +
+    '</div>';
+  list.appendChild(wrap);
+}
+function toggleContactDesc(sel) {
+  var row = sel.closest('.contact-row');
+  if (!row) return;
+  var dr = row.querySelector('.contact-desc-row');
+  if (dr) dr.style.display = sel.value === 'Other' ? 'block' : 'none';
 }
 
 // -- Asset Detail View -----------------------------------------------------
@@ -2406,7 +2422,7 @@ function openAssetDetail(id){
     sv('d-pe-tax-notes',     det.peTaxNotes||'');
     // Capital calls log
     document.getElementById('d-pe-calls-list').innerHTML='';
-    (det.capitalCalls||[]).forEach(function(c){ addPECallRow(c.date,c.amount,c.notes); });
+    (det.capitalCalls||[]).forEach(function(c){ addPECallRow(c.date,c.amount,c.notes,c.link||''); });
     // Distributions log
     document.getElementById('d-pe-dist-list').innerHTML='';
     (det.distributions||[]).forEach(function(d){ addPEDistRow(d.date,d.amount,d.notes); });
@@ -2462,7 +2478,7 @@ function openAssetDetail(id){
   const contactsList = document.getElementById('d-contacts-list');
   contactsList.innerHTML = '';
   const contacts = det.contacts && det.contacts.length ? det.contacts : [{type:'',name:''}];
-  contacts.forEach(function(c){ addContactRow(c.type||'', c.name||''); });
+  contacts.forEach(function(c){ addContactRow(c.type||'', c); });
 
   // Loan receivable fields
   sv('d-borrower',         det.borrower||'');
@@ -2542,11 +2558,19 @@ function saveAssetDetails(){
     loan:            gv('d-loan'),
     finNotes:        gv('d-fin-notes'),
     contacts: Array.from(document.querySelectorAll('#d-contacts-list .contact-row')).map(function(row){
+      var typeEl = row.querySelector('.contact-type');
+      var nameEl = row.querySelector('.contact-name');
+      var emailEl = row.querySelector('.contact-email');
+      var phoneEl = row.querySelector('.contact-phone');
+      var descEl = row.querySelector('.contact-desc');
       return {
-        type: row.querySelector('.contact-type').value,
-        name: row.querySelector('.contact-name').value.trim()
+        type:        typeEl  ? typeEl.value           : '',
+        name:        nameEl  ? nameEl.value.trim()    : '',
+        email:       emailEl ? emailEl.value.trim()   : '',
+        phone:       phoneEl ? phoneEl.value.trim()   : '',
+        description: descEl  ? descEl.value.trim()    : ''
       };
-    }).filter(function(c){ return c.type || c.name; }),
+    }).filter(function(c){ return c.type || c.name || c.email || c.phone; }),
     // Loan receivable fields
     borrower:        gv('d-borrower'),
     borrowerContact: gv('d-borrower-contact'),
@@ -2614,7 +2638,8 @@ function saveAssetDetails(){
       return {
         date:   row.querySelector('.pe-call-date').value,
         amount: parseAcct(row.querySelector('.pe-call-amount').value),
-        notes:  row.querySelector('.pe-call-notes').value.trim()
+        notes:  row.querySelector('.pe-call-notes').value.trim(),
+        link:   row.querySelector('.pe-call-link') ? row.querySelector('.pe-call-link').value.trim() : ''
       };
     }),
     distributions: Array.from(document.querySelectorAll('#d-pe-dist-list .pe-log-row')).map(function(row){
@@ -2684,11 +2709,42 @@ function _peLogRow(listId, dateCls, amtCls, notesCls) {
   amtEl.addEventListener('focus', function(){ onAcctFocus(this); });
   return row;
 }
-function addPECallRow(date, amount, notes) {
-  const row = _peLogRow('d-pe-calls-list','pe-call-date','pe-call-amount','pe-call-notes');
+function addPECallRow(date, amount, notes, link) {
+  var list = document.getElementById('d-pe-calls-list');
+  if (!list.querySelector('.pe-log-header')) {
+    var hdr = document.createElement('div');
+    hdr.className = 'pe-log-header';
+    hdr.style.cssText = 'display:grid;grid-template-columns:130px 130px 1fr 120px 26px;gap:4px;padding:3px 0;font-size:11px;font-weight:600;color:#888;text-transform:uppercase';
+    hdr.innerHTML = '<span>Date</span><span style="text-align:right">Amount ($)</span><span style="padding-left:4px">Notes</span><span>Link</span><span></span>';
+    list.appendChild(hdr);
+  }
+  var row = document.createElement('div');
+  row.className = 'pe-log-row';
+  row.style.cssText = 'display:grid;grid-template-columns:130px 130px 1fr 120px 26px;gap:4px;margin-bottom:4px;align-items:center';
+  row.innerHTML =
+    '<input type="date" class="pe-call-date">' +
+    '<input type="text" class="pe-call-amount" placeholder="$0" style="text-align:right">' +
+    '<input type="text" class="pe-call-notes" placeholder="Notes">' +
+    '<div style="display:flex;gap:3px;align-items:center">' +
+      '<input type="text" class="pe-call-link" placeholder="Paste URL" style="flex:1;min-width:0">' +
+      '<a class="pe-call-open" href="#" target="_blank" style="display:none;font-size:11px;white-space:nowrap;padding:2px 5px;background:#1a3d6e;border-radius:3px;color:#7eb8f7;text-decoration:none">Open</a>' +
+    '</div>' +
+    '<button type="button" onclick="this.closest(\'.pe-log-row\').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
+  list.appendChild(row);
+  var amtEl = row.querySelector('.pe-call-amount');
+  amtEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcPE); });
+  amtEl.addEventListener('focus', function(){ onAcctFocus(this); });
+  var linkEl = row.querySelector('.pe-call-link');
+  var openEl = row.querySelector('.pe-call-open');
+  linkEl.addEventListener('input', function() {
+    var val = this.value.trim();
+    if (val) { openEl.href = val; openEl.style.display = 'inline'; }
+    else { openEl.href = '#'; openEl.style.display = 'none'; }
+  });
   if (date)   row.querySelector('.pe-call-date').value   = date;
-  if (amount) row.querySelector('.pe-call-amount').value = fmtAcct(amount);
+  if (amount) amtEl.value = fmtAcct(amount);
   if (notes)  row.querySelector('.pe-call-notes').value  = notes;
+  if (link)   { linkEl.value = link; openEl.href = link; openEl.style.display = 'inline'; }
   recalcPE();
 }
 function addPEDistRow(date, amount, notes) {
