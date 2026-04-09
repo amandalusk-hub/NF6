@@ -650,6 +650,93 @@ function saveAssetDetails(id, detailsJson) {
   return { success: true };
 }
 
+// Combined save: updates core fields + details in one GAS call (half the round-trips).
+// coreData mirrors the updateAsset() payload; detailsJson is the JSON string for Details.
+function saveFullAsset(coreData, id, detailsJson) {
+  var det = {};
+  try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
+
+  var sheet     = getSheet_('ASSETS');
+  var allRows   = sheet.getDataRange().getValues();
+  var headers   = allRows[0];
+  var detailsCol = headers.indexOf('Details') + 1;
+  var assetName = '';
+
+  for (var i = 1; i < allRows.length; i++) {
+    if (String(allRows[i][0]) !== String(id)) continue;
+
+    assetName        = String(allRows[i][1] || '');
+    var oldUsd       = Number(allRows[i][7]) || 0;
+    var currency     = (coreData && coreData.currency) || allRows[i][4];
+    var fxRate       = getFxRate_(currency);
+    var localVal     = (coreData && coreData.localValue !== undefined) ? Number(coreData.localValue) : Number(allRows[i][5]);
+    var usdVal       = localVal * fxRate;
+    var sharePct     = (coreData && coreData.mySharePct !== undefined) ? Number(coreData.mySharePct) : Number(allRows[i][8]);
+    var shareUsd     = usdVal * sharePct / 100;
+    var newRow       = allRows[i].slice();
+
+    // Core field updates
+    if (coreData) {
+      if (coreData.name     !== undefined) newRow[1]  = coreData.name;
+      if (coreData.category !== undefined) newRow[2]  = coreData.category;
+      if (coreData.entity   !== undefined) newRow[3]  = coreData.entity;
+      newRow[4]  = currency;
+      newRow[5]  = localVal;
+      newRow[6]  = fxRate;
+      newRow[7]  = usdVal;
+      newRow[8]  = sharePct;
+      newRow[9]  = shareUsd;
+      if (coreData.notes    !== undefined) newRow[12] = coreData.notes;
+      if (coreData.address  !== undefined) newRow[14] = coreData.address;
+      if (coreData.costBasis !== undefined) newRow[15] = Number(coreData.costBasis);
+    }
+    // Details JSON + last updated
+    if (detailsCol > 0) newRow[detailsCol - 1] = detailsJson || '';
+    newRow[11] = new Date(); // Last Updated
+
+    sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+
+    if (coreData && Math.abs(usdVal - oldUsd) > 0.01) {
+      logHistory_(newRow[1], oldUsd, usdVal, currency, (coreData && coreData.notes) || 'Updated');
+    }
+    break;
+  }
+
+  // Update flat ASSET_DETAILS sheet (for spreadsheet viewing)
+  var detSheet   = getSheet_('ASSET_DETAILS');
+  var detData    = detSheet.getDataRange().getValues();
+  var detHeaders = detData[0];
+  var contacts   = det.contacts || [];
+  var colLookup  = { 'Asset ID': id, 'Asset Name': assetName };
+  ASSET_DET_MAP.forEach(function(m) {
+    var val = det[m[0]];
+    colLookup[m[1]] = Array.isArray(val) ? JSON.stringify(val) : (val || '');
+  });
+  for (var ci = 1; ci <= 4; ci++) {
+    var c = contacts[ci - 1] || {};
+    colLookup['Contact ' + ci + ' Type'] = c.type || '';
+    colLookup['Contact ' + ci + ' Name'] = c.name || '';
+  }
+  var rowData    = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
+  var existingRow = -1;
+  for (var j = 1; j < detData.length; j++) {
+    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+  }
+  if (existingRow > 0) {
+    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+  } else {
+    detSheet.appendRow(rowData);
+  }
+
+  // Return the updated values so frontend can do an optimistic local update
+  return {
+    success:    true,
+    myShareUsd: sharePct !== undefined ? (localVal * (getFxRate_(currency)||1) * sharePct / 100) : null,
+    localValue: localVal,
+    sharePct:   sharePct
+  };
+}
+
 function deleteAsset(id) {
   var sheet = getSheet_('ASSETS');
   var rows  = sheet.getDataRange().getValues();

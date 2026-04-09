@@ -2276,17 +2276,25 @@ function saveAsset(){
     localValue: 0,
     costBasis: 0
   };
-  showLoading(true);
   closeModal('asset-modal');
+  toast('Creating asset...');
   google.script.run
     .withSuccessHandler(function(r){
-      showLoading(false);
       if(r&&r.success===false){toast(r.error||'Add failed','error');return;}
+      // Add to local state immediately so detail modal can open without waiting for full reload
+      var newAsset = {
+        ID: r.id, Name: data.name, Category: data.category,
+        Entity: data.entity, Currency: data.currency,
+        'My Share %': 100, 'Local Value': 0, 'USD Value': 0, 'My Share USD': 0,
+        'Cost Basis': 0, Details: '{}', Notes: ''
+      };
+      state.assets.push(newAsset);
+      renderAssetsTable();
+      renderDashboard();
       toast('Asset created -- fill in the details below');
-      // Reload data then open the detail modal for the new asset
-      loadData(function(){ openAssetDetail(r.id); });
+      openAssetDetail(r.id);
     })
-    .withFailureHandler(function(e){showLoading(false);toast(e.message,'error');})
+    .withFailureHandler(function(e){toast(e.message,'error');})
     .addAsset(data);
 }
 
@@ -2658,18 +2666,48 @@ function saveAssetDetails(){
     coreData.localValue = _daLoc;
   }
   if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
-  showLoading(true);
   closeModal('detail-modal');
-  // Save core fields first, then details
+  // --- Optimistic local update (instant UI refresh, no server wait) ---
+  var _stateAsset = (state.assets||[]).find(function(a){ return String(a.ID) === String(id); });
+  if (_stateAsset) {
+    if (_daName)   _stateAsset.Name     = _daName;
+    if (_daCat)    _stateAsset.Category = _daCat;
+    if (_daEnt !== undefined) _stateAsset.Entity   = _daEnt;
+    if (_daCur)    _stateAsset.Currency = _daCur;
+    if (!_daIsPE) {
+      _stateAsset['Local Value']  = _daLoc;
+      var _fxApprox = num(_stateAsset['USD Rate']) || 1;
+      _stateAsset['USD Value']    = _daLoc * _fxApprox;
+      _stateAsset['My Share USD'] = _daLoc * _fxApprox * (_daShr / 100);
+      _stateAsset['My Share %']   = _daShr;
+    } else {
+      _stateAsset['My Share USD'] = _daLoc;
+      _stateAsset['My Share %']   = 100;
+    }
+    _stateAsset.Details = JSON.stringify(details);
+    renderAssetsTable();
+    renderDashboard();
+  }
+  toast('Saving...');
+  // --- Single combined GAS call (was 2 sequential calls before) ---
   google.script.run
-    .withSuccessHandler(function(){
-      google.script.run
-        .withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Save failed','error');}else{toast('Saved');loadData();}})
-        .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
-        .saveAssetDetails(id,JSON.stringify(details));
+    .withSuccessHandler(function(r){
+      if (r && r.success === false) {
+        toast(r.error || 'Save failed', 'error');
+        loadData(); // revert optimistic update on error
+      } else {
+        // Sync server's calculated values back (e.g. FX adjustments)
+        if (_stateAsset && r && r.myShareUsd != null) {
+          _stateAsset['My Share USD'] = r.myShareUsd;
+          _stateAsset['Local Value']  = r.localValue;
+        }
+        toast('Saved');
+        renderAssetsTable();
+        renderDashboard();
+      }
     })
-    .withFailureHandler(e=>{showLoading(false);toast(e.message,'error');})
-    .updateAsset(coreData);
+    .withFailureHandler(function(e){ toast(e.message, 'error'); loadData(); })
+    .saveFullAsset(coreData, id, JSON.stringify(details));
 }
 
 // -- Accounting format helpers ---------------------------------------------
