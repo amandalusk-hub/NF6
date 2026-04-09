@@ -112,6 +112,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .detail-section{margin-bottom:22px;padding-bottom:22px;border-bottom:1px solid #f0f0f0}
 .detail-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
 .detail-section-title{font-size:12px;font-weight:700;color:#0d2137;text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px;padding-bottom:6px;border-bottom:2px solid #e8f0fe}
+.pe-block{border:1px solid #2a4060;border-radius:6px;margin-bottom:8px;overflow:hidden}
+.pe-block-hdr{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;background:#1a3050;cursor:pointer;font-size:13px;font-weight:600;color:#e0e8f0;user-select:none}
+.pe-block-hdr:hover{background:#223d60}
+.pe-block-body{padding:10px 14px 12px}
+.pe-block-chevron{font-size:10px;color:#8ab;margin-left:4px}
 .detail-meta{font-size:13px;color:#666;margin-top:3px}
 /* Toast */
 #toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center}
@@ -686,75 +691,231 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
       <!-- Private Equity -- only shown for Private Equity category -->
       <div class="detail-section" id="d-pe-section" style="display:none">
-        <div class="detail-section-title">Investment Details</div>
-        <div class="form-two">
-          <div class="form-row"><label>Investment Manager / Sponsor</label><input type="text" id="d-pe-manager" placeholder="e.g. Apollo, Blackstone, Direct Deal"></div>
-          <div class="form-row"><label>Tax Treatment</label>
-            <select id="d-pe-tax">
-              <option value="">--</option>
-              <option>K-1 (Partnership)</option>
-              <option>1099 (Dividend)</option>
-              <option>Disregarded Entity</option>
-              <option>Schedule E</option>
-              <option>None / Offshore</option>
-              <option>Other</option>
-            </select>
+
+        <!-- Always-visible performance banner -->
+        <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:14px 16px;margin-bottom:12px">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Invested</div>
+              <div id="d-pe-total-invested" style="font-size:16px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Distributions</div>
+              <div id="d-pe-total-dist" style="font-size:16px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Current NAV</div>
+              <div id="d-pe-nav" style="font-size:16px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Net P&amp;L</div>
+              <div id="d-pe-netpl" style="font-size:16px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
           </div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Year Invested</label><input type="number" id="d-pe-year-in" placeholder="e.g. 2021" min="1990" max="2099"></div>
-          <div class="form-row"><label>Target Exit Year</label><input type="number" id="d-pe-year-exit" placeholder="e.g. 2028" min="1990" max="2099"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Year Sold / Exited</label><input type="number" id="d-pe-year-sold" placeholder="--" min="1990" max="2099"></div>
-          <div class="form-row"><label>Year Written Off</label><input type="number" id="d-pe-year-wo" placeholder="--" min="1990" max="2099"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Initial Investment ($)</label><input type="text" id="d-pe-initial" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Ownership %</label><input type="number" id="d-pe-ownership" placeholder="e.g. 25" step="0.01"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Maturity / Due Date</label><input type="date" id="d-pe-maturity"></div>
-          <div class="form-row"><label>Interest / Preferred Return Rate</label><input type="text" id="d-pe-rate" placeholder="e.g. 8% annual, 12% PIK"></div>
+          <div style="height:1px;background:#2a4060;margin:4px 0 10px"></div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">DPI</div>
+              <div id="d-pe-dpi" style="font-size:13px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:9px;color:#8ab;margin-top:1px">Cash returned</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">RVPI</div>
+              <div id="d-pe-rvpi" style="font-size:13px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:9px;color:#8ab;margin-top:1px">Unrealized</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">TVPI</div>
+              <div id="d-pe-tvpi" style="font-size:13px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:9px;color:#8ab;margin-top:1px">Total value</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Break Even</div>
+              <div id="d-pe-bep" style="font-size:13px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:9px;color:#8ab;margin-top:1px">Remaining</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">IRR</div>
+              <div id="d-pe-irr" style="font-size:13px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:9px;color:#8ab;margin-top:1px">Annualized</div>
+            </div>
+          </div>
         </div>
 
-        <!-- Live summary banner -->
-        <div style="background:#f0f4ff;border-radius:8px;padding:12px 16px;margin:14px 0;display:flex;gap:12px;flex-wrap:wrap">
-          <div style="flex:1;min-width:100px;text-align:center">
-            <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Invested</div>
-            <div id="d-pe-total-invested" style="font-size:17px;font-weight:700;color:#1B3A5C;margin-top:3px">$0</div>
+        <!-- Capital Calls (collapsible) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="togglePEBlock('pe-calls-body')">
+            <span>Capital Calls</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="pe-calls-total" style="font-size:12px;color:#8ab;font-weight:400"></span>
+              <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPECallRow()">+ Add</button>
+              <span class="pe-block-chevron">▶</span>
+            </div>
           </div>
-          <div style="flex:1;min-width:100px;text-align:center">
-            <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Distributions</div>
-            <div id="d-pe-total-dist" style="font-size:17px;font-weight:700;color:#1e8e3e;margin-top:3px">$0</div>
-          </div>
-          <div style="flex:1;min-width:70px;text-align:center">
-            <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">MOIC</div>
-            <div id="d-pe-moic" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">--</div>
-          </div>
-          <div style="flex:1;min-width:70px;text-align:center">
-            <div style="font-size:10px;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.5px">ROI</div>
-            <div id="d-pe-roi" style="font-size:17px;font-weight:700;color:#555;margin-top:3px">--</div>
+          <div id="pe-calls-body" class="pe-block-body" style="display:none">
+            <div class="form-two" style="margin-bottom:10px">
+              <div class="form-row"><label>Initial Investment ($)</label>
+                <input type="text" id="d-pe-initial" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)">
+              </div>
+              <div class="form-row"><label>Ownership %</label>
+                <input type="number" id="d-pe-ownership" placeholder="e.g. 5" step="0.01">
+              </div>
+            </div>
+            <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Additional Capital Calls</div>
+            <div id="d-pe-calls-list"></div>
           </div>
         </div>
 
-        <!-- Capital Calls log -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px">
-          <div style="font-size:13px;font-weight:600;color:#1B3A5C">Capital Calls</div>
-          <button type="button" class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="addPECallRow()">+ Add</button>
+        <!-- Distributions (collapsible) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="togglePEBlock('pe-dist-body')">
+            <span>Distributions Received</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="pe-dist-total" style="font-size:12px;color:#4ade80;font-weight:400"></span>
+              <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPEDistRow()">+ Add</button>
+              <span class="pe-block-chevron">▶</span>
+            </div>
+          </div>
+          <div id="pe-dist-body" class="pe-block-body" style="display:none">
+            <div class="form-two" style="margin-bottom:10px">
+              <div class="form-row"><label>Distribution Frequency</label>
+                <select id="d-pe-dist-freq">
+                  <option value="">-- Select --</option>
+                  <option>Monthly</option>
+                  <option>Quarterly</option>
+                  <option>Bi-Annually</option>
+                  <option>Annually</option>
+                  <option>Ad-Hoc</option>
+                  <option>Not Receiving</option>
+                  <option>Closed</option>
+                </select>
+              </div>
+              <div class="form-row"><label>Distribution Day</label>
+                <input type="text" id="d-pe-dist-day" placeholder="e.g. 15th of month, end of quarter">
+              </div>
+            </div>
+            <div id="d-pe-dist-list"></div>
+          </div>
         </div>
-        <div id="d-pe-calls-list" style="margin-top:6px"></div>
 
-        <!-- Distributions log -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px">
-          <div style="font-size:13px;font-weight:600;color:#1B3A5C">Distributions Received</div>
-          <button type="button" class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="addPEDistRow()">+ Add</button>
+        <!-- K1 / Tax Records (collapsible) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="togglePEBlock('pe-k1-body')">
+            <span>K1 / Tax Records</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="pe-k1-total" style="font-size:12px;color:#8ab;font-weight:400"></span>
+              <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addPEK1Row()">+ Add Year</button>
+              <span class="pe-block-chevron">▶</span>
+            </div>
+          </div>
+          <div id="pe-k1-body" class="pe-block-body" style="display:none">
+            <div style="font-size:11px;color:#8ab;margin-bottom:8px">Tax record only — not included in economic ROI. Negative = loss, positive = income.</div>
+            <div id="d-pe-k1-list"></div>
+            <div style="margin-top:10px;padding:8px 12px;background:#0d2137;border-radius:4px;font-size:12px;color:#8ab">
+              Tax Basis (auto): <span id="d-pe-tax-basis" style="color:#e0e8f0;font-weight:600;margin-left:6px">--</span>
+            </div>
+          </div>
         </div>
-        <div id="d-pe-dist-list" style="margin-top:6px"></div>
 
-        <div class="form-row" style="margin-top:14px"><label>Investment Notes</label>
-          <textarea id="d-pe-notes" placeholder="Deal thesis, co-investors, terms, performance notes..." style="min-height:70px"></textarea>
+        <!-- Investment Details (collapsible) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="togglePEBlock('pe-inv-body')">
+            <span>Investment Details</span>
+            <span class="pe-block-chevron">▶</span>
+          </div>
+          <div id="pe-inv-body" class="pe-block-body" style="display:none">
+            <div class="form-two">
+              <div class="form-row"><label>Investment Manager / Sponsor</label>
+                <input type="text" id="d-pe-manager" placeholder="e.g. Apollo, Blackstone, Direct Deal">
+              </div>
+              <div class="form-row"><label>Investment Type</label>
+                <select id="d-pe-type">
+                  <option value="">-- Select --</option>
+                  <option>LP Interest</option>
+                  <option>Direct Equity</option>
+                  <option>SAFE</option>
+                  <option>Convertible Note</option>
+                  <option>Preferred Stock</option>
+                  <option>GP Interest</option>
+                  <option>Other</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Vintage Year</label>
+                <input type="number" id="d-pe-vintage" placeholder="Fund formation year" min="1990" max="2099">
+              </div>
+              <div class="form-row"><label>Year Invested</label>
+                <input type="number" id="d-pe-year-in" placeholder="e.g. 2021" min="1990" max="2099">
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Target Exit Year</label>
+                <input type="number" id="d-pe-year-exit" placeholder="e.g. 2028" min="1990" max="2099">
+              </div>
+              <div class="form-row"><label>Year Sold / Exited</label>
+                <input type="number" id="d-pe-year-sold" placeholder="--" min="1990" max="2099">
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Year Written Off</label>
+                <input type="number" id="d-pe-year-wo" placeholder="--" min="1990" max="2099">
+              </div>
+              <div class="form-row"><label>Written Off Amount ($)</label>
+                <input type="text" id="d-pe-writeoff" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)">
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Exit / Sale Proceeds ($)</label>
+                <input type="text" id="d-pe-exit-proceeds" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)">
+              </div>
+              <div class="form-row"><label>Annual Costs / Fees ($)</label>
+                <input type="text" id="d-pe-annual-costs" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)">
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Tax Treatment</label>
+                <select id="d-pe-tax">
+                  <option value="">--</option>
+                  <option>K-1 (Partnership)</option>
+                  <option>1099 (Dividend)</option>
+                  <option>Disregarded Entity</option>
+                  <option>Schedule E</option>
+                  <option>None / Offshore</option>
+                  <option>Other</option>
+                </select>
+              </div>
+              <div class="form-row"><label>Industry Benchmark ROI %</label>
+                <input type="number" id="d-pe-benchmark" placeholder="e.g. 15" step="0.1">
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Preferred Return Rate</label>
+                <input type="text" id="d-pe-rate" placeholder="e.g. 8% annual">
+              </div>
+              <div class="form-row"><label>Info Owner</label>
+                <input type="text" id="d-pe-info-owner" placeholder="Who manages records for this investment">
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- Notes (collapsible) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="togglePEBlock('pe-notes-body')">
+            <span>Notes</span>
+            <span class="pe-block-chevron">▶</span>
+          </div>
+          <div id="pe-notes-body" class="pe-block-body" style="display:none">
+            <div class="form-row"><label>Investment Notes</label>
+              <textarea id="d-pe-notes" placeholder="Deal thesis, co-investors, terms, performance notes..." style="min-height:70px"></textarea>
+            </div>
+            <div class="form-row" style="margin-top:8px"><label>Tax Implications / Dr. Mike's Comments</label>
+              <textarea id="d-pe-tax-notes" placeholder="Tax considerations, observations..." style="min-height:60px"></textarea>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- Automobile -- only shown for Automobile category -->
@@ -2223,23 +2384,35 @@ function openAssetDetail(id){
 
   // Private equity fields
   if(isPE){
-    sv('d-pe-manager',   det.peManager||'');
-    sv('d-pe-tax',       det.peTax||'');
-    sv('d-pe-year-in',   det.peYearIn||'');
-    sv('d-pe-year-exit', det.peYearExit||'');
-    sv('d-pe-year-sold', det.peYearSold||'');
-    sv('d-pe-year-wo',   det.peYearWo||'');
-    sv('d-pe-initial',   det.peInitial ? fmtAcct(det.peInitial) : '');
-    sv('d-pe-ownership', det.peOwnership||'');
-    sv('d-pe-maturity',  det.peMaturity||'');
-    sv('d-pe-rate',      det.peRate||'');
-    sv('d-pe-notes',     det.peNotes||'');
+    sv('d-pe-initial',       det.peInitial ? fmtAcct(det.peInitial) : '');
+    sv('d-pe-ownership',     det.peOwnership||'');
+    sv('d-pe-manager',       det.peManager||'');
+    sv('d-pe-type',          det.peType||'');
+    sv('d-pe-vintage',       det.peVintage||'');
+    sv('d-pe-year-in',       det.peYearIn||'');
+    sv('d-pe-year-exit',     det.peYearExit||'');
+    sv('d-pe-year-sold',     det.peYearSold||'');
+    sv('d-pe-year-wo',       det.peYearWo||'');
+    sv('d-pe-writeoff',      det.peWriteoff ? fmtAcct(det.peWriteoff) : '');
+    sv('d-pe-exit-proceeds', det.peExitProceeds ? fmtAcct(det.peExitProceeds) : '');
+    sv('d-pe-annual-costs',  det.peAnnualCosts ? fmtAcct(det.peAnnualCosts) : '');
+    sv('d-pe-tax',           det.peTax||'');
+    sv('d-pe-benchmark',     det.peBenchmark||'');
+    sv('d-pe-rate',          det.peRate||'');
+    sv('d-pe-info-owner',    det.peInfoOwner||'');
+    sv('d-pe-dist-freq',     det.peDistFreq||'');
+    sv('d-pe-dist-day',      det.peDistDay||'');
+    sv('d-pe-notes',         det.peNotes||'');
+    sv('d-pe-tax-notes',     det.peTaxNotes||'');
     // Capital calls log
     document.getElementById('d-pe-calls-list').innerHTML='';
     (det.capitalCalls||[]).forEach(function(c){ addPECallRow(c.date,c.amount,c.notes); });
     // Distributions log
     document.getElementById('d-pe-dist-list').innerHTML='';
     (det.distributions||[]).forEach(function(d){ addPEDistRow(d.date,d.amount,d.notes); });
+    // K1 records
+    document.getElementById('d-pe-k1-list').innerHTML='';
+    (det.k1Records||[]).forEach(function(k){ addPEK1Row(k.year,k.pl); });
     recalcPE();
   }
 
@@ -2402,17 +2575,30 @@ function saveAssetDetails(){
     eqCost:          gv('d-eq-cost'),
     eqNotes:         gv('d-eq-notes'),
     // Private equity fields
+    peInitial:       parseAcct(gv('d-pe-initial')),
+    peOwnership:     gv('d-pe-ownership'),
     peManager:       gv('d-pe-manager'),
-    peTax:           gv('d-pe-tax'),
+    peType:          gv('d-pe-type'),
+    peVintage:       gv('d-pe-vintage'),
     peYearIn:        gv('d-pe-year-in'),
     peYearExit:      gv('d-pe-year-exit'),
     peYearSold:      gv('d-pe-year-sold'),
     peYearWo:        gv('d-pe-year-wo'),
-    peInitial:       parseAcct(gv('d-pe-initial')),
-    peOwnership:     gv('d-pe-ownership'),
-    peMaturity:      gv('d-pe-maturity'),
+    peWriteoff:      parseAcct(gv('d-pe-writeoff')),
+    peExitProceeds:  parseAcct(gv('d-pe-exit-proceeds')),
+    peAnnualCosts:   parseAcct(gv('d-pe-annual-costs')),
+    peTax:           gv('d-pe-tax'),
+    peBenchmark:     gv('d-pe-benchmark'),
     peRate:          gv('d-pe-rate'),
+    peInfoOwner:     gv('d-pe-info-owner'),
+    peDistFreq:      gv('d-pe-dist-freq'),
+    peDistDay:       gv('d-pe-dist-day'),
     peNotes:         gv('d-pe-notes'),
+    peTaxNotes:      gv('d-pe-tax-notes'),
+    peMaturity:      (function(){ var y=gv('d-pe-year-exit'); return y ? y+'-12-31' : ''; })(),
+    k1Records: Array.from(document.querySelectorAll('#d-pe-k1-list .pe-k1-row')).map(function(row){
+      return { year: parseInt(row.querySelector('.pe-k1-year').value)||null, pl: parseAcct(row.querySelector('.pe-k1-pl').value) };
+    }).filter(function(k){ return k.year; }),
     // Automobile fields
     autoVehicle:     gv('d-auto-vehicle'),
     autoYear:        gv('d-auto-year'),
@@ -2512,22 +2698,122 @@ function addPEDistRow(date, amount, notes) {
   if (notes)  row.querySelector('.pe-dist-notes').value  = notes;
   recalcPE();
 }
-function recalcPE() {
+function togglePEBlock(bodyId) {
+  const body = document.getElementById(bodyId);
+  if (!body) return;
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  const hdr = body.previousElementSibling;
+  const chev = hdr && hdr.querySelector('.pe-block-chevron');
+  if (chev) chev.textContent = open ? '▶' : '▼';
+}
+
+function addPEK1Row(year, pl) {
+  const list = document.getElementById('d-pe-k1-list');
+  if (!list.querySelector('.pe-k1-header')) {
+    const hdr = document.createElement('div');
+    hdr.className = 'pe-k1-header';
+    hdr.style.cssText = 'display:grid;grid-template-columns:90px 1fr 26px;gap:4px;padding:3px 0;font-size:11px;font-weight:600;color:#8ab;text-transform:uppercase';
+    hdr.innerHTML = '<span>Year</span><span style="text-align:right">K1 Profit / Loss ($)</span><span></span>';
+    list.appendChild(hdr);
+  }
+  const row = document.createElement('div');
+  row.className = 'pe-k1-row';
+  row.style.cssText = 'display:grid;grid-template-columns:90px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
+  row.innerHTML =
+    `<input type="number" class="pe-k1-year" placeholder="${new Date().getFullYear()}" min="2000" max="2099" style="padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">` +
+    `<input type="text" class="pe-k1-pl" placeholder="$0 (negative = loss)" style="text-align:right;padding:5px 8px;border:1px solid #2a4060;background:#0d2137;color:#e0e8f0;border-radius:4px;font-size:13px">` +
+    `<button type="button" onclick="this.closest('.pe-k1-row').remove();recalcPE()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">&times;</button>`;
+  list.appendChild(row);
+  const plEl = row.querySelector('.pe-k1-pl');
+  plEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcPE); });
+  plEl.addEventListener('focus', function(){ onAcctFocus(this); });
+  if (year) row.querySelector('.pe-k1-year').value = year;
+  if (pl !== undefined && pl !== null && pl !== 0) plEl.value = fmtAcct(pl);
+  recalcPE();
+}
+
+function calcXIRR() {
+  const flows = [];
   const initial = parseAcct((document.getElementById('d-pe-initial')||{}).value);
-  const calls   = Array.from(document.querySelectorAll('#d-pe-calls-list .pe-call-amount'))
-                    .reduce((s,el)=>s+parseAcct(el.value), 0);
-  const dists   = Array.from(document.querySelectorAll('#d-pe-dist-list .pe-dist-amount'))
-                    .reduce((s,el)=>s+parseAcct(el.value), 0);
-  const totalIn = initial + calls;
-  const hasDist = dists > 0;
-  const moic    = (totalIn > 0 && hasDist) ? (dists / totalIn).toFixed(2)+'x' : '--';
-  const roi     = (totalIn > 0 && hasDist) ? (((dists-totalIn)/totalIn)*100).toFixed(1)+'%' : '--';
-  const roiColor= (totalIn > 0 && hasDist) ? (dists >= totalIn ? '#1e8e3e' : '#c5221f') : '#555';
-  const set=(id,v,c)=>{const el=document.getElementById(id);if(el){el.textContent=v;if(c)el.style.color=c;}};
-  set('d-pe-total-invested', fmtUSD(totalIn));
-  set('d-pe-total-dist',     fmtUSD(dists),  dists>0?'#1e8e3e':'#555');
-  set('d-pe-moic',           moic,           roiColor);
-  set('d-pe-roi',            roi,            roiColor);
+  const yearIn  = parseInt((document.getElementById('d-pe-year-in')||{}).value)||0;
+  if (initial > 0 && yearIn > 0) flows.push({ date: new Date(yearIn, 0, 1), v: -initial });
+  document.querySelectorAll('#d-pe-calls-list .pe-log-row').forEach(function(r){
+    const d = r.querySelector('.pe-call-date').value;
+    const a = parseAcct(r.querySelector('.pe-call-amount').value);
+    if (d && a) flows.push({ date: new Date(d), v: -a });
+  });
+  document.querySelectorAll('#d-pe-dist-list .pe-log-row').forEach(function(r){
+    const d = r.querySelector('.pe-dist-date').value;
+    const a = parseAcct(r.querySelector('.pe-dist-amount').value);
+    if (d && a) flows.push({ date: new Date(d), v: a });
+  });
+  const assetId = (document.getElementById('detail-id')||{}).value;
+  const asset   = assetId ? (state.assets||[]).find(a=>a.ID==assetId) : null;
+  const nav     = asset ? (num(asset['My Share USD'])||0) : 0;
+  if (nav > 0) flows.push({ date: new Date(), v: nav });
+  if (flows.length < 2) return null;
+  flows.sort((a,b)=>a.date-b.date);
+  const t0 = flows[0].date;
+  const xnpv = r => flows.reduce((s,f)=>s + f.v/Math.pow(1+r,(f.date-t0)/(365.25*864e5)), 0);
+  let r = 0.1;
+  for (let i=0; i<100; i++){
+    const f=xnpv(r), df=(xnpv(r+1e-4)-f)/1e-4;
+    if (Math.abs(df)<1e-10) break;
+    r -= f/df;
+    if (r<-0.9999) r=-0.9999;
+    if (r>99) return null;
+  }
+  return Math.abs(xnpv(r))<1 ? r : null;
+}
+
+function recalcPE() {
+  const initial     = parseAcct((document.getElementById('d-pe-initial')||{}).value);
+  const calls       = Array.from(document.querySelectorAll('#d-pe-calls-list .pe-call-amount')).reduce((s,el)=>s+parseAcct(el.value),0);
+  const dists       = Array.from(document.querySelectorAll('#d-pe-dist-list .pe-dist-amount')).reduce((s,el)=>s+parseAcct(el.value),0);
+  const k1Net       = Array.from(document.querySelectorAll('#d-pe-k1-list .pe-k1-pl')).reduce((s,el)=>s+parseAcct(el.value),0);
+  const exitProc    = parseAcct((document.getElementById('d-pe-exit-proceeds')||{}).value);
+  const assetId     = (document.getElementById('detail-id')||{}).value;
+  const asset       = assetId ? (state.assets||[]).find(a=>a.ID==assetId) : null;
+  const nav         = asset ? (num(asset['My Share USD'])||0) : 0;
+  const totalIn     = initial + calls;
+  const totalOut    = dists + exitProc;
+  const netPL       = nav + totalOut - totalIn;
+  const taxBasis    = totalIn + k1Net;
+  const bep         = totalIn - totalOut;
+  const DPI         = totalIn>0 ? totalOut/totalIn : 0;
+  const RVPI        = totalIn>0 ? nav/totalIn : 0;
+  const TVPI        = totalIn>0 ? (totalOut+nav)/totalIn : 0;
+  const posClr      = v => v>=0 ? '#4ade80' : '#f87171';
+  const fmt2        = n => n.toFixed(2)+'x';
+  const set         = (id,v,c)=>{const el=document.getElementById(id);if(el){el.textContent=v;if(c)el.style.color=c;}};
+
+  set('d-pe-total-invested', totalIn>0 ? fmtUSD(totalIn) : '--');
+  set('d-pe-total-dist',     dists>0   ? fmtUSD(dists)   : '--', dists>0?'#4ade80':null);
+  set('d-pe-nav',            nav>0     ? fmtUSD(nav)      : '--');
+  set('d-pe-netpl',          totalIn>0 ? fmtUSD(netPL)    : '--', totalIn>0?posClr(netPL):null);
+  set('d-pe-dpi',            totalIn>0 ? fmt2(DPI)  : '--', totalIn>0?posClr(DPI-1):null);
+  set('d-pe-rvpi',           totalIn>0 ? fmt2(RVPI) : '--');
+  set('d-pe-tvpi',           totalIn>0 ? fmt2(TVPI) : '--', totalIn>0?posClr(TVPI-1):null);
+  set('d-pe-bep',            totalIn>0 ? fmtUSD(bep): '--', totalIn>0?posClr(-bep):null);
+
+  // IRR
+  try {
+    const irr = calcXIRR();
+    set('d-pe-irr', irr!==null ? (irr*100).toFixed(1)+'%' : '--', irr!==null?posClr(irr):null);
+  } catch(e) { set('d-pe-irr','--'); }
+
+  // Tax basis
+  const tbEl=document.getElementById('d-pe-tax-basis');
+  if(tbEl) tbEl.textContent = totalIn>0 ? fmtUSD(taxBasis) : '--';
+
+  // Header badges
+  const cEl=document.getElementById('pe-calls-total');
+  if(cEl) cEl.textContent = totalIn>0 ? fmtUSD(totalIn)+' invested' : '';
+  const dEl=document.getElementById('pe-dist-total');
+  if(dEl) dEl.textContent = dists>0 ? fmtUSD(dists)+' received' : '';
+  const kEl=document.getElementById('pe-k1-total');
+  if(kEl) kEl.textContent = k1Net!==0 ? (k1Net>=0?'+':'')+fmtUSD(k1Net)+' net K1' : '';
 }
 
 // -- Liabilities Table & Modal ---------------------------------------------
