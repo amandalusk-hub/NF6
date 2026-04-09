@@ -573,10 +573,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <input type="text" id="da-local" placeholder="$0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview()" onfocus="onAcctFocus(this)">
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
-            <span id="da-share-label">Share %</span>
-            <input type="number" id="da-share" value="100" min="0" max="100" step="0.01" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" oninput="updateDetailPreview()">
-          </div>
-          <div id="da-preview" style="font-size:12px;color:#4ade80"></div>
+            <span id="da-share-label">Ownership %</span>
+            <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
         </div>
       </div>
       <button class="modal-close" onclick="closeModal('detail-modal')" style="margin-left:8px;flex-shrink:0">x</button>
@@ -2231,12 +2229,12 @@ function onDetailCategoryChange(){
   // Show value row for all categories
   var valRow = document.getElementById('da-value-row');
   if (valRow) valRow.style.display = 'flex';
-  // Label for the value field
+  // Label for the value field — always Mike's direct value
   var lbl = document.getElementById('da-local-label');
-  if (lbl) lbl.textContent = isPE ? "Current NAV (Mike's Value)" : cat.startsWith('Real Estate') ? 'Property Value' : 'Current Value';
-  // For PE: hide the share% input (always 100 internally; real % in Investment Details)
+  if (lbl) lbl.textContent = "Mike's Value";
+  // Ownership % always shown (informational only, never used in calculation)
   var shrWrap = document.getElementById('da-share-wrap');
-  if (shrWrap) shrWrap.style.display = isPE ? 'none' : 'flex';
+  if (shrWrap) shrWrap.style.display = 'flex';
   // Mirror changes to the asset detail section visibility
   var id = (document.getElementById('detail-id')||{}).value;
   var asset = id ? (state.assets||[]).find(function(a){return a.ID==id;}) : null;
@@ -2255,12 +2253,7 @@ function onDetailCategoryChange(){
   if(el('d-overview-re-fields')) el('d-overview-re-fields').style.display = isRE ? '' : 'none';
 }
 function updateDetailPreview(){
-  var loc = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
-  var shr = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
-  var el  = document.getElementById('da-preview');
-  if (!el) return;
-  var share = loc * (shr/100);
-  el.textContent = shr < 100 ? 'Mike: ' + fmtUSD(share) : '';
+  // No calculation — Current Value goes directly to dashboard as-is
 }
 
 
@@ -2364,13 +2357,10 @@ function openAssetDetail(id){
   // For PE: da-local = Mike's current NAV (My Share USD); da-share hidden (use peOwnership from Details)
   // For non-PE: da-local = Local Value; da-share = My Share %
   var det0={}; try{det0=JSON.parse(asset.Details||'{}');}catch(e){}
-  if (_daIsPE) {
-    document.getElementById('da-local').value = fmtAcct(num(asset['My Share USD']))||'';
-    document.getElementById('da-share').value = det0.peOwnership || num(asset['My Share %'])||100;
-  } else {
-    document.getElementById('da-local').value  = fmtAcct(num(asset['Local Value']))||'';
-    document.getElementById('da-share').value  = num(asset['My Share %'])||100;
-  }
+  // Current Value = Mike's direct value for all categories; Ownership % is informational
+  document.getElementById('da-local').value = fmtAcct(num(asset['My Share USD']))||'';
+  var _ownershipPct = _daIsPE ? (det0.peOwnership || num(asset['My Share %'])) : num(asset['My Share %']);
+  document.getElementById('da-share').value = _ownershipPct||'';
 
   let det={}; try{det=JSON.parse(asset.Details||'{}');}catch(e){det={}; }
 
@@ -2654,17 +2644,10 @@ function saveAssetDetails(){
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
   var _daShr  = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
-  var _daIsPE = _daCat === 'Private Equity';
-  var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur };
-  if (_daIsPE) {
-    // For PE: store Mike's NAV directly as localValue (mySharePct=100) so My Share USD = NAV.
-    // Real ownership % is entered in the PE Investment Details section (d-pe-ownership).
-    coreData.localValue = _daLoc;
-    coreData.mySharePct = 100;
-  } else {
-    coreData.mySharePct = _daShr;
-    coreData.localValue = _daLoc;
-  }
+  // Current Value IS Mike's value directly — ownership % is informational only, never multiplied
+  coreData.localValue = _daLoc;
+  coreData.mySharePct = 100;
+  coreData.ownershipPct = _daShr; // stored for reference only
   if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
   closeModal('detail-modal');
   // --- Optimistic local update (instant UI refresh, no server wait) ---
@@ -2674,16 +2657,11 @@ function saveAssetDetails(){
     if (_daCat)    _stateAsset.Category = _daCat;
     if (_daEnt !== undefined) _stateAsset.Entity   = _daEnt;
     if (_daCur)    _stateAsset.Currency = _daCur;
-    if (!_daIsPE) {
-      _stateAsset['Local Value']  = _daLoc;
-      var _fxApprox = num(_stateAsset['USD Rate']) || 1;
-      _stateAsset['USD Value']    = _daLoc * _fxApprox;
-      _stateAsset['My Share USD'] = _daLoc * _fxApprox * (_daShr / 100);
-      _stateAsset['My Share %']   = _daShr;
-    } else {
-      _stateAsset['My Share USD'] = _daLoc;
-      _stateAsset['My Share %']   = 100;
-    }
+    var _fxApprox = num(_stateAsset['USD Rate']) || 1;
+    _stateAsset['Local Value']  = _daLoc;
+    _stateAsset['USD Value']    = _daLoc * _fxApprox;
+    _stateAsset['My Share USD'] = _daLoc * _fxApprox; // no % multiplication
+    _stateAsset['My Share %']   = _daShr;             // stored as reference
     _stateAsset.Details = JSON.stringify(details);
     renderAssetsTable();
     renderDashboard();

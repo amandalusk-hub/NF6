@@ -671,8 +671,9 @@ function saveFullAsset(coreData, id, detailsJson) {
     var fxRate       = getFxRate_(currency);
     var localVal     = (coreData && coreData.localValue !== undefined) ? Number(coreData.localValue) : Number(allRows[i][5]);
     var usdVal       = localVal * fxRate;
-    var sharePct     = (coreData && coreData.mySharePct !== undefined) ? Number(coreData.mySharePct) : Number(allRows[i][8]);
-    var shareUsd     = usdVal * sharePct / 100;
+    // Ownership % is informational only — My Share USD = local value directly (no multiplication)
+    var ownershipPct = (coreData && coreData.ownershipPct !== undefined) ? Number(coreData.ownershipPct) : Number(allRows[i][8]);
+    var shareUsd     = usdVal; // always equals Mike's entered value × FX, no % applied
     var newRow       = allRows[i].slice();
 
     // Core field updates
@@ -684,7 +685,7 @@ function saveFullAsset(coreData, id, detailsJson) {
       newRow[5]  = localVal;
       newRow[6]  = fxRate;
       newRow[7]  = usdVal;
-      newRow[8]  = sharePct;
+      newRow[8]  = ownershipPct; // stored for reference only
       newRow[9]  = shareUsd;
       if (coreData.notes    !== undefined) newRow[12] = coreData.notes;
       if (coreData.address  !== undefined) newRow[14] = coreData.address;
@@ -728,12 +729,12 @@ function saveFullAsset(coreData, id, detailsJson) {
     detSheet.appendRow(rowData);
   }
 
-  // Return the updated values so frontend can do an optimistic local update
+  // Return the updated values so frontend can sync
   return {
-    success:    true,
-    myShareUsd: sharePct !== undefined ? (localVal * (getFxRate_(currency)||1) * sharePct / 100) : null,
-    localValue: localVal,
-    sharePct:   sharePct
+    success:      true,
+    myShareUsd:   shareUsd,
+    localValue:   localVal,
+    ownershipPct: ownershipPct
   };
 }
 
