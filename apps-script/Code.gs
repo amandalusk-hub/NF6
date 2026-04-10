@@ -413,8 +413,6 @@ function getAssetHistory(assetName) {
 }
 
 // ── Details Recovery ──────────────────────────────────────────────────────────
-// Returns raw Details JSON for every asset so the UI can restore data
-// that may have been lost due to the principal/interest migration bug.
 function getAllDetailsForRecovery() {
   var sheet = getSheet_('ASSETS');
   var data  = sheet.getDataRange().getValues();
@@ -430,12 +428,23 @@ function getAllDetailsForRecovery() {
     var raw = String(data[i][detIdx] || '');
     var det = {};
     try { det = JSON.parse(raw); } catch(e) {}
+    // Determine how much real data is actually in the Details blob
+    var meaningfulFields = Object.keys(det).filter(function(k) {
+      var v = det[k];
+      if (!v) return false;
+      if (Array.isArray(v)) return v.length > 0 && v.some(function(item) {
+        return item && typeof item === 'object' && Object.values(item).some(function(x){ return x && x !== 0; });
+      });
+      return String(v).trim().length > 0;
+    });
     result.push({
-      id:       String(data[i][idIdx] || ''),
-      name:     String(data[i][nameIdx] || ''),
-      category: String(data[i][catIdx] || ''),
-      detailsLength: raw.length,
-      details:  det
+      id:              String(data[i][idIdx] || ''),
+      name:            String(data[i][nameIdx] || ''),
+      category:        String(data[i][catIdx] || ''),
+      detailsLength:   raw.length,
+      meaningfulCount: meaningfulFields.length,
+      meaningfulFields: meaningfulFields.slice(0, 10), // first 10 for diagnosis
+      details:         det
     });
   }
   return result;
