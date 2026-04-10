@@ -140,6 +140,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
+    <button class="tab-btn" data-tab="summary">Summary</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="balance">Balance History</button>
     <button class="tab-btn" data-tab="entities">Entities</button>
@@ -237,6 +238,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <tbody id="assets-tbody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="tab-panel" id="tab-summary">
+    <div id="summary-content" style="padding:4px 0">
+      <div style="text-align:center;padding:60px;color:#999">Loading summary...</div>
     </div>
   </div>
 
@@ -1522,6 +1530,7 @@ function switchTab(name){
   if(name==='balance')  renderBalanceHistory();
   if(name==='orgchart') loadAndRenderOrgChart();
   if(name==='history')  ensureHistoryLoaded();
+  if(name==='summary')  renderSummary();
 }
 
 // -- History lazy-load -----------------------------------------------------
@@ -2342,6 +2351,234 @@ function takeSnapshot(){
     })
     .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
     .takeMonthlySnapshot();
+}
+
+// -- Summary Tab ------------------------------------------------------------
+function getCatColor(cat){
+  if(cat.startsWith('Real Estate'))  return '#1a6e3b';
+  if(cat==='Private Equity')         return '#7c3aed';
+  if(cat==='Loans Receivable')       return '#0369a1';
+  if(cat.startsWith('Cash'))         return '#0f766e';
+  if(cat.includes('Equity'))         return '#1d4ed8';
+  if(cat==='Automobile')             return '#b45309';
+  return '#6b7280';
+}
+function metricCell(label, value){
+  return '<div style="background:#f8f9ff;border-radius:5px;padding:6px 9px">' +
+    '<div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px">'+label+'</div>' +
+    '<div style="font-size:12px;font-weight:600;color:#0d2137">'+value+'</div></div>';
+}
+
+function renderSummary(){
+  var assets = state.assets || [];
+
+  // Compute per-asset metrics
+  var items = assets.map(function(a){
+    var det={};  try{det=JSON.parse(a.Details||'{}');}catch(e){}
+    var cat      = a.Category||'';
+    var isRE     = cat.startsWith('Real Estate');
+    var isPE     = cat==='Private Equity';
+    var isLoan   = cat==='Loans Receivable';
+    var isCash   = cat.startsWith('Cash');
+    var isEquity = cat.includes('Equity')&&!isPE;
+    var isAuto   = cat==='Automobile';
+    var curVal   = num(a['My Share USD']);
+    var ownership= num(a['My Share %'])||0;
+    var invested=0, income=0, gain=0, returnPct=null, subtitle='', extraMetrics={};
+
+    if(isRE){
+      var propVal  = det.rePropertyValue||0;
+      invested     = det.reMyInvestment||0;
+      var myShare  = propVal>0&&ownership>0 ? propVal*ownership/100 : curVal;
+      gain         = myShare>0&&invested>0 ? myShare-invested : 0;
+      subtitle     = det.location||'';
+      extraMetrics = {propVal:propVal, ownership:ownership, purchaseDate:det.purchaseDate, revenue:det.revenue};
+      if(invested>0&&det.purchaseDate){
+        var yrs=Math.max(0.01,(Date.now()-new Date(det.purchaseDate).getTime())/(365.25*86400000));
+        returnPct=(gain/invested)/yrs*100;
+      }
+    } else if(isPE){
+      var peInit  = num(det.peInitial);
+      var calls   = (det.capitalCalls||[]).reduce(function(s,c){return s+num(c.amount);},0);
+      invested    = peInit+calls;
+      income      = (det.distributions||[]).reduce(function(s,d){return s+num(d.amount);},0);
+      gain        = curVal+income-invested;
+      subtitle    = det.peManager||'';
+      var tvpi    = invested>0 ? (curVal+income)/invested : 0;
+      extraMetrics= {tvpi:tvpi, distributions:income, manager:det.peManager};
+      if(invested>0&&det.peYearIn){
+        var yrs=Math.max(0.01,new Date().getFullYear()-parseInt(det.peYearIn||0));
+        returnPct=(Math.pow(Math.max(0.001,(curVal+income)/invested),1/yrs)-1)*100;
+      }
+    } else if(isLoan){
+      invested    = num(det.loanOriginal);
+      var paidPrin= (det.loanPayments||[]).reduce(function(s,p){return s+num(p.principal);},0);
+      var paidInt = (det.loanPayments||[]).reduce(function(s,p){return s+num(p.interest);},0);
+      income      = paidInt;
+      var outstanding=Math.max(0,invested-paidPrin);
+      subtitle    = det.borrower||'';
+      extraMetrics= {outstanding:outstanding, paidInterest:paidInt, rate:det.loanRate, due:det.loanDue};
+      if(invested>0&&paidInt>0&&det.loanDate){
+        var days=Math.max(1,(Date.now()-new Date(det.loanDate).getTime())/86400000);
+        returnPct=(paidInt/invested)*(365/days)*100;
+      }
+    } else if(isCash){
+      subtitle    = det.cashBank||'';
+      extraMetrics= {acctType:det.cashAcctType, rate:det.cashRate};
+    } else if(isEquity){
+      var fxR     = num(a['USD Rate'])||1;
+      invested    = num(a['Cost Basis'])*fxR;
+      gain        = invested>0 ? curVal-invested : 0;
+      subtitle    = det.eqBroker||'';
+      extraMetrics= {shares:det.eqShares, broker:det.eqBroker};
+    } else if(isAuto){
+      subtitle = (det.autoVehicle||'') + (det.autoYear?' '+det.autoYear:'');
+    }
+
+    return {a:a, cat:cat, isRE:isRE, isPE:isPE, isLoan:isLoan, isCash:isCash,
+            isEquity:isEquity, isAuto:isAuto,
+            curVal:curVal, ownership:ownership, invested:invested, income:income,
+            gain:gain, returnPct:returnPct, subtitle:subtitle, det:det, em:extraMetrics};
+  });
+
+  // Portfolio totals
+  var totVal     = items.reduce(function(s,i){return s+i.curVal;},0);
+  var totInvested= items.reduce(function(s,i){return s+(i.invested>0?i.invested:0);},0);
+  var totIncome  = items.reduce(function(s,i){return s+i.income;},0);
+  var totGain    = items.reduce(function(s,i){return s+(i.invested>0?i.gain:0);},0);
+  var totReturn  = totInvested>0 ? (totGain+totIncome)/totInvested*100 : null;
+
+  // Category map
+  var catMap={};
+  items.forEach(function(i){
+    var c=i.cat; if(!catMap[c]) catMap[c]={n:0,val:0,inv:0,gain:0,income:0};
+    catMap[c].n++;  catMap[c].val+=i.curVal;
+    if(i.invested>0){catMap[c].inv+=i.invested; catMap[c].gain+=i.gain;}
+    catMap[c].income+=i.income;
+  });
+  var catRows=Object.keys(catMap).map(function(c){return{c:c,d:catMap[c]};})
+              .sort(function(a,b){return b.d.val-a.d.val;});
+
+  var html='';
+
+  // ── Banner ─────────────────────────────────────────────────────
+  var bStat=function(lbl,val,col,sub){
+    return '<div style="text-align:center;padding:6px 0">'+
+      '<div style="font-size:11px;opacity:.65;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px">'+lbl+'</div>'+
+      '<div style="font-size:24px;font-weight:700;color:'+(col||'#fff')+'">'+val+'</div>'+
+      (sub?'<div style="font-size:11px;opacity:.6;margin-top:3px">'+sub+'</div>':'')+'</div>';
+  };
+  html+='<div style="background:linear-gradient(135deg,#0d2137,#1a3a5c);color:#fff;border-radius:8px;padding:20px 24px;margin-bottom:20px">';
+  html+='<div style="font-size:12px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;opacity:.6;margin-bottom:16px">Investment Summary</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">';
+  html+=bStat('Total Value',fmtUSD(totVal));
+  html+=bStat('Total Invested',totInvested>0?fmtUSD(totInvested):'--');
+  html+=bStat('Unrealized Gain',totInvested>0?fmtUSD(totGain):'--',totGain>=0?'#4ade80':'#f87171');
+  html+=bStat('Income Received',totIncome>0?fmtUSD(totIncome):'--','#a78bfa','interest + distributions');
+  html+=bStat('Total Return',totReturn!==null?totReturn.toFixed(1)+'%':'--',totReturn>=0?'#4ade80':'#f87171','on invested capital');
+  html+='</div></div>';
+
+  // ── Category breakdown ─────────────────────────────────────────
+  html+='<div class="card" style="margin-bottom:20px">';
+  html+='<div style="font-size:14px;font-weight:600;color:#0d2137;margin-bottom:14px">Portfolio Breakdown</div>';
+  html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">';
+  html+='<thead><tr style="background:#0d2137;color:#fff">';
+  ['Category','Count','Value','% of Portfolio','Invested','Gain / Loss','Income'].forEach(function(h){
+    html+='<th style="padding:9px 12px;text-align:'+(h==='Category'?'left':'right')+';font-size:12px;font-weight:500">'+h+'</th>';
+  });
+  html+='</tr></thead><tbody>';
+  catRows.forEach(function(row){
+    var c=row.c, d=row.d;
+    var pct=totVal>0?d.val/totVal*100:0;
+    var col=getCatColor(c);
+    var gc=d.gain>=0?'#1e8e3e':'#c5221f';
+    html+='<tr style="border-bottom:1px solid #f0f0f0">'+
+      '<td style="padding:8px 12px"><div style="display:flex;align-items:center;gap:8px">'+
+        '<div style="width:3px;height:16px;background:'+col+';border-radius:2px;flex-shrink:0"></div>'+
+        '<span style="font-size:13px;font-weight:500">'+esc(c)+'</span></div></td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px;color:#666">'+d.n+'</td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600">'+fmtUSD(d.val)+'</td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px">'+
+        '<div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">'+
+          '<div style="width:50px;height:5px;background:#f0f0f0;border-radius:3px">'+
+            '<div style="width:'+Math.min(100,pct)+'%;height:100%;background:'+col+';border-radius:3px"></div></div>'+
+          pct.toFixed(1)+'%</div></td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px;color:#666">'+(d.inv>0?fmtUSD(d.inv):'--')+'</td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px;font-weight:600;color:'+gc+'">'+(d.inv>0?fmtUSD(d.gain):'--')+'</td>'+
+      '<td style="padding:8px 12px;text-align:right;font-size:13px;color:#a78bfa;font-weight:500">'+(d.income>0?fmtUSD(d.income):'--')+'</td>'+
+      '</tr>';
+  });
+  html+='</tbody></table></div></div>';
+
+  // ── Asset cards ────────────────────────────────────────────────
+  items.sort(function(a,b){return b.curVal-a.curVal;});
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">';
+  items.forEach(function(item){
+    var col=getCatColor(item.cat);
+    var gc=item.gain>=0?'#1e8e3e':'#c5221f';
+    var catShort=item.cat.split(' - ')[0];
+
+    html+='<div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden;cursor:pointer;transition:.15s" '+
+          'onclick=\'switchTab("assets");openAssetDetail('+JSON.stringify(item.a.ID)+')\' '+
+          'onmouseover="this.style.boxShadow=\'0 4px 12px rgba(0,0,0,.15)\'" '+
+          'onmouseout="this.style.boxShadow=\'0 1px 4px rgba(0,0,0,.1)\'">';
+
+    // Header
+    html+='<div style="border-left:4px solid '+col+';padding:12px 14px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;align-items:flex-start">';
+    html+='<div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:600;color:#0d2137;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(item.a.Name||'')+'</div>';
+    if(item.subtitle) html+='<div style="font-size:11px;color:#888;margin-top:2px">'+esc(item.subtitle)+'</div>';
+    html+='</div><span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:'+col+'1a;color:'+col+';white-space:nowrap;margin-left:8px;flex-shrink:0">'+esc(catShort)+'</span>';
+    html+='</div>';
+
+    // Value + gain
+    html+='<div style="padding:12px 14px">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">';
+    html+='<div><div style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">Current Value</div>'+
+          '<div style="font-size:20px;font-weight:700;color:#0d2137">'+fmtUSD(item.curVal)+'</div></div>';
+    if(item.invested>0){
+      html+='<div style="text-align:right">';
+      html+='<div style="font-size:13px;font-weight:600;color:'+gc+'">'+(item.gain>=0?'+':'')+fmtUSD(item.gain)+'</div>';
+      if(item.returnPct!==null) html+='<div style="font-size:11px;color:'+gc+'">'+item.returnPct.toFixed(1)+'% annualized</div>';
+      html+='</div>';
+    }
+    html+='</div>';
+
+    // Detail metrics grid
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
+    if(item.isRE){
+      if(item.em.propVal>0)         html+=metricCell('Full Property',fmtUSD(item.em.propVal));
+      if(item.em.ownership>0)       html+=metricCell('My Ownership',item.em.ownership+'%');
+      if(item.invested>0)           html+=metricCell('I Invested',fmtUSD(item.invested));
+      if(item.em.purchaseDate)      html+=metricCell('Purchased',fmtDate(item.em.purchaseDate));
+      if(item.em.revenue)           html+=metricCell('Revenue/mo',fmtUSD(num(item.em.revenue.replace?item.em.revenue.replace(/[$,]/g,''):item.em.revenue)));
+    } else if(item.isPE){
+      if(item.invested>0)           html+=metricCell('Invested',fmtUSD(item.invested));
+      if(item.income>0)             html+=metricCell('Distributions',fmtUSD(item.income));
+      if(item.em.tvpi>0)            html+=metricCell('TVPI',item.em.tvpi.toFixed(2)+'x');
+      if(item.det.peYearIn)         html+=metricCell('Year In',item.det.peYearIn);
+      if(item.det.peType)           html+=metricCell('Type',esc(item.det.peType));
+    } else if(item.isLoan){
+      if(item.invested>0)           html+=metricCell('Original',fmtUSD(item.invested));
+      if(item.em.outstanding>=0)    html+=metricCell('Outstanding',fmtUSD(item.em.outstanding));
+      if(item.income>0)             html+=metricCell('Interest Earned',fmtUSD(item.income));
+      if(item.em.rate)              html+=metricCell('Rate',esc(item.em.rate));
+      if(item.em.due)               html+=metricCell('Due',fmtDate(item.em.due));
+    } else if(item.isCash){
+      if(item.em.acctType)          html+=metricCell('Account Type',esc(item.em.acctType));
+      if(item.em.rate)              html+=metricCell('Yield',esc(item.em.rate));
+    } else if(item.isEquity){
+      if(item.invested>0)           html+=metricCell('Cost Basis',fmtUSD(item.invested));
+      if(item.em.shares)            html+=metricCell('Shares',esc(item.em.shares));
+      if(item.em.broker)            html+=metricCell('Broker',esc(item.em.broker));
+    }
+    html+='</div>'; // metrics grid
+
+    html+='</div>'; // card body
+    html+='</div>'; // card
+  });
+  html+='</div>'; // cards grid
+
+  document.getElementById('summary-content').innerHTML = html;
 }
 
 // -- Balance History Tab ----------------------------------------------------
