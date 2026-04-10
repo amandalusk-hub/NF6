@@ -3023,10 +3023,12 @@ function openAssetDetail(id){
     .getAssetHistory(asset.Name);
   _loadingDetail=true;
   openModal('detail-modal');
-  setTimeout(function(){ _loadingDetail=false; }, 500);
+  setTimeout(function(){ _loadingDetail=false; }, 1500);
 }
 
 function saveAssetDetails(keepOpen){
+  // Never save while the modal is still loading — prevents wiping data on quick close
+  if(_loadingDetail){ if(!keepOpen) closeModal('detail-modal'); return; }
   clearTimeout(_assetAutoSave);
   const id=document.getElementById('detail-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
@@ -3674,10 +3676,11 @@ function openLiabDetail(id){
   recalcLiab();
   _loadingDetail=true;
   openModal('liab-detail-modal');
-  setTimeout(function(){ _loadingDetail=false; }, 500);
+  setTimeout(function(){ _loadingDetail=false; }, 1500);
 }
 
 function saveLiabilityDetails(keepOpen){
+  if(_loadingDetail){ if(!keepOpen) closeModal('liab-detail-modal'); return; }
   clearTimeout(_liabAutoSave);
   const id=document.getElementById('ld-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
