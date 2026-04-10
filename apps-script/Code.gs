@@ -1591,71 +1591,94 @@ function syncPlaidAccounts() {
   var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
   if (!tokens.length) return { success: false, error: 'No Plaid accounts connected. Use Connect Bank first.' };
 
-  var synced = 0;
-  tokens.forEach(function(token) {
+  // ── Step 1: fire all Plaid API requests in parallel via fetchAll ───────────
+  var requests = tokens.map(function(token) {
+    return {
+      url: getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get',
+      method: 'POST',
+      contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+      muteHttpExceptions: true
+    };
+  });
+  var responses = UrlFetchApp.fetchAll(requests);
+
+  // Collect all accounts across all institutions
+  var allAccounts = [];
+  tokens.forEach(function(token, idx) {
     var institution = instMap[token] || '';
     try {
-      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get', {
-        method: 'POST',
-        contentType: 'application/json',
-        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
-        muteHttpExceptions: true
-      });
-      var data = JSON.parse(resp.getContentText());
+      var data = JSON.parse(responses[idx].getContentText());
       if (!data.accounts) return;
-
       data.accounts.forEach(function(acct) {
-        var balance  = (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0;
-        var acctName = (institution ? institution + ' - ' : '') + (acct.name || 'Account') + ' ···' + (acct.mask || '');
-        var acctId   = acct.account_id;
-        var sheet    = getSheet_('ASSETS');
-        var rows     = sheet.getDataRange().getValues();
-        var found    = false;
-
-        var matchRow = -1;
-        // First pass: exact match by Plaid Account ID or name+category
-        for (var i = 1; i < rows.length; i++) {
-          if (rows[i][13] === acctId || (rows[i][1] === acctName && rows[i][2] === 'Cash')) {
-            matchRow = i;
-            break;
-          }
-        }
-        // Second pass: claim any unlinked Cash asset (no Plaid ID set)
-        if (matchRow === -1) {
-          for (var i = 1; i < rows.length; i++) {
-            if (rows[i][2] === 'Cash' && !rows[i][13]) {
-              matchRow = i;
-              break;
-            }
-          }
-        }
-
-        if (matchRow !== -1) {
-          var oldUsd = Number(rows[matchRow][7]) || 0;
-          sheet.getRange(matchRow + 1, 2).setValue(acctName);   // update Name from Plaid
-          sheet.getRange(matchRow + 1, 6).setValue(balance);
-          sheet.getRange(matchRow + 1, 7).setValue(1);
-          sheet.getRange(matchRow + 1, 8).setValue(balance);
-          sheet.getRange(matchRow + 1, 10).setValue(balance);
-          sheet.getRange(matchRow + 1, 12).setValue(new Date());
-          sheet.getRange(matchRow + 1, 14).setValue(acctId);
-          if (Math.abs(balance - oldUsd) > 0.01) logHistory_(acctName, oldUsd, balance, 'USD', 'Plaid sync');
-          found = true;
-        }
-
-        if (!found) {
-          addAsset({ name: acctName, category: 'Cash', currency: 'USD', localValue: balance, mySharePct: 100, notes: 'Plaid: ' + acctId });
-          var newRows = sheet.getDataRange().getValues();
-          sheet.getRange(newRows.length, 14).setValue(acctId);
-        }
-        synced++;
+        allAccounts.push({
+          balance:  (acct.balances.current != null ? acct.balances.current : acct.balances.available) || 0,
+          name:     (institution ? institution + ' - ' : '') + (acct.name || 'Account') + ' \u00b7\u00b7\u00b7' + (acct.mask || ''),
+          acctId:   acct.account_id
+        });
       });
     } catch(e) {
-      console.error('Plaid sync error:', e);
+      console.error('Plaid parse error for token ' + idx + ':', e);
     }
   });
 
-  return { success: true, synced: synced };
+  // ── Step 2: read sheet ONCE, build lookup maps ────────────────────────────
+  var sheet = getSheet_('ASSETS');
+  var rows  = sheet.getDataRange().getValues();
+  var now   = new Date();
+
+  // Map: plaidId → row index (0-based, data rows start at 1)
+  var byPlaidId = {};
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][13]) byPlaidId[rows[i][13]] = i;
+  }
+
+  // ── Step 3: match and collect updates ─────────────────────────────────────
+  var updates   = [];   // {rowIdx, acctName, balance, acctId, oldUsd}
+  var newAccts  = [];   // accounts with no matching row
+
+  allAccounts.forEach(function(acct) {
+    var matchRow = byPlaidId[acct.acctId];
+
+    if (matchRow === undefined) {
+      // Name+category match
+      for (var i = 1; i < rows.length; i++) {
+        if (rows[i][1] === acct.name && String(rows[i][2]).startsWith('Cash')) {
+          matchRow = i; break;
+        }
+      }
+    }
+
+    if (matchRow !== undefined) {
+      updates.push({ rowIdx: matchRow, acctName: acct.name, balance: acct.balance,
+                     acctId: acct.acctId, oldUsd: Number(rows[matchRow][7]) || 0 });
+    } else {
+      newAccts.push(acct);
+    }
+  });
+
+  // ── Step 4: apply all updates with one setValues call per row ─────────────
+  updates.forEach(function(u) {
+    var r = u.rowIdx + 1;   // 1-based sheet row
+    // Columns: 2=Name, 6=LocalVal, 7=FXRate, 8=USD Value, 10=My Share USD, 12=Last Updated, 14=PlaidID
+    sheet.getRange(r, 2).setValue(u.acctName);
+    sheet.getRange(r, 6, 1, 3).setValues([[u.balance, 1, u.balance]]);   // cols 6,7,8
+    sheet.getRange(r, 10).setValue(u.balance);
+    sheet.getRange(r, 12).setValue(now);
+    sheet.getRange(r, 14).setValue(u.acctId);
+    if (Math.abs(u.balance - u.oldUsd) > 0.01) logHistory_(u.acctName, u.oldUsd, u.balance, 'USD', 'Plaid sync');
+  });
+
+  // ── Step 5: add new accounts (append rows) ────────────────────────────────
+  newAccts.forEach(function(acct) {
+    addAsset({ name: acct.name, category: 'Cash', currency: 'USD',
+               localValue: acct.balance, mySharePct: 100, notes: 'Plaid: ' + acct.acctId });
+    // Tag the newly appended row with the Plaid ID
+    var newRowCount = sheet.getLastRow();
+    sheet.getRange(newRowCount, 14).setValue(acct.acctId);
+  });
+
+  return { success: true, synced: updates.length + newAccts.length };
 }
 
 // ── Plaid UI Helpers ──────────────────────────────────────────────────────────

@@ -3827,16 +3827,22 @@ function refreshRates(){
 // -- Property Values ---------------------------------------------------------
 function syncAccounts(){
   showLoading(true);
-  toast('Syncing bank accounts...','success');
+  toast('Syncing bank accounts — this can take 30-60s with multiple institutions...','success');
+  // Safety timeout: if GAS takes too long, unblock the UI and let it finish in background
+  var _syncTimeout = setTimeout(function(){
+    showLoading(false);
+    toast('Sync is taking longer than expected. It may still be running — refresh the page in a minute to see updated balances.','error');
+  }, 90000);
   google.script.run
     .withSuccessHandler(function(r){
+      clearTimeout(_syncTimeout);
       showLoading(false);
       if(r&&r.success===false){toast(r.error||'Sync failed','error');return;}
-      const updated=r&&r.synced!=null?r.synced:0;
-      toast('Accounts synced -- '+updated+' account(s) updated');
+      var updated = r&&r.synced!=null ? r.synced : 0;
+      toast('Sync complete — '+updated+' account(s) updated');
       loadData();
     })
-    .withFailureHandler(function(e){showLoading(false);toast('Sync error: '+e.message,'error');})
+    .withFailureHandler(function(e){clearTimeout(_syncTimeout);showLoading(false);toast('Sync error: '+e.message,'error');})
     .syncPlaidAccounts();
 }
 
