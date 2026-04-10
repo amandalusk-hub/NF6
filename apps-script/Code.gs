@@ -412,6 +412,35 @@ function getAssetHistory(assetName) {
     });
 }
 
+// ── Details Recovery ──────────────────────────────────────────────────────────
+// Returns raw Details JSON for every asset so the UI can restore data
+// that may have been lost due to the principal/interest migration bug.
+function getAllDetailsForRecovery() {
+  var sheet = getSheet_('ASSETS');
+  var data  = sheet.getDataRange().getValues();
+  var h     = data[0];
+  var detIdx  = h.indexOf('Details');
+  var idIdx   = h.indexOf('ID');
+  var nameIdx = h.indexOf('Name');
+  var catIdx  = h.indexOf('Category');
+  if (detIdx < 0) return { error: 'Details column not found' };
+  var result = [];
+  for (var i = 1; i < data.length; i++) {
+    if (!data[i][nameIdx]) continue;
+    var raw = String(data[i][detIdx] || '');
+    var det = {};
+    try { det = JSON.parse(raw); } catch(e) {}
+    result.push({
+      id:       String(data[i][idIdx] || ''),
+      name:     String(data[i][nameIdx] || ''),
+      category: String(data[i][catIdx] || ''),
+      detailsLength: raw.length,
+      details:  det
+    });
+  }
+  return result;
+}
+
 // Fetch all history — called lazily when History tab is opened
 function getHistoryData() {
   return sheetToObjects_('HISTORY').map(function(h) {

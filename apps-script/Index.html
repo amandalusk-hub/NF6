@@ -213,6 +213,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <select id="asset-cat-filter" onchange="renderAssetsTable()"><option value="">All Categories</option></select>
         <button class="btn btn-primary" onclick="openAssetModal()">+ Add Asset</button>
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
+        <button class="btn btn-secondary" onclick="recoverDetailsFromSheet()" style="background:#1a3d6e;color:#7eb8f7;border-color:#2a5080" title="Restore detail data (contacts, payments, etc.) from spreadsheet">Restore Data</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
         <button class="btn btn-secondary" onclick="manageBankNames()" style="opacity:.75;font-size:12px">Bank Names</button>
@@ -1316,6 +1317,33 @@ function loadData(cb){
     .withSuccessHandler(function(d){clearTimeout(_t);onDataLoaded(d);if(cb)cb();})
     .withFailureHandler(function(e){clearTimeout(_t);showLoading(false);toast('Failed to load: '+e.message,'error');})
     .getFullData();
+}
+
+// Recovery tool — reads raw Details JSON from spreadsheet and patches state
+function recoverDetailsFromSheet() {
+  toast('Reading data from spreadsheet...');
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      if (!rows || rows.error) { toast('Recovery failed: '+(rows&&rows.error||'unknown'), 'error'); return; }
+      var patched = 0;
+      rows.forEach(function(row) {
+        if (!row.details || Object.keys(row.details).length === 0) return;
+        var asset = (state.assets||[]).find(function(a){ return String(a.ID)===String(row.id); });
+        if (asset) {
+          asset.Details = JSON.stringify(row.details);
+          patched++;
+        }
+      });
+      renderDashboard();
+      renderAssetsTable();
+      if (patched > 0) {
+        toast('Recovered details for '+patched+' asset(s). Open any asset to see restored data.');
+      } else {
+        toast('No recoverable detail data found in spreadsheet.', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Recovery failed: '+e.message,'error'); })
+    .getAllDetailsForRecovery();
 }
 
 function onDataLoaded(d){
