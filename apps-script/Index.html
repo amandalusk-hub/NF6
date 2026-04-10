@@ -578,9 +578,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
         </div>
       </div>
-      <button class="modal-close" onclick="closeModal('detail-modal')" style="margin-left:8px;flex-shrink:0">x</button>
+      <button class="modal-close" onclick="saveAssetDetails()" style="margin-left:8px;flex-shrink:0">x</button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" oninput="scheduleAssetAutoSave()" onchange="scheduleAssetAutoSave()">
       <input type="hidden" id="detail-id">
 
       <div class="detail-section">
@@ -1030,7 +1030,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('detail-modal')">Close</button>
+      <button class="btn btn-secondary" onclick="saveAssetDetails()">Close</button>
       <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
     </div>
   </div>
@@ -1104,10 +1104,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-secondary btn-sm" id="liab-detail-edit-btn">Edit Core Fields</button>
-        <button class="modal-close" onclick="closeModal('liab-detail-modal')">x</button>
+        <button class="modal-close" onclick="saveLiabilityDetails()">x</button>
       </div>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" oninput="scheduleLiabAutoSave()" onchange="scheduleLiabAutoSave()">
       <input type="hidden" id="ld-id">
 
       <div class="detail-section">
@@ -1175,7 +1175,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('liab-detail-modal')">Close</button>
+      <button class="btn btn-secondary" onclick="saveLiabilityDetails()">Close</button>
       <button class="btn btn-primary" onclick="saveLiabilityDetails()">Save Details</button>
     </div>
   </div>
@@ -2567,7 +2567,8 @@ function openAssetDetail(id){
   openModal('detail-modal');
 }
 
-function saveAssetDetails(){
+function saveAssetDetails(keepOpen){
+  clearTimeout(_assetAutoSave);
   const id=document.getElementById('detail-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
   const details={
@@ -2702,8 +2703,8 @@ function saveAssetDetails(){
   // Value IS the direct holding value — ownership % is informational only, never multiplied
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
                    localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
-  if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
-  closeModal('detail-modal');
+  if (!_daName) { if(!keepOpen) toast('Asset name cannot be empty', 'error'); return; }
+  if (!keepOpen) closeModal('detail-modal');
   // --- Optimistic local update (instant UI refresh, no server wait) ---
   var _stateAsset = (state.assets||[]).find(function(a){ return String(a.ID) === String(id); });
   if (_stateAsset) {
@@ -2720,7 +2721,7 @@ function saveAssetDetails(){
     renderAssetsTable();
     renderDashboard();
   }
-  toast('Saving...');
+  if (!keepOpen) toast('Saving...');
   // --- Single combined GAS call (was 2 sequential calls before) ---
   google.script.run
     .withSuccessHandler(function(r){
@@ -2728,12 +2729,11 @@ function saveAssetDetails(){
         toast(r.error || 'Save failed', 'error');
         loadData(); // revert optimistic update on error
       } else {
-        // Sync server's calculated values back (e.g. FX adjustments)
         if (_stateAsset && r && r.myShareUsd != null) {
           _stateAsset['My Share USD'] = r.myShareUsd;
           _stateAsset['Local Value']  = r.localValue;
         }
-        toast('Saved');
+        if (keepOpen) _showAutoSaved('#detail-modal'); else toast('Saved');
         renderAssetsTable();
         renderDashboard();
       }
@@ -3136,7 +3136,8 @@ function openLiabDetail(id){
   openModal('liab-detail-modal');
 }
 
-function saveLiabilityDetails(){
+function saveLiabilityDetails(keepOpen){
+  clearTimeout(_liabAutoSave);
   const id=document.getElementById('ld-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
   const details={
@@ -3163,33 +3164,31 @@ function saveLiabilityDetails(){
     contacts:    gv('ld-contacts'),
     notes:       gv('ld-notes')
   };
-  closeModal('liab-detail-modal');
+  if (!keepOpen) closeModal('liab-detail-modal');
   // Optimistic local update so reopening modal immediately shows saved data
   const _liab = (state.liabilities||[]).find(l=>String(l.ID)===String(id));
   if (_liab) {
     _liab.Details = JSON.stringify(details);
-    // If balance entered, update dashboard amount immediately
     const _balNum = parseAcct(details.balance);
     if (_balNum > 0) {
       _liab.Amount = _balNum;
-      _liab['USD Value'] = _balNum; // approximate; server will correct with FX
+      _liab['USD Value'] = _balNum;
     }
   }
   renderDashboard();
   renderLiabilitiesTable();
-  toast('Saving...');
+  if (!keepOpen) toast('Saving...');
   google.script.run
     .withSuccessHandler(r=>{
       if(r&&r.success===false){toast(r.error||'Save failed','error');loadData();}
       else{
-        // Sync FX-corrected USD Value back from server
         if (r && r.balance > 0 && _liab) {
           _liab.Amount = r.balance;
-          _liab['USD Value'] = r.balance; // server returns balance; FX correction happens on next loadData
+          _liab['USD Value'] = r.balance;
           renderDashboard();
           renderLiabilitiesTable();
         }
-        toast('Saved');
+        if (keepOpen) _showAutoSaved('#liab-detail-modal'); else toast('Saved');
       }
     })
     .withFailureHandler(e=>{toast(e.message,'error');loadData();})
@@ -3317,8 +3316,31 @@ function refreshProperties(){
 function openModal(id){document.getElementById(id).classList.add('open')}
 function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.addEventListener('click',e=>{
-  if(e.target.classList.contains('modal-overlay'))e.target.classList.remove('open');
+  if(e.target.classList.contains('modal-overlay')){
+    var id=e.target.id;
+    if(id==='detail-modal'){saveAssetDetails();return;}
+    if(id==='liab-detail-modal'){saveLiabilityDetails();return;}
+    e.target.classList.remove('open');
+  }
 });
+
+// -- Auto-save (debounced) -------------------------------------------------
+var _assetAutoSave=null, _liabAutoSave=null;
+function scheduleAssetAutoSave(){
+  clearTimeout(_assetAutoSave);
+  _assetAutoSave=setTimeout(function(){ saveAssetDetails(true); }, 3000);
+}
+function scheduleLiabAutoSave(){
+  clearTimeout(_liabAutoSave);
+  _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 3000);
+}
+function _showAutoSaved(modalSel){
+  var btn=document.querySelector(modalSel+' .btn-primary');
+  if(!btn)return;
+  var orig=btn.textContent;
+  btn.textContent='✓ Saved';
+  setTimeout(function(){btn.textContent=orig;},1500);
+}
 
 // -- Loading ----------------------------------------------------------------
 function showLoading(v){document.getElementById('loading').classList.toggle('open',v)}
