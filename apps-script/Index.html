@@ -227,7 +227,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <th onclick="sortTable('assets','Category')">Category <span class="sort-icon">^</span></th>
             <th onclick="sortTable('assets','Entity')">Entity <span class="sort-icon">^</span></th>
             <th onclick="sortTable('assets','Currency')">Currency <span class="sort-icon">^</span></th>
-            <th onclick="sortTable('assets','My Share USD')">Mike's Value <span class="sort-icon">^</span></th>
+            <th onclick="sortTable('assets','My Share USD')">Value <span class="sort-icon">^</span></th>
             <th>Cost Basis</th>
             <th>Gain/Loss</th>
             <th onclick="sortTable('assets','Last Updated')">Updated <span class="sort-icon">^</span></th>
@@ -569,7 +569,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <!-- Value row (always shown; label adapts to category) -->
         <div id="da-value-row" style="display:none;margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
-            <span id="da-local-label">Mike's Value</span>
+            <span id="da-local-label">Value</span>
             <input type="text" id="da-local" placeholder="$0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview()" onfocus="onAcctFocus(this)">
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
@@ -2232,7 +2232,7 @@ function onDetailCategoryChange(){
   if (valRow) valRow.style.display = 'flex';
   // Label for the value field — always Mike's direct value
   var lbl = document.getElementById('da-local-label');
-  if (lbl) lbl.textContent = "Mike's Value";
+  if (lbl) lbl.textContent = "Value";
   // Ownership % always shown (informational only, never used in calculation)
   var shrWrap = document.getElementById('da-share-wrap');
   if (shrWrap) shrWrap.style.display = 'flex';
@@ -2643,12 +2643,11 @@ function saveAssetDetails(){
   var _daCat  = (document.getElementById('da-category')||{value:''}).value;
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
-  var _daShr  = parseFloat((document.getElementById('da-share')||{value:'100'}).value)||100;
+  var _daShr  = parseFloat((document.getElementById('da-share')||{value:''}).value)||0;
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
-  // Current Value IS Mike's value directly — ownership % is informational only, never multiplied
-  coreData.localValue = _daLoc;
-  coreData.mySharePct = 100;
-  coreData.ownershipPct = _daShr; // stored for reference only
+  // Value IS the direct holding value — ownership % is informational only, never multiplied
+  var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
+                   localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
   if (!_daName) { toast('Asset name cannot be empty', 'error'); return; }
   closeModal('detail-modal');
   // --- Optimistic local update (instant UI refresh, no server wait) ---
