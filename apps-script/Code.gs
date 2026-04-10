@@ -412,6 +412,24 @@ function getAssetHistory(assetName) {
     });
 }
 
+// ── Bulk Details Save (used by recovery to persist patched data back to sheet) ─
+function bulkSaveDetails(idToDetailsMap) {
+  var sheet    = getSheet_('ASSETS');
+  var allRows  = sheet.getDataRange().getValues();
+  var headers  = allRows[0];
+  var detCol   = headers.indexOf('Details') + 1;
+  if (detCol < 1) return { error: 'Details column not found' };
+  var saved = 0;
+  for (var i = 1; i < allRows.length; i++) {
+    var id = String(allRows[i][0] || '');
+    if (idToDetailsMap.hasOwnProperty(id)) {
+      sheet.getRange(i + 1, detCol).setValue(idToDetailsMap[id]);
+      saved++;
+    }
+  }
+  return { saved: saved };
+}
+
 // ── Details Recovery ──────────────────────────────────────────────────────────
 function getAllDetailsForRecovery() {
   var sheet = getSheet_('ASSETS');

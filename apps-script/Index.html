@@ -1327,26 +1327,48 @@ function recoverDetailsFromSheet() {
       if (!rows || rows.error) { toast('Recovery failed: '+(rows&&rows.error||'unknown'), 'error'); return; }
       var patched = 0, empty = 0;
       var report = [];
+      var idToDetailsMap = {};
       rows.forEach(function(row) {
         var hasMeaningfulData = row.meaningfulCount > 0;
         var asset = (state.assets||[]).find(function(a){ return String(a.ID)===String(row.id); });
         if (!asset) return;
         if (hasMeaningfulData) {
-          asset.Details = JSON.stringify(row.details);
+          var detJson = JSON.stringify(row.details);
+          asset.Details = detJson;
+          idToDetailsMap[String(row.id)] = detJson;
           patched++;
-          report.push('✓ '+row.name+' — '+row.meaningfulCount+' fields: '+row.meaningfulFields.join(', '));
+          report.push('\u2713 '+row.name+' \u2014 '+row.meaningfulCount+' fields: '+row.meaningfulFields.join(', '));
         } else {
           empty++;
-          report.push('✗ '+row.name+' — no data found in spreadsheet (Details column is empty)');
+          report.push('\u2717 '+row.name+' \u2014 no data in spreadsheet');
         }
       });
       renderDashboard();
       renderAssetsTable();
-      // Show detailed report
+
       var msg = 'RECOVERY REPORT\n\n';
-      msg += patched + ' asset(s) with data found, ' + empty + ' empty.\n\n';
-      msg += report.join('\n');
-      alert(msg);
+      if (patched > 0) {
+        msg += patched + ' asset(s) restored. Data written back to spreadsheet so it persists.\n\n';
+        msg += report.join('\n');
+        // Persist recovered data back to spreadsheet
+        google.script.run
+          .withFailureHandler(function(e){ toast('Warning: could not persist recovery to sheet: '+e.message,'error'); })
+          .bulkSaveDetails(idToDetailsMap);
+        alert(msg);
+        toast(patched + ' asset(s) recovered successfully');
+      } else {
+        msg += 'No data found in spreadsheet Details column.\n\n';
+        msg += 'The detail data (contacts, payments, etc.) appears to have been overwritten.\n\n';
+        msg += 'HOW TO RECOVER:\n';
+        msg += '1. Open your Google Sheet\n';
+        msg += '2. Click File \u2192 Version History \u2192 See version history\n';
+        msg += '3. Find a version from before the data went missing\n';
+        msg += '4. Click that version and verify the Details column has long JSON text\n';
+        msg += '5. Click "Restore this version"\n';
+        msg += '6. Come back here and click "Restore Data" again\n\n';
+        msg += report.join('\n');
+        alert(msg);
+      }
     })
     .withFailureHandler(function(e){ toast('Recovery failed: '+e.message,'error'); })
     .getAllDetailsForRecovery();
