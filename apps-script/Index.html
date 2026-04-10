@@ -2369,7 +2369,7 @@ function addContactRow(type, data) {
       '<input type="email" class="contact-email" value="'+email.replace(/"/g,'&quot;')+'" placeholder="Email" style="padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
       '<input type="tel" class="contact-phone" value="'+phone.replace(/"/g,'&quot;')+'" placeholder="Phone" style="padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px">' +
     '</div>' +
-    '<div class="contact-desc-row" style="margin-top:6px;display:'+(type==='Other'?'block':'none')+'">' +
+    '<div class="contact-desc-row" style="margin-top:6px;display:block">' +
       '<input type="text" class="contact-description" value="'+desc.replace(/"/g,'&quot;')+'" placeholder="Who they are / role" style="width:100%;padding:5px 8px;border:1px solid #2a4060;background:#162a3e;color:#e0e8f0;border-radius:4px;font-size:13px;box-sizing:border-box">' +
     '</div>';
   list.appendChild(wrap);
@@ -2599,7 +2599,7 @@ function saveAssetDetails(keepOpen){
       var nameEl = row.querySelector('.contact-name');
       var emailEl = row.querySelector('.contact-email');
       var phoneEl = row.querySelector('.contact-phone');
-      var descEl = row.querySelector('.contact-desc');
+      var descEl = row.querySelector('.contact-description');
       return {
         type:        typeEl  ? typeEl.value           : '',
         name:        nameEl  ? nameEl.value.trim()    : '',
