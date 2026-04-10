@@ -653,26 +653,30 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
         <!-- Summary banner -->
         <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:14px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:10px">
-            <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Original Loan</div>
-              <div id="d-loan-orig-display" style="font-size:14px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 10px">
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Original Loan</div>
+              <div id="d-loan-orig-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Outstanding</div>
-              <div id="d-loan-outstanding" style="font-size:14px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Principal Outstanding</div>
+              <div id="d-loan-outstanding" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Received</div>
-              <div id="d-loan-principal-recv" style="font-size:14px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Annualized Yield</div>
+              <div id="d-loan-roi" style="font-size:15px;font-weight:700;color:#a78bfa;margin-top:3px">--</div>
             </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Received</div>
-              <div id="d-loan-interest-earned" style="font-size:14px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Principal Received</div>
+              <div id="d-loan-principal-recv" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
             </div>
-            <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Outstanding</div>
-              <div id="d-loan-interest-outstanding" style="font-size:14px;font-weight:700;color:#facc15;margin-top:3px">--</div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Interest Received</div>
+              <div id="d-loan-interest-earned" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Interest Outstanding</div>
+              <div id="d-loan-interest-outstanding" style="font-size:15px;font-weight:700;color:#facc15;margin-top:3px">--</div>
             </div>
           </div>
         </div>
@@ -2985,18 +2989,30 @@ function addLoanPaymentRow(date, principal, interest, notes) {
 function recalcLoan() {
   var original         = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
   var interestAccrued  = parseAcct((document.getElementById('d-loan-interest-accrued')||{value:''}).value);
+  var loanDateStr      = (document.getElementById('d-loan-date')||{}).value || '';
   var totalPrincipal   = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-principal'))
                          .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
   var totalInterest    = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-interest'))
                          .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
   var outstanding         = Math.max(0, original - totalPrincipal);
   var interestOutstanding = Math.max(0, interestAccrued - totalInterest);
+
+  // Annualized yield: (interest received / original) × (365 / days elapsed)
+  var roiText = '--';
+  if (original > 0 && totalInterest > 0 && loanDateStr) {
+    var loanDate = new Date(loanDateStr);
+    var daysElapsed = Math.max(1, (Date.now() - loanDate.getTime()) / 86400000);
+    var annualizedYield = (totalInterest / original) * (365 / daysElapsed) * 100;
+    roiText = annualizedYield.toFixed(2) + '%';
+  }
+
   var set = function(id, v) { var el=document.getElementById(id); if(el) el.textContent=v; };
-  set('d-loan-orig-display',        original            > 0 ? fmtUSD(original)            : '--');
-  set('d-loan-outstanding',         original            > 0 ? fmtUSD(outstanding)         : '--');
-  set('d-loan-principal-recv',      totalPrincipal      > 0 ? fmtUSD(totalPrincipal)      : '--');
-  set('d-loan-interest-earned',     totalInterest       > 0 ? fmtUSD(totalInterest)       : '--');
-  set('d-loan-interest-outstanding', interestAccrued    > 0 ? fmtUSD(interestOutstanding) : '--');
+  set('d-loan-orig-display',         original            > 0 ? fmtUSD(original)            : '--');
+  set('d-loan-outstanding',          original            > 0 ? fmtUSD(outstanding)         : '--');
+  set('d-loan-roi',                  roiText);
+  set('d-loan-principal-recv',       totalPrincipal      > 0 ? fmtUSD(totalPrincipal)      : '--');
+  set('d-loan-interest-earned',      totalInterest       > 0 ? fmtUSD(totalInterest)       : '--');
+  set('d-loan-interest-outstanding', interestAccrued     > 0 ? fmtUSD(interestOutstanding) : '--');
   // Auto-update the Value field at the top so dashboard reflects outstanding principal
   var localEl = document.getElementById('da-local');
   if (localEl && original > 0) localEl.value = fmtAcct(outstanding);
