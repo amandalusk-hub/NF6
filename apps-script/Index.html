@@ -575,7 +575,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-share-label">Ownership %</span>
-            <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
+            <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" onchange="recalcRE()" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
           </div>
         </div>
       </div>
@@ -602,19 +602,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             </div>
           </div>
         </div>
-        <!-- RE-specific overview fields -->
-        <div id="d-overview-re-fields">
-          <div class="form-two">
-            <div class="form-row"><label>Occupancy Status</label>
-              <select id="d-occupancy"><option value="">--</option><option>Tenant Occupied</option><option>Owner Occupied</option><option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option></select>
-            </div>
-            <div class="form-row"><label>Property Type</label><input type="text" id="d-type" placeholder="e.g. Residential, Commercial, SFR"></div>
-          </div>
-          <div class="form-two">
-            <div class="form-row"><label>Location</label><input type="text" id="d-location" placeholder="City, Country/State"></div>
-            <div class="form-row"><label>Square Footage</label><input type="text" id="d-sqft" placeholder="e.g. 5,200 sq ft"></div>
-          </div>
-        </div>
+        <!-- RE-specific overview fields (moved into RE accordion; keep div for JS compat) -->
+        <div id="d-overview-re-fields" style="display:none"></div>
       </div>
 
       <!-- Cash / Bank -- only shown for Cash categories -->
@@ -990,39 +979,154 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
 
       <div class="detail-section" id="d-re-section">
-        <div class="detail-section-title">Financial Breakdown</div>
-        <div class="form-two">
-          <div class="form-row"><label>Purchase Price</label><input type="text" id="d-purchase-price" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Purchase Date</label><input type="date" id="d-purchase-date"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Closing Costs</label><input type="text" id="d-closing-costs" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Permits &amp; Licenses</label><input type="text" id="d-permits" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Revenue / Month</label><input type="text" id="d-revenue" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Operating Expenses / Month</label><input type="text" id="d-opex" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Property Taxes / Year</label><input type="text" id="d-taxes" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Insurance Premiums / Year</label><input type="text" id="d-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>HOA Fees / Month</label><input type="text" id="d-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Maintenance &amp; Repairs / Month</label><input type="text" id="d-maintenance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Utilities / Month</label><input type="text" id="d-utilities" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Loan Details</label><input type="text" id="d-loan" placeholder="e.g. $1.4M at 6.5% Oriental Bank"></div>
-        </div>
-        <div class="form-row"><label>Additional Financial Notes</label><textarea id="d-fin-notes" placeholder="Revenue details, deal terms, etc."></textarea></div>
-      </div>
 
-      <div class="detail-section">
-        <div class="detail-section-title">Who We Worked With</div>
-        <div id="d-contacts-list"></div>
-        <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:13px;" onclick="addContactRow()">+ Add Contact</button>
-      </div>
+        <!-- Investment summary banner -->
+        <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px 10px">
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Property Value</div>
+              <div id="d-re-prop-val-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">My Share Value</div>
+              <div id="d-re-my-share-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0;border-bottom:1px solid #1e3a5a">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Annualized Return</div>
+              <div id="d-re-return-display" style="font-size:15px;font-weight:700;color:#a78bfa;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">My Investment</div>
+              <div id="d-re-invested-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Unrealized Gain</div>
+              <div id="d-re-gain-display" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center;padding:6px 0">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Est. Cap Rate</div>
+              <div id="d-re-cap-rate-display" style="font-size:15px;font-weight:700;color:#facc15;margin-top:3px">--</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Property Info (open) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="toggleBlock('re-info-body')">
+            <span>Property Info</span><span class="pe-block-chevron">-</span>
+          </div>
+          <div class="pe-block-body" id="re-info-body">
+            <div class="form-two">
+              <div class="form-row"><label>Location / Address</label><input type="text" id="d-location" placeholder="City, State or full address"></div>
+              <div class="form-row"><label>Property Type</label><input type="text" id="d-type" placeholder="e.g. SFR, Condo, Multi-Family, Commercial"></div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Square Footage</label><input type="text" id="d-sqft" placeholder="e.g. 3,200 sq ft"></div>
+              <div class="form-row"><label>Occupancy Status</label>
+                <select id="d-occupancy">
+                  <option value="">--</option><option>Tenant Occupied</option><option>Owner Occupied</option>
+                  <option>Vacant</option><option>Under Renovation</option><option>Short-Term Rental</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Purchase Price</label><input type="text" id="d-purchase-price" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+              <div class="form-row"><label>Purchase Date</label><input type="date" id="d-purchase-date" onchange="recalcRE()"></div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Closing Costs</label><input type="text" id="d-closing-costs" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+              <div class="form-row"><label>Renovations / Improvements</label><input type="text" id="d-permits" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ownership & Investment (open) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="toggleBlock('re-invest-body')">
+            <span>Ownership &amp; Investment</span><span class="pe-block-chevron">-</span>
+          </div>
+          <div class="pe-block-body" id="re-invest-body">
+            <div class="form-two">
+              <div class="form-row">
+                <label>Current Property Value</label>
+                <input type="text" id="d-re-property-value" placeholder="$0  (full property value, not just your share)" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)">
+              </div>
+              <div class="form-row">
+                <label>My Ownership %</label>
+                <input type="number" id="d-re-ownership" placeholder="e.g. 50" min="0" max="100" step="0.01" onchange="recalcRE(); var s=document.getElementById('da-share'); if(s)s.value=this.value;">
+              </div>
+            </div>
+            <div class="form-row">
+              <label>Total Cash I Invested</label>
+              <input type="text" id="d-re-invested" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)">
+              <span style="font-size:11px;color:#8ab;margin-top:3px;display:block">Down payment + your share of closing costs + any additional capital contributed</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rental Income & Expenses (collapsed) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="toggleBlock('re-income-body')">
+            <span>Rental Income &amp; Expenses</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <span id="re-noi-summary" style="font-size:12px;color:#8ab;font-weight:400"></span>
+              <span class="pe-block-chevron">+</span>
+            </div>
+          </div>
+          <div class="pe-block-body" id="re-income-body" style="display:none">
+            <div class="form-two">
+              <div class="form-row"><label>Revenue / Month</label><input type="text" id="d-revenue" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+              <div class="form-row"><label>Operating Expenses / Month</label><input type="text" id="d-opex" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>Property Taxes / Year</label><input type="text" id="d-taxes" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+              <div class="form-row"><label>Insurance / Year</label><input type="text" id="d-insurance" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+            </div>
+            <div class="form-two">
+              <div class="form-row"><label>HOA Fees / Month</label><input type="text" id="d-hoa" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+              <div class="form-row"><label>Maintenance &amp; Repairs / Month</label><input type="text" id="d-maintenance" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+            </div>
+            <div class="form-row" style="max-width:calc(50% - 6px)"><label>Utilities / Month</label><input type="text" id="d-utilities" placeholder="$0" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)"></div>
+            <!-- NOI mini-banner -->
+            <div style="margin-top:12px;padding:10px 14px;background:#0d2137;border-radius:6px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#8ab;text-transform:uppercase;letter-spacing:.4px">Annual Revenue</div>
+                <div id="re-annual-rev" style="font-size:14px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#8ab;text-transform:uppercase;letter-spacing:.4px">Annual Expenses</div>
+                <div id="re-annual-exp" style="font-size:14px;font-weight:700;color:#f87171;margin-top:3px">--</div>
+              </div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#8ab;text-transform:uppercase;letter-spacing:.4px">Net Operating Income</div>
+                <div id="re-annual-noi" style="font-size:14px;font-weight:700;color:#facc15;margin-top:3px">--</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Financing (collapsed) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="toggleBlock('re-fin-body')">
+            <span>Financing</span><span class="pe-block-chevron">+</span>
+          </div>
+          <div class="pe-block-body" id="re-fin-body" style="display:none">
+            <div class="form-row"><label>Linked Mortgage / Loan</label><input type="text" id="d-loan" placeholder="e.g. $1.4M at 6.5% Oriental Bank"></div>
+            <div class="form-row"><label>Notes</label><textarea id="d-fin-notes" placeholder="Deal terms, loan conditions, refinance history..." style="min-height:60px"></textarea></div>
+          </div>
+        </div>
+
+        <!-- Key Contacts (collapsed) -->
+        <div class="pe-block">
+          <div class="pe-block-hdr" onclick="toggleBlock('re-contacts-body')">
+            <span>Key Contacts</span><span class="pe-block-chevron">+</span>
+          </div>
+          <div class="pe-block-body" id="re-contacts-body" style="display:none">
+            <div id="d-contacts-list"></div>
+            <button type="button" class="btn btn-secondary" style="margin-top:8px;font-size:13px;" onclick="addContactRow()">+ Add Contact</button>
+          </div>
+        </div>
+
       </div><!-- end d-re-section -->
 
       <div class="detail-section">
@@ -2587,19 +2691,26 @@ function openAssetDetail(id){
   }
 
   // Real estate fields
-  sv('d-purchase-price', det.purchasePrice ? fmtAcct(det.purchasePrice) : '');
-  sv('d-purchase-date',  det.purchaseDate||'');
-  sv('d-closing-costs',  det.closingCosts  ? fmtAcct(det.closingCosts)  : '');
-  sv('d-permits',        det.permits       ? fmtAcct(det.permits)       : '');
-  sv('d-revenue',        det.revenue       ? fmtAcct(det.revenue)       : '');
-  sv('d-opex',           det.opex          ? fmtAcct(det.opex)          : '');
-  sv('d-taxes',          det.taxes         ? fmtAcct(det.taxes)         : '');
-  sv('d-insurance',      det.insurance     ? fmtAcct(det.insurance)     : '');
-  sv('d-hoa',            det.hoa           ? fmtAcct(det.hoa)           : '');
-  sv('d-maintenance',    det.maintenance   ? fmtAcct(det.maintenance)   : '');
-  sv('d-utilities',      det.utilities     ? fmtAcct(det.utilities)     : '');
-  sv('d-loan',           det.loan||'');
-  sv('d-fin-notes',      det.finNotes||'');
+  if (isRE) {
+    sv('d-purchase-price',    det.purchasePrice    ? fmtAcct(det.purchasePrice)    : '');
+    sv('d-purchase-date',     det.purchaseDate||'');
+    sv('d-closing-costs',     det.closingCosts     ? fmtAcct(det.closingCosts)     : '');
+    sv('d-permits',           det.permits          ? fmtAcct(det.permits)          : '');
+    sv('d-revenue',           det.revenue          ? fmtAcct(det.revenue)          : '');
+    sv('d-opex',              det.opex             ? fmtAcct(det.opex)             : '');
+    sv('d-taxes',             det.taxes            ? fmtAcct(det.taxes)            : '');
+    sv('d-insurance',         det.insurance        ? fmtAcct(det.insurance)        : '');
+    sv('d-hoa',               det.hoa              ? fmtAcct(det.hoa)              : '');
+    sv('d-maintenance',       det.maintenance      ? fmtAcct(det.maintenance)      : '');
+    sv('d-utilities',         det.utilities        ? fmtAcct(det.utilities)        : '');
+    sv('d-loan',              det.loan||'');
+    sv('d-fin-notes',         det.finNotes||'');
+    // New investment tracking fields
+    sv('d-re-property-value', det.rePropertyValue  ? fmtAcct(det.rePropertyValue)  : '');
+    sv('d-re-invested',       det.reMyInvestment   ? fmtAcct(det.reMyInvestment)   : '');
+    sv('d-re-ownership',      _ownershipPct        ? String(_ownershipPct)         : '');
+    recalcRE();
+  }
 
   // Cash section
   sv('d-cash-bank',      det.cashBank||'');
@@ -2696,6 +2807,8 @@ function saveAssetDetails(keepOpen){
     purchaseDate:    gv('d-purchase-date'),
     closingCosts:    gv('d-closing-costs'),
     permits:         gv('d-permits'),
+    rePropertyValue: parseAcct(gv('d-re-property-value')) || undefined,
+    reMyInvestment:  parseAcct(gv('d-re-invested'))       || undefined,
     revenue:         gv('d-revenue'),
     opex:            gv('d-opex'),
     taxes:           gv('d-taxes'),
@@ -2809,7 +2922,9 @@ function saveAssetDetails(keepOpen){
   var _daCat  = (document.getElementById('da-category')||{value:''}).value;
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
-  var _daShr  = parseFloat((document.getElementById('da-share')||{value:''}).value)||0;
+  // For RE, use d-re-ownership if filled (it's more prominent); fall back to da-share
+  var _reOwn  = parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0;
+  var _daShr  = _reOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   // Value IS the direct holding value — ownership % is informational only, never multiplied
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
@@ -3143,6 +3258,65 @@ function recalcLoan() {
   // Auto-update the Value field at the top so dashboard reflects outstanding principal
   var localEl = document.getElementById('da-local');
   if (localEl && original > 0) localEl.value = fmtAcct(outstanding);
+}
+
+function recalcRE() {
+  var cat = (document.getElementById('da-category')||{}).value || '';
+  if (!cat.startsWith('Real Estate')) return;
+
+  var propVal  = parseAcct((document.getElementById('d-re-property-value')||{value:''}).value);
+  var ownership= parseFloat((document.getElementById('d-re-ownership')||document.getElementById('da-share')||{}).value || '0') || 0;
+  var invested = parseAcct((document.getElementById('d-re-invested')||{value:''}).value);
+  var purchaseDateStr = (document.getElementById('d-purchase-date')||{}).value || '';
+
+  // Income/expense for cap rate & NOI
+  var revenue     = parseAcct((document.getElementById('d-revenue')||{value:''}).value);
+  var opex        = parseAcct((document.getElementById('d-opex')||{value:''}).value);
+  var taxes       = parseAcct((document.getElementById('d-taxes')||{value:''}).value);
+  var insurance   = parseAcct((document.getElementById('d-insurance')||{value:''}).value);
+  var hoa         = parseAcct((document.getElementById('d-hoa')||{value:''}).value);
+  var maintenance = parseAcct((document.getElementById('d-maintenance')||{value:''}).value);
+  var utilities   = parseAcct((document.getElementById('d-utilities')||{value:''}).value);
+
+  var myShare        = (propVal > 0 && ownership > 0) ? propVal * ownership / 100 : 0;
+  var unrealizedGain = (myShare > 0 && invested > 0) ? myShare - invested : 0;
+
+  var annualRev  = revenue * 12;
+  var annualExp  = (opex + hoa + maintenance + utilities) * 12 + taxes + insurance;
+  var annualNoi  = annualRev - annualExp;
+  var capRate    = (propVal > 0 && annualRev > 0) ? (annualNoi / propVal) * 100 : 0;
+
+  var returnText = '--';
+  if (invested > 0 && purchaseDateStr) {
+    var purchaseDate = new Date(purchaseDateStr);
+    var daysElapsed  = Math.max(1, (Date.now() - purchaseDate.getTime()) / 86400000);
+    var yearsElapsed = daysElapsed / 365;
+    // Total return = unrealized appreciation + NOI received over hold period
+    var totalReturn  = unrealizedGain + (annualNoi > 0 ? annualNoi * yearsElapsed : 0);
+    if (yearsElapsed > 0) {
+      returnText = ((totalReturn / invested / yearsElapsed) * 100).toFixed(1) + '%';
+    }
+  }
+
+  var gainColor = unrealizedGain >= 0 ? '#4ade80' : '#f87171';
+  var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+  var setColor = function(id, c) { var el = document.getElementById(id); if (el) el.style.color = c; };
+  set('d-re-prop-val-display', propVal  > 0 ? fmtUSD(propVal)   : '--');
+  set('d-re-my-share-display', myShare  > 0 ? fmtUSD(myShare)   : '--');
+  set('d-re-return-display',   returnText);
+  set('d-re-invested-display', invested > 0 ? fmtUSD(invested)  : '--');
+  set('d-re-gain-display',     (myShare > 0 && invested > 0) ? fmtUSD(unrealizedGain) : '--');
+  setColor('d-re-gain-display', gainColor);
+  set('d-re-cap-rate-display', capRate  > 0 ? capRate.toFixed(1) + '%' : '--');
+  set('re-annual-rev', annualRev > 0 ? fmtUSD(annualRev) : '--');
+  set('re-annual-exp', annualExp > 0 ? fmtUSD(annualExp) : '--');
+  set('re-annual-noi', annualRev > 0 ? fmtUSD(annualNoi) : '--');
+  var noiEl = document.getElementById('re-noi-summary');
+  if (noiEl) noiEl.textContent = annualRev > 0 ? 'NOI: ' + fmtUSD(annualNoi) + '/yr' : '';
+
+  // Auto-sync My Share USD to header value field
+  var localEl = document.getElementById('da-local');
+  if (localEl && myShare > 0) localEl.value = fmtAcct(myShare);
 }
 
 // -- Liabilities Table & Modal ---------------------------------------------
