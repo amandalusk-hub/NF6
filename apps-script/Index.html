@@ -653,18 +653,22 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
         <!-- Summary banner -->
         <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:14px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
             <div style="text-align:center">
               <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Original Loan</div>
               <div id="d-loan-orig-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
             <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Received</div>
-              <div id="d-loan-recv-display" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Outstanding</div>
+              <div id="d-loan-outstanding" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
             <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Outstanding</div>
-              <div id="d-loan-outstanding" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Received</div>
+              <div id="d-loan-principal-recv" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Earned</div>
+              <div id="d-loan-interest-earned" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
             </div>
           </div>
         </div>
@@ -707,8 +711,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <span style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px">Payment Log</span>
             <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="addLoanPaymentRow()">+ Add Payment</button>
           </div>
-          <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 130px 1fr 26px;gap:4px">
-            <span>Date</span><span>Amount</span><span>Notes</span><span></span>
+          <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px">
+            <span>Date</span><span>Principal</span><span>Interest</span><span>Notes</span><span></span>
           </div>
           <div id="d-loan-payments-list"></div>
         </div>
@@ -1917,8 +1921,10 @@ function renderMNWList(){
           // Borrower + payment summary sub-label (loans only)
           if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
           if(a.Category==='Loans Receivable' && det.loanPayments && det.loanPayments.length){
-            const totalPaid=det.loanPayments.reduce(function(s,p){return s+(p.amount||0);},0);
-            if(totalPaid>0) parts.push(fmtUSD(totalPaid)+' received');
+            const totalPrincipal=det.loanPayments.reduce(function(s,p){return s+(p.principal||p.amount||0);},0);
+            const totalInterest=det.loanPayments.reduce(function(s,p){return s+(p.interest||0);},0);
+            if(totalPrincipal>0) parts.push(fmtUSD(totalPrincipal)+' principal');
+            if(totalInterest>0)  parts.push(fmtUSD(totalInterest)+' interest');
           }
           // PE sub-labels: rate only (value already shown on right)
           if(a.Category==='Private Equity'){
@@ -2516,7 +2522,7 @@ function openAssetDetail(id){
   sv('d-loan-notes',       det.loanNotes||'');
   // Payment log
   document.getElementById('d-loan-payments-list').innerHTML='';
-  (det.loanPayments||[]).forEach(function(p){ addLoanPaymentRow(p.date, p.amount, p.notes); });
+  (det.loanPayments||[]).forEach(function(p){ addLoanPaymentRow(p.date, p.principal, p.interest, p.notes); });
   recalcLoan();
 
   // Asset-specific history -- loaded lazily from server
@@ -2609,11 +2615,12 @@ function saveAssetDetails(){
     loanNotes:       gv('d-loan-notes'),
     loanPayments: Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-row')).map(function(row){
       return {
-        date:   row.querySelector('.loan-pmt-date').value,
-        amount: parseAcct(row.querySelector('.loan-pmt-amount').value),
-        notes:  row.querySelector('.loan-pmt-notes').value.trim()
+        date:      row.querySelector('.loan-pmt-date').value,
+        principal: parseAcct(row.querySelector('.loan-pmt-principal').value),
+        interest:  parseAcct(row.querySelector('.loan-pmt-interest').value),
+        notes:     row.querySelector('.loan-pmt-notes').value.trim()
       };
-    }).filter(function(p){ return p.amount > 0 || p.date; }),
+    }).filter(function(p){ return p.principal > 0 || p.interest > 0 || p.date; }),
     // Cash fields
     cashBank:        gv('d-cash-bank'),
     cashAcctType:    gv('d-cash-acct-type'),
@@ -2947,35 +2954,43 @@ function recalcPE() {
 }
 
 // -- Loans Receivable Payment Log ------------------------------------------
-function addLoanPaymentRow(date, amount, notes) {
+function addLoanPaymentRow(date, principal, interest, notes) {
   var list = document.getElementById('d-loan-payments-list');
   var row  = document.createElement('div');
   row.className = 'loan-pmt-row';
-  row.style.cssText = 'display:grid;grid-template-columns:130px 130px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
+  row.style.cssText = 'display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
   row.innerHTML =
     '<input type="date" class="loan-pmt-date" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
-    '<input type="text" class="loan-pmt-amount" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
-    '<input type="text" class="loan-pmt-notes" placeholder="Notes (e.g. monthly payment, interest only)" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
+    '<input type="text" class="loan-pmt-principal" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
+    '<input type="text" class="loan-pmt-interest" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
+    '<input type="text" class="loan-pmt-notes" placeholder="Notes" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
     '<button type="button" onclick="this.closest(\'.loan-pmt-row\').remove();recalcLoan()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
   list.appendChild(row);
-  var amtEl = row.querySelector('.loan-pmt-amount');
-  amtEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcLoan); });
-  amtEl.addEventListener('focus', function(){ onAcctFocus(this); });
-  if (date)   row.querySelector('.loan-pmt-date').value   = date;
-  if (amount) amtEl.value = fmtAcct(amount);
-  if (notes)  row.querySelector('.loan-pmt-notes').value  = notes;
+  var prinEl = row.querySelector('.loan-pmt-principal');
+  var intEl  = row.querySelector('.loan-pmt-interest');
+  prinEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcLoan); });
+  prinEl.addEventListener('focus', function(){ onAcctFocus(this); });
+  intEl.addEventListener('blur',   function(){ onAcctBlur(this, recalcLoan); });
+  intEl.addEventListener('focus',  function(){ onAcctFocus(this); });
+  if (date)      row.querySelector('.loan-pmt-date').value  = date;
+  if (principal) prinEl.value = fmtAcct(principal);
+  if (interest)  intEl.value  = fmtAcct(interest);
+  if (notes)     row.querySelector('.loan-pmt-notes').value = notes;
 }
 
 function recalcLoan() {
-  var original    = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
-  var totalRecvd  = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-amount'))
-                    .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
-  var outstanding = Math.max(0, original - totalRecvd);
+  var original       = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
+  var totalPrincipal = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-principal'))
+                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var totalInterest  = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-interest'))
+                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var outstanding    = Math.max(0, original - totalPrincipal);
   var set = function(id, v) { var el=document.getElementById(id); if(el) el.textContent=v; };
-  set('d-loan-orig-display',  original   > 0 ? fmtUSD(original)   : '--');
-  set('d-loan-recv-display',  totalRecvd > 0 ? fmtUSD(totalRecvd) : '--');
-  set('d-loan-outstanding',   original   > 0 ? fmtUSD(outstanding) : '--');
-  // Auto-update the Value field at the top so dashboard reflects current balance
+  set('d-loan-orig-display',    original       > 0 ? fmtUSD(original)       : '--');
+  set('d-loan-outstanding',     original       > 0 ? fmtUSD(outstanding)    : '--');
+  set('d-loan-principal-recv',  totalPrincipal > 0 ? fmtUSD(totalPrincipal) : '--');
+  set('d-loan-interest-earned', totalInterest  > 0 ? fmtUSD(totalInterest)  : '--');
+  // Auto-update the Value field at the top so dashboard reflects outstanding principal
   var localEl = document.getElementById('da-local');
   if (localEl && original > 0) localEl.value = fmtAcct(outstanding);
 }
