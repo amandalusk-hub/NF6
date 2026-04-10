@@ -650,28 +650,44 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <!-- Loan Details -- only shown for Loans Receivable -->
       <div class="detail-section" id="d-loan-section" style="display:none">
         <div class="detail-section-title">Loan Details</div>
+
+        <!-- Summary banner -->
+        <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Original Loan</div>
+              <div id="d-loan-orig-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Received</div>
+              <div id="d-loan-recv-display" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Outstanding</div>
+              <div id="d-loan-outstanding" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+            </div>
+          </div>
+        </div>
+
         <div class="form-two">
           <div class="form-row"><label>Borrower Name</label><input type="text" id="d-borrower" placeholder="Full name or company"></div>
           <div class="form-row"><label>Borrower Contact</label><input type="text" id="d-borrower-contact" placeholder="Phone, email"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Original Loan Amount</label><input type="text" id="d-loan-original" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Current Balance Owed</label><input type="text" id="d-loan-balance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Original Loan Amount</label><input type="text" id="d-loan-original" placeholder="$0" onblur="onAcctBlur(this,recalcLoan)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Interest Rate</label><input type="text" id="d-loan-rate" placeholder="e.g. 5%, 8% annual"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Interest Rate</label><input type="text" id="d-loan-rate" placeholder="e.g. 5%, 8% annual"></div>
+          <div class="form-row"><label>Loan Date</label><input type="date" id="d-loan-date"></div>
+          <div class="form-row"><label>Due / Maturity Date</label><input type="date" id="d-loan-due"></div>
+        </div>
+        <div class="form-two">
           <div class="form-row"><label>Status</label>
             <select id="d-loan-status">
               <option value="">--</option>
               <option>Active</option><option>Late</option><option>Paid Off</option><option>Default</option><option>Refinanced</option>
             </select>
           </div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Loan Date</label><input type="date" id="d-loan-date"></div>
-          <div class="form-row"><label>Due / Maturity Date</label><input type="date" id="d-loan-due" placeholder="When is it due back?"></div>
-        </div>
-        <div class="form-two">
           <div class="form-row"><label>Payment Terms</label>
             <select id="d-loan-terms">
               <option value="">--</option>
@@ -679,13 +695,25 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
               <option>Annual</option><option>Lump Sum at Maturity</option><option>Interest Only</option><option>Other</option>
             </select>
           </div>
-          <div class="form-row"><label>Payment Amount</label><input type="text" id="d-loan-payment" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
         <div class="form-two">
-          <div class="form-row"><label>Total Received to Date</label><input type="text" id="d-loan-received" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          <div class="form-row"><label>Expected Payment Amount</label><input type="text" id="d-loan-payment" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           <div class="form-row"><label>Collateral</label><input type="text" id="d-loan-collateral" placeholder="e.g. Real estate, equity stake"></div>
         </div>
-        <div class="form-row"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
+
+        <!-- Payment Log -->
+        <div style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px">Payment Log</span>
+            <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="addLoanPaymentRow()">+ Add Payment</button>
+          </div>
+          <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 130px 1fr 26px;gap:4px">
+            <span>Date</span><span>Amount</span><span>Notes</span><span></span>
+          </div>
+          <div id="d-loan-payments-list"></div>
+        </div>
+
+        <div class="form-row" style="margin-top:14px"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
         <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-loan-attorney" placeholder="Name, firm, contact"></div>
         <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history..."></textarea></div>
       </div>
@@ -1886,8 +1914,12 @@ function renderMNWList(){
           let det={};
           try{det=JSON.parse(a.Details||'{}');}catch(e){}
           const parts=[];
-          // Borrower sub-label (loans only)
+          // Borrower + payment summary sub-label (loans only)
           if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
+          if(a.Category==='Loans Receivable' && det.loanPayments && det.loanPayments.length){
+            const totalPaid=det.loanPayments.reduce(function(s,p){return s+(p.amount||0);},0);
+            if(totalPaid>0) parts.push(fmtUSD(totalPaid)+' received');
+          }
           // PE sub-labels: rate only (value already shown on right)
           if(a.Category==='Private Equity'){
             if(det.peRate) parts.push(esc(det.peRate));
@@ -2472,18 +2504,20 @@ function openAssetDetail(id){
   sv('d-borrower',         det.borrower||'');
   sv('d-borrower-contact', det.borrowerContact||'');
   sv('d-loan-original',    det.loanOriginal ? fmtAcct(det.loanOriginal) : '');
-  sv('d-loan-balance',     det.loanBalance  ? fmtAcct(det.loanBalance)  : '');
   sv('d-loan-rate',        det.loanRate||'');
   sv('d-loan-status',      det.loanStatus||'');
   sv('d-loan-date',        det.loanDate||'');
   sv('d-loan-due',         det.loanDue||'');
   sv('d-loan-terms',       det.loanTerms||'');
   sv('d-loan-payment',     det.loanPayment  ? fmtAcct(det.loanPayment)  : '');
-  sv('d-loan-received',    det.loanReceived ? fmtAcct(det.loanReceived) : '');
   sv('d-loan-collateral',  det.loanCollateral||'');
   sv('d-loan-drive',       det.loanDrive||'');
   sv('d-loan-attorney',    det.loanAttorney||'');
   sv('d-loan-notes',       det.loanNotes||'');
+  // Payment log
+  document.getElementById('d-loan-payments-list').innerHTML='';
+  (det.loanPayments||[]).forEach(function(p){ addLoanPaymentRow(p.date, p.amount, p.notes); });
+  recalcLoan();
 
   // Asset-specific history -- loaded lazily from server
   const hDiv=document.getElementById('detail-history');
@@ -2563,18 +2597,23 @@ function saveAssetDetails(){
     borrower:        gv('d-borrower'),
     borrowerContact: gv('d-borrower-contact'),
     loanOriginal:    gv('d-loan-original'),
-    loanBalance:     gv('d-loan-balance'),
     loanRate:        gv('d-loan-rate'),
     loanStatus:      gv('d-loan-status'),
     loanDate:        gv('d-loan-date'),
     loanDue:         gv('d-loan-due'),
     loanTerms:       gv('d-loan-terms'),
     loanPayment:     gv('d-loan-payment'),
-    loanReceived:    gv('d-loan-received'),
     loanCollateral:  gv('d-loan-collateral'),
     loanDrive:       gv('d-loan-drive'),
     loanAttorney:    gv('d-loan-attorney'),
     loanNotes:       gv('d-loan-notes'),
+    loanPayments: Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-row')).map(function(row){
+      return {
+        date:   row.querySelector('.loan-pmt-date').value,
+        amount: parseAcct(row.querySelector('.loan-pmt-amount').value),
+        notes:  row.querySelector('.loan-pmt-notes').value.trim()
+      };
+    }).filter(function(p){ return p.amount > 0 || p.date; }),
     // Cash fields
     cashBank:        gv('d-cash-bank'),
     cashAcctType:    gv('d-cash-acct-type'),
@@ -2905,6 +2944,40 @@ function recalcPE() {
   if(dEl) dEl.textContent = dists>0 ? fmtUSD(dists)+' received' : '';
   const kEl=document.getElementById('pe-k1-total');
   if(kEl) kEl.textContent = k1Net!==0 ? (k1Net>=0?'+':'')+fmtUSD(k1Net)+' net K1' : '';
+}
+
+// -- Loans Receivable Payment Log ------------------------------------------
+function addLoanPaymentRow(date, amount, notes) {
+  var list = document.getElementById('d-loan-payments-list');
+  var row  = document.createElement('div');
+  row.className = 'loan-pmt-row';
+  row.style.cssText = 'display:grid;grid-template-columns:130px 130px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
+  row.innerHTML =
+    '<input type="date" class="loan-pmt-date" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
+    '<input type="text" class="loan-pmt-amount" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
+    '<input type="text" class="loan-pmt-notes" placeholder="Notes (e.g. monthly payment, interest only)" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
+    '<button type="button" onclick="this.closest(\'.loan-pmt-row\').remove();recalcLoan()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
+  list.appendChild(row);
+  var amtEl = row.querySelector('.loan-pmt-amount');
+  amtEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcLoan); });
+  amtEl.addEventListener('focus', function(){ onAcctFocus(this); });
+  if (date)   row.querySelector('.loan-pmt-date').value   = date;
+  if (amount) amtEl.value = fmtAcct(amount);
+  if (notes)  row.querySelector('.loan-pmt-notes').value  = notes;
+}
+
+function recalcLoan() {
+  var original    = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
+  var totalRecvd  = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-amount'))
+                    .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var outstanding = Math.max(0, original - totalRecvd);
+  var set = function(id, v) { var el=document.getElementById(id); if(el) el.textContent=v; };
+  set('d-loan-orig-display',  original   > 0 ? fmtUSD(original)   : '--');
+  set('d-loan-recv-display',  totalRecvd > 0 ? fmtUSD(totalRecvd) : '--');
+  set('d-loan-outstanding',   original   > 0 ? fmtUSD(outstanding) : '--');
+  // Auto-update the Value field at the top so dashboard reflects current balance
+  var localEl = document.getElementById('da-local');
+  if (localEl && original > 0) localEl.value = fmtAcct(outstanding);
 }
 
 // -- Liabilities Table & Modal ---------------------------------------------
