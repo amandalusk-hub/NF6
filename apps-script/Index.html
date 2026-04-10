@@ -597,7 +597,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div class="form-row"><label>Google Drive Folder</label>
             <div style="display:flex;gap:6px;align-items:center">
               <input type="text" id="d-folder" placeholder="Paste Drive link here" style="flex:1" oninput="updateDriveLink('d-folder','d-folder-link')">
-              <a id="d-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open Open</a>
+              <a id="d-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
             </div>
           </div>
         </div>
@@ -653,22 +653,26 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
         <!-- Summary banner -->
         <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:14px">
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:10px">
             <div style="text-align:center">
               <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Original Loan</div>
-              <div id="d-loan-orig-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div id="d-loan-orig-display" style="font-size:14px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
             <div style="text-align:center">
               <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Outstanding</div>
-              <div id="d-loan-outstanding" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+              <div id="d-loan-outstanding" style="font-size:14px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
             </div>
             <div style="text-align:center">
               <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Principal Received</div>
-              <div id="d-loan-principal-recv" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+              <div id="d-loan-principal-recv" style="font-size:14px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
             </div>
             <div style="text-align:center">
-              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Earned</div>
-              <div id="d-loan-interest-earned" style="font-size:15px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Received</div>
+              <div id="d-loan-interest-earned" style="font-size:14px;font-weight:700;color:#4ade80;margin-top:3px">--</div>
+            </div>
+            <div style="text-align:center">
+              <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Interest Outstanding</div>
+              <div id="d-loan-interest-outstanding" style="font-size:14px;font-weight:700;color:#facc15;margin-top:3px">--</div>
             </div>
           </div>
         </div>
@@ -717,7 +721,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <div id="d-loan-payments-list"></div>
         </div>
 
-        <div class="form-row" style="margin-top:14px"><label>Google Drive Link (Loan Docs)</label><input type="text" id="d-loan-drive" placeholder="Paste Google Drive folder or doc link"></div>
+        <div class="form-row" style="margin-top:14px"><label>Total Interest Accrued</label><input type="text" id="d-loan-interest-accrued" placeholder="$0" onblur="onAcctBlur(this,recalcLoan)" onfocus="onAcctFocus(this)"><span style="font-size:11px;color:#8ab;margin-top:3px;display:block">Total interest owed to date (used to calculate Interest Outstanding)</span></div>
         <div class="form-row"><label>Attorney / Legal</label><input type="text" id="d-loan-attorney" placeholder="Name, firm, contact"></div>
         <div class="form-row"><label>Notes</label><textarea id="d-loan-notes" placeholder="Any additional terms, conditions, history..."></textarea></div>
       </div>
@@ -2516,9 +2520,9 @@ function openAssetDetail(id){
   sv('d-loan-due',         det.loanDue||'');
   sv('d-loan-terms',       det.loanTerms||'');
   sv('d-loan-payment',     det.loanPayment  ? fmtAcct(det.loanPayment)  : '');
-  sv('d-loan-collateral',  det.loanCollateral||'');
-  sv('d-loan-drive',       det.loanDrive||'');
-  sv('d-loan-attorney',    det.loanAttorney||'');
+  sv('d-loan-collateral',       det.loanCollateral||'');
+  sv('d-loan-interest-accrued', det.loanInterestAccrued ? fmtAcct(det.loanInterestAccrued) : '');
+  sv('d-loan-attorney',         det.loanAttorney||'');
   sv('d-loan-notes',       det.loanNotes||'');
   // Payment log
   document.getElementById('d-loan-payments-list').innerHTML='';
@@ -2609,9 +2613,9 @@ function saveAssetDetails(){
     loanDue:         gv('d-loan-due'),
     loanTerms:       gv('d-loan-terms'),
     loanPayment:     gv('d-loan-payment'),
-    loanCollateral:  gv('d-loan-collateral'),
-    loanDrive:       gv('d-loan-drive'),
-    loanAttorney:    gv('d-loan-attorney'),
+    loanCollateral:      gv('d-loan-collateral'),
+    loanInterestAccrued: parseAcct((document.getElementById('d-loan-interest-accrued')||{value:''}).value) || undefined,
+    loanAttorney:        gv('d-loan-attorney'),
     loanNotes:       gv('d-loan-notes'),
     loanPayments: Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-row')).map(function(row){
       return {
@@ -2979,17 +2983,20 @@ function addLoanPaymentRow(date, principal, interest, notes) {
 }
 
 function recalcLoan() {
-  var original       = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
-  var totalPrincipal = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-principal'))
-                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
-  var totalInterest  = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-interest'))
-                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
-  var outstanding    = Math.max(0, original - totalPrincipal);
+  var original         = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
+  var interestAccrued  = parseAcct((document.getElementById('d-loan-interest-accrued')||{value:''}).value);
+  var totalPrincipal   = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-principal'))
+                         .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var totalInterest    = Array.from(document.querySelectorAll('#d-loan-payments-list .loan-pmt-interest'))
+                         .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var outstanding         = Math.max(0, original - totalPrincipal);
+  var interestOutstanding = Math.max(0, interestAccrued - totalInterest);
   var set = function(id, v) { var el=document.getElementById(id); if(el) el.textContent=v; };
-  set('d-loan-orig-display',    original       > 0 ? fmtUSD(original)       : '--');
-  set('d-loan-outstanding',     original       > 0 ? fmtUSD(outstanding)    : '--');
-  set('d-loan-principal-recv',  totalPrincipal > 0 ? fmtUSD(totalPrincipal) : '--');
-  set('d-loan-interest-earned', totalInterest  > 0 ? fmtUSD(totalInterest)  : '--');
+  set('d-loan-orig-display',        original            > 0 ? fmtUSD(original)            : '--');
+  set('d-loan-outstanding',         original            > 0 ? fmtUSD(outstanding)         : '--');
+  set('d-loan-principal-recv',      totalPrincipal      > 0 ? fmtUSD(totalPrincipal)      : '--');
+  set('d-loan-interest-earned',     totalInterest       > 0 ? fmtUSD(totalInterest)       : '--');
+  set('d-loan-interest-outstanding', interestAccrued    > 0 ? fmtUSD(interestOutstanding) : '--');
   // Auto-update the Value field at the top so dashboard reflects outstanding principal
   var localEl = document.getElementById('da-local');
   if (localEl && original > 0) localEl.value = fmtAcct(outstanding);
