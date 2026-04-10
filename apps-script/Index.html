@@ -2579,7 +2579,11 @@ function openAssetDetail(id){
   sv('d-loan-notes',       det.loanNotes||'');
   // Payment log
   document.getElementById('d-loan-payments-list').innerHTML='';
-  (det.loanPayments||[]).forEach(function(p){ addLoanPaymentRow(p.date, p.principal, p.interest, p.notes); });
+  // Backwards-compat: old saves used a single 'amount' field; new split into principal + interest
+  (det.loanPayments||[]).forEach(function(p){
+    var prin = (p.principal !== undefined) ? p.principal : (p.amount || 0);
+    addLoanPaymentRow(p.date, prin, p.interest, p.notes);
+  });
   recalcLoan();
 
   // Asset-specific history -- loaded lazily from server
@@ -2613,7 +2617,9 @@ function openAssetDetail(id){
     })
     .withFailureHandler(function(){ hDiv.innerHTML='<p style="color:#c5221f;font-size:13px">Could not load history.</p>'; })
     .getAssetHistory(asset.Name);
+  _loadingDetail=true;
   openModal('detail-modal');
+  setTimeout(function(){ _loadingDetail=false; }, 500);
 }
 
 function saveAssetDetails(keepOpen){
@@ -3199,7 +3205,9 @@ function openLiabDetail(id){
   sv('ld-contacts',   det.contacts||'');
   sv('ld-notes',      det.notes||'');
   recalcLiab();
+  _loadingDetail=true;
   openModal('liab-detail-modal');
+  setTimeout(function(){ _loadingDetail=false; }, 500);
 }
 
 function saveLiabilityDetails(keepOpen){
@@ -3391,12 +3399,14 @@ document.addEventListener('click',e=>{
 });
 
 // -- Auto-save (debounced) -------------------------------------------------
-var _assetAutoSave=null, _liabAutoSave=null;
+var _assetAutoSave=null, _liabAutoSave=null, _loadingDetail=false;
 function scheduleAssetAutoSave(){
+  if(_loadingDetail) return;
   clearTimeout(_assetAutoSave);
   _assetAutoSave=setTimeout(function(){ saveAssetDetails(true); }, 3000);
 }
 function scheduleLiabAutoSave(){
+  if(_loadingDetail) return;
   clearTimeout(_liabAutoSave);
   _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 3000);
 }
