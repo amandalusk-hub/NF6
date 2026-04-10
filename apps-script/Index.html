@@ -569,12 +569,13 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <!-- Value row (always shown; label adapts to category) -->
         <div id="da-value-row" style="display:none;margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
-            <span id="da-local-label">Current Value</span>
+            <span id="da-local-label">Mike's Value</span>
             <input type="text" id="da-local" placeholder="$0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview()" onfocus="onAcctFocus(this)">
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-share-label">Ownership %</span>
             <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
+          </div>
         </div>
       </div>
       <button class="modal-close" onclick="closeModal('detail-modal')" style="margin-left:8px;flex-shrink:0">x</button>
