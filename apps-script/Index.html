@@ -2837,6 +2837,8 @@ function toggleContactDesc(sel) {
 function openAssetDetail(id){
   const asset=state.assets.find(a=>a.ID==id);
   if(!asset)return;
+  // Cancel any pending auto-save from a previously-open asset before we overwrite the form
+  clearTimeout(_assetAutoSave);
   state._detailId=id;
   document.getElementById('detail-id').value=id;
   // Populate header core fields
@@ -3081,13 +3083,13 @@ function saveAssetDetails(keepOpen){
     // Loan receivable fields
     borrower:        gv('d-borrower'),
     borrowerContact: gv('d-borrower-contact'),
-    loanOriginal:    gv('d-loan-original'),
+    loanOriginal:    parseAcct(gv('d-loan-original')) || undefined,
     loanRate:        gv('d-loan-rate'),
     loanStatus:      gv('d-loan-status'),
     loanDate:        gv('d-loan-date'),
     loanDue:         gv('d-loan-due'),
     loanTerms:       gv('d-loan-terms'),
-    loanPayment:     gv('d-loan-payment'),
+    loanPayment:     parseAcct(gv('d-loan-payment')) || undefined,
     loanCollateral:      gv('d-loan-collateral'),
     loanInterestAccrued: parseAcct((document.getElementById('d-loan-interest-accrued')||{value:''}).value) || undefined,
     loanAttorney:        gv('d-loan-attorney'),
@@ -3169,7 +3171,10 @@ function saveAssetDetails(keepOpen){
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
   // For RE, use d-re-ownership if filled (it's more prominent); fall back to da-share
-  var _reOwn  = parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0;
+  // IMPORTANT: only read d-re-ownership when category is actually Real Estate — the field
+  // persists in the DOM and would corrupt ownershipPct for loans / PE / other categories.
+  var _isRE   = _daCat.startsWith('Real Estate');
+  var _reOwn  = _isRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
   var _daShr  = _reOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   // Value IS the direct holding value — ownership % is informational only, never multiplied
