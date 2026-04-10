@@ -1110,68 +1110,117 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="modal-body" oninput="scheduleLiabAutoSave()" onchange="scheduleLiabAutoSave()">
       <input type="hidden" id="ld-id">
 
-      <div class="detail-section">
-        <div class="detail-section-title">Loan Information</div>
-        <div class="form-two">
-          <div class="form-row"><label>Bank / Lender</label><input type="text" id="ld-bank" placeholder="e.g. Chase, Oriental Bank, BTG Pactual"></div>
-          <div class="form-row"><label>Loan / Account Number</label><input type="text" id="ld-account" placeholder="e.g. xxxx1234"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Interest Rate</label><input type="text" id="ld-rate" placeholder="e.g. 6.5% fixed, 5.88% ARM"></div>
-          <div class="form-row"><label>Loan Type</label>
-            <select id="ld-loan-type">
-              <option value="">--</option>
-              <option>Fixed Rate</option><option>Adjustable Rate (ARM)</option>
-              <option>Interest Only</option><option>Balloon</option><option>Line of Credit</option><option>Other</option>
-            </select>
+      <!-- Summary banner -->
+      <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+          <div style="text-align:center">
+            <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Monthly Payment</div>
+            <div id="ld-monthly-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Current Balance</div>
+            <div id="ld-balance-display" style="font-size:15px;font-weight:700;color:#facc15;margin-top:3px">--</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Original Loan</div>
+            <div id="ld-original-display" style="font-size:15px;font-weight:700;color:#e0e8f0;margin-top:3px">--</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:10px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Interest Rate</div>
+            <div id="ld-rate-display" style="font-size:15px;font-weight:700;color:#a78bfa;margin-top:3px">--</div>
           </div>
         </div>
-        <div class="form-two">
-          <div class="form-row"><label>Original Loan Amount</label><input type="text" id="ld-original" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Current Balance</label><input type="text" id="ld-balance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+      </div>
+
+      <!-- Loan Information (open by default) -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-loan-body')">
+          <span>Loan Information</span>
+          <span class="pe-block-chevron">-</span>
         </div>
-        <div class="form-two">
-          <div class="form-row"><label>Start Date</label><input type="date" id="ld-start-date"></div>
-          <div class="form-row"><label>Maturity / Payoff Date</label><input type="date" id="ld-maturity"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Term</label><input type="text" id="ld-term" placeholder="e.g. 30 years, 15 years, 5/1 ARM"></div>
-          <div class="form-row"><label>Remaining Term</label><input type="text" id="ld-remaining" placeholder="e.g. 22 years 4 months"></div>
+        <div class="pe-block-body" id="ld-loan-body">
+          <div class="form-two">
+            <div class="form-row"><label>Bank / Lender</label><input type="text" id="ld-bank" placeholder="e.g. Chase, Oriental Bank, BTG Pactual"></div>
+            <div class="form-row"><label>Loan / Account Number</label><input type="text" id="ld-account" placeholder="e.g. xxxx1234"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Interest Rate</label><input type="text" id="ld-rate" placeholder="e.g. 6.5% fixed, 5.88% ARM" oninput="recalcLiab()"></div>
+            <div class="form-row"><label>Loan Type</label>
+              <select id="ld-loan-type">
+                <option value="">--</option>
+                <option>Fixed Rate</option><option>Adjustable Rate (ARM)</option>
+                <option>Interest Only</option><option>Balloon</option><option>Line of Credit</option><option>Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Original Loan Amount</label><input type="text" id="ld-original" placeholder="$0" onblur="onAcctBlur(this,recalcLiab)" onfocus="onAcctFocus(this)"></div>
+            <div class="form-row"><label>Current Balance</label><input type="text" id="ld-balance" placeholder="$0" onblur="onAcctBlur(this,recalcLiab)" onfocus="onAcctFocus(this)"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Start Date</label><input type="date" id="ld-start-date"></div>
+            <div class="form-row"><label>Maturity / Payoff Date</label><input type="date" id="ld-maturity"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Term</label><input type="text" id="ld-term" placeholder="e.g. 30 years, 15 years, 5/1 ARM"></div>
+            <div class="form-row"><label>Remaining Term</label><input type="text" id="ld-remaining" placeholder="e.g. 22 years 4 months"></div>
+          </div>
         </div>
       </div>
 
-      <div class="detail-section">
-        <div class="detail-section-title">Monthly Payment Breakdown</div>
-        <div class="form-two">
-          <div class="form-row"><label>Total Monthly Payment</label><input type="text" id="ld-payment" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Principal Portion</label><input type="text" id="ld-principal" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+      <!-- Monthly Payment Breakdown (open by default) -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-payment-body')">
+          <span>Monthly Payment Breakdown</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span id="ld-payment-summary" style="font-size:12px;color:#8ab;font-weight:400"></span>
+            <span class="pe-block-chevron">-</span>
+          </div>
         </div>
-        <div class="form-two">
-          <div class="form-row"><label>Interest Portion</label><input type="text" id="ld-interest-pmt" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Escrow (Taxes + Insurance)</label><input type="text" id="ld-escrow" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Property Tax / Year</label><input type="text" id="ld-tax" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-          <div class="form-row"><label>Insurance / Year</label><input type="text" id="ld-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-        </div>
-        <div class="form-row"><label>HOA / Month</label><input type="text" id="ld-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
-      </div>
-
-      <div class="detail-section">
-        <div class="detail-section-title">Key Contacts</div>
-        <div class="form-two">
-          <div class="form-row"><label>Loan Officer</label><input type="text" id="ld-officer" placeholder="Name, phone, email"></div>
-          <div class="form-row"><label>Attorney / Title</label><input type="text" id="ld-attorney" placeholder="Name, firm"></div>
-        </div>
-        <div class="form-two">
-          <div class="form-row"><label>Insurance Agent</label><input type="text" id="ld-ins-agent" placeholder="Name, firm"></div>
-          <div class="form-row"><label>Other Contacts</label><input type="text" id="ld-contacts" placeholder="Any other key contacts"></div>
+        <div class="pe-block-body" id="ld-payment-body">
+          <div class="form-two">
+            <div class="form-row"><label>Total Monthly Payment</label><input type="text" id="ld-payment" placeholder="$0" onblur="onAcctBlur(this,recalcLiab)" onfocus="onAcctFocus(this)"></div>
+            <div class="form-row"><label>Principal Portion</label><input type="text" id="ld-principal" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Interest Portion</label><input type="text" id="ld-interest-pmt" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+            <div class="form-row"><label>Escrow (Taxes + Insurance)</label><input type="text" id="ld-escrow" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Property Tax / Year</label><input type="text" id="ld-tax" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+            <div class="form-row"><label>Insurance / Year</label><input type="text" id="ld-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+          </div>
+          <div class="form-row"><label>HOA / Month</label><input type="text" id="ld-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
         </div>
       </div>
 
-      <div class="detail-section">
-        <div class="detail-section-title">Additional Notes</div>
-        <div class="form-row"><textarea id="ld-notes" placeholder="Refinance plans, special terms, prepayment penalties, etc." style="min-height:80px"></textarea></div>
+      <!-- Key Contacts (collapsed) -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-contacts-body')">
+          <span>Key Contacts</span>
+          <span class="pe-block-chevron">+</span>
+        </div>
+        <div class="pe-block-body" id="ld-contacts-body" style="display:none">
+          <div class="form-two">
+            <div class="form-row"><label>Loan Officer</label><input type="text" id="ld-officer" placeholder="Name, phone, email"></div>
+            <div class="form-row"><label>Attorney / Title</label><input type="text" id="ld-attorney" placeholder="Name, firm"></div>
+          </div>
+          <div class="form-two">
+            <div class="form-row"><label>Insurance Agent</label><input type="text" id="ld-ins-agent" placeholder="Name, firm"></div>
+            <div class="form-row"><label>Other Contacts</label><input type="text" id="ld-contacts" placeholder="Any other key contacts"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes (collapsed) -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-notes-body')">
+          <span>Notes</span>
+          <span class="pe-block-chevron">+</span>
+        </div>
+        <div class="pe-block-body" id="ld-notes-body" style="display:none">
+          <div class="form-row"><textarea id="ld-notes" placeholder="Refinance plans, special terms, prepayment penalties, etc." style="min-height:80px"></textarea></div>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -2843,7 +2892,7 @@ function addPEDistRow(date, amount, notes) {
   if (notes)  row.querySelector('.pe-dist-notes').value  = notes;
   recalcPE();
 }
-function togglePEBlock(bodyId) {
+function toggleBlock(bodyId) {
   const body = document.getElementById(bodyId);
   if (!body) return;
   const open = body.style.display !== 'none';
@@ -2851,6 +2900,22 @@ function togglePEBlock(bodyId) {
   const hdr = body.previousElementSibling;
   const chev = hdr && hdr.querySelector('.pe-block-chevron');
   if (chev) chev.textContent = open ? '+' : '-';
+}
+function togglePEBlock(bodyId) { toggleBlock(bodyId); }
+
+// -- Liability summary banner ----------------------------------------------
+function recalcLiab() {
+  var payment  = parseAcct((document.getElementById('ld-payment') ||{value:''}).value);
+  var balance  = parseAcct((document.getElementById('ld-balance') ||{value:''}).value);
+  var original = parseAcct((document.getElementById('ld-original')||{value:''}).value);
+  var rate     = ((document.getElementById('ld-rate')||{}).value||'').trim();
+  var set = function(id,v){var el=document.getElementById(id);if(el)el.textContent=v;};
+  set('ld-monthly-display',  payment  > 0 ? fmtUSD(payment)  : '--');
+  set('ld-balance-display',  balance  > 0 ? fmtUSD(balance)  : '--');
+  set('ld-original-display', original > 0 ? fmtUSD(original) : '--');
+  set('ld-rate-display',     rate             || '--');
+  var pSumEl = document.getElementById('ld-payment-summary');
+  if (pSumEl) pSumEl.textContent = payment > 0 ? fmtUSD(payment)+'/mo' : '';
 }
 
 function addPEK1Row(year, pl) {
@@ -3133,6 +3198,7 @@ function openLiabDetail(id){
   sv('ld-ins-agent',  det.insAgent||'');
   sv('ld-contacts',   det.contacts||'');
   sv('ld-notes',      det.notes||'');
+  recalcLiab();
   openModal('liab-detail-modal');
 }
 
