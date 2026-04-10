@@ -1142,9 +1142,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div id="detail-history"></div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="saveAssetDetails()">Close</button>
-      <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
+    <div class="modal-footer" style="justify-content:space-between;align-items:center">
+      <span id="detail-save-status" style="font-size:12px;color:#1e8e3e;display:flex;align-items:center;gap:5px"></span>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" onclick="saveAssetDetails()">Close</button>
+        <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1336,9 +1339,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="saveLiabilityDetails()">Close</button>
-      <button class="btn btn-primary" onclick="saveLiabilityDetails()">Save Details</button>
+    <div class="modal-footer" style="justify-content:space-between;align-items:center">
+      <span id="liab-save-status" style="font-size:12px;color:#1e8e3e;display:flex;align-items:center;gap:5px"></span>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" onclick="saveLiabilityDetails()">Close</button>
+        <button class="btn btn-primary" onclick="saveLiabilityDetails()">Save Details</button>
+      </div>
     </div>
   </div>
 </div>
@@ -3022,6 +3028,7 @@ function openAssetDetail(id){
     .withFailureHandler(function(){ hDiv.innerHTML='<p style="color:#c5221f;font-size:13px">Could not load history.</p>'; })
     .getAssetHistory(asset.Name);
   _loadingDetail=true;
+  _clearSaveStatus('detail-save-status');
   openModal('detail-modal');
   setTimeout(function(){ _loadingDetail=false; }, 1500);
 }
@@ -3187,23 +3194,29 @@ function saveAssetDetails(keepOpen){
     renderDashboard();
   }
   if (!keepOpen) toast('Saving...');
-  // --- Single combined GAS call (was 2 sequential calls before) ---
+  // --- Single combined GAS call ---
   google.script.run
     .withSuccessHandler(function(r){
       if (r && r.success === false) {
         toast(r.error || 'Save failed', 'error');
-        loadData(); // revert optimistic update on error
+        _showSaveError('detail-save-status', r.error);
+        loadData();
       } else {
         if (_stateAsset && r && r.myShareUsd != null) {
           _stateAsset['My Share USD'] = r.myShareUsd;
           _stateAsset['Local Value']  = r.localValue;
         }
-        if (keepOpen) _showAutoSaved('#detail-modal'); else toast('Saved');
+        _showAutoSaved('detail-save-status');
+        if (!keepOpen) toast('Saved');
         renderAssetsTable();
         renderDashboard();
       }
     })
-    .withFailureHandler(function(e){ toast(e.message, 'error'); loadData(); })
+    .withFailureHandler(function(e){
+      toast('Save failed: ' + e.message, 'error');
+      _showSaveError('detail-save-status', e.message);
+      loadData();
+    })
     .saveFullAsset(coreData, id, JSON.stringify(details));
 }
 
@@ -3675,6 +3688,7 @@ function openLiabDetail(id){
   sv('ld-notes',      det.notes||'');
   recalcLiab();
   _loadingDetail=true;
+  _clearSaveStatus('liab-save-status');
   openModal('liab-detail-modal');
   setTimeout(function(){ _loadingDetail=false; }, 1500);
 }
@@ -3724,18 +3738,26 @@ function saveLiabilityDetails(keepOpen){
   if (!keepOpen) toast('Saving...');
   google.script.run
     .withSuccessHandler(r=>{
-      if(r&&r.success===false){toast(r.error||'Save failed','error');loadData();}
-      else{
+      if(r&&r.success===false){
+        toast(r.error||'Save failed','error');
+        _showSaveError('liab-save-status', r.error);
+        loadData();
+      } else {
         if (r && r.balance > 0 && _liab) {
           _liab.Amount = r.balance;
           _liab['USD Value'] = r.balance;
           renderDashboard();
           renderLiabilitiesTable();
         }
-        if (keepOpen) _showAutoSaved('#liab-detail-modal'); else toast('Saved');
+        _showAutoSaved('liab-save-status');
+        if (!keepOpen) toast('Saved');
       }
     })
-    .withFailureHandler(e=>{toast(e.message,'error');loadData();})
+    .withFailureHandler(e=>{
+      toast('Save failed: '+e.message,'error');
+      _showSaveError('liab-save-status', e.message);
+      loadData();
+    })
     .saveLiabilityDetails(id,JSON.stringify(details));
 }
 
@@ -3886,12 +3908,24 @@ function scheduleLiabAutoSave(){
   clearTimeout(_liabAutoSave);
   _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 3000);
 }
-function _showAutoSaved(modalSel){
-  var btn=document.querySelector(modalSel+' .btn-primary');
-  if(!btn)return;
-  var orig=btn.textContent;
-  btn.textContent='✓ Saved';
-  setTimeout(function(){btn.textContent=orig;},1500);
+function _showAutoSaved(statusElId){
+  var el = document.getElementById(statusElId);
+  if (!el) return;
+  var t = new Date();
+  var hh = t.getHours(), mm = t.getMinutes(), ss = t.getSeconds();
+  var ts = (hh%12||12) + ':' + (mm<10?'0':'')+mm + ':' + (ss<10?'0':'')+ss + (hh<12?' AM':' PM');
+  el.innerHTML = '&#10003; Saved at ' + ts;
+  el.style.color = '#1e8e3e';
+}
+function _showSaveError(statusElId, msg){
+  var el = document.getElementById(statusElId);
+  if (!el) return;
+  el.innerHTML = '&#9888; Save failed — ' + (msg||'check connection');
+  el.style.color = '#c5221f';
+}
+function _clearSaveStatus(statusElId){
+  var el = document.getElementById(statusElId);
+  if (el) { el.innerHTML = ''; }
 }
 
 // -- Loading ----------------------------------------------------------------
