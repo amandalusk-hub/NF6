@@ -1912,7 +1912,7 @@ function renderMNWList(){
         aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
           <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}${loanTag}</span>
           <div class="mnw-row-right">
-            <span class="mnw-row-age">${daysSince(a['Last Updated'])}</span>
+            <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
             <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>
           </div>
         </div>`;
@@ -1949,7 +1949,7 @@ function renderMNWList(){
         lHtml+=`<div class="mnw-row" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
           <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${l.Location?`<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>`:''}</span>
           <div class="mnw-row-right">
-            <span class="mnw-row-age">${daysSince(l['Last Updated'])}</span>
+            <span class="mnw-row-age">${daysSince(l['Last Updated']||l['Date Added'])}</span>
             <span class="mnw-row-val" style="color:#c5221f">${fmtUSD(num(l['USD Value']))}</span>
           </div>
         </div>`;
@@ -1995,7 +1995,7 @@ function renderAssetsTable(){
       <td>${fmtUSD(num(a['My Share USD']))}</td>
       <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'--'}</td>
       <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'--'})()}</td>
-      <td>${fmtDate(a['Last Updated'])}</td>
+      <td>${fmtDate(a['Last Updated']||a['Date Added'])}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-sm" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>Edit</button>
         <button class="btn btn-danger btn-sm" onclick='deleteAsset(${JSON.stringify(a.ID)},${JSON.stringify(a.Name)})'>Del</button>
@@ -2930,7 +2930,7 @@ function renderLiabilitiesTable(){
       <td>${esc(l.Currency||'USD')}</td>
       <td>${fmtUSD(num(l.Amount))}</td>
       <td style="font-weight:600;color:#c5221f">${fmtUSD(num(l['USD Value']))}</td>
-      <td>${fmtDate(l['Last Updated'])}</td>
+      <td>${fmtDate(l['Last Updated']||l['Date Added'])}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666">${esc(l.Notes||'')}</td>
       <td style="white-space:nowrap" onclick="event.stopPropagation()">
         <button class="btn btn-secondary btn-sm" onclick='openLiabModal(${JSON.stringify(l.ID)})'>Edit</button>
