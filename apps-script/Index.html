@@ -315,12 +315,22 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <!-- Balance History -->
   <div class="tab-panel" id="tab-balance">
     <div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap;gap:12px">
         <div>
           <div style="font-size:20px;font-weight:700;color:#0d2137">Net Balance</div>
-          <div style="font-size:13px;color:#888;margin-top:2px">Net Worth Trends Analysis -- up to 12 months</div>
+          <div style="font-size:13px;color:#888;margin-top:2px">Net Worth Trends Analysis — up to 12 months</div>
         </div>
         <div style="font-size:30px;font-weight:700;color:#0d2137" id="bal-net-worth">$0</div>
+      </div>
+      <!-- Snapshot to spreadsheet button -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;background:#f0f4f8;border-radius:8px;border:1px solid #d0dce8">
+        <button class="btn btn-primary btn-sm" onclick="snapshotNWHistory()" style="white-space:nowrap;font-size:12px">
+          Snapshot Net Worth to Spreadsheet
+        </button>
+        <span style="font-size:11px;color:#666;line-height:1.4">
+          Saves all assets &amp; liabilities by category to the <b>NW Snapshots</b> sheet and rebuilds the Tiller-style <b>Net Worth History</b> spreadsheet tab.
+          Runs automatically on the <b>1st of each month</b>.
+        </span>
       </div>
       <div id="bal-chart-wrap" style="overflow:hidden">
         <svg id="bal-svg" height="200" style="width:100%;display:block;overflow:hidden"></svg>
@@ -2357,6 +2367,31 @@ function takeSnapshot(){
     })
     .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
     .takeMonthlySnapshot();
+}
+
+function snapshotNWHistory(){
+  toast('Saving snapshot to spreadsheet — this takes a few seconds...','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      var snap = r.snapshot || {};
+      var sht  = r.sheet    || {};
+      if (snap.alreadyDone) {
+        // Snapshot already taken this month but still refresh the sheet
+        if (sht.success) {
+          toast('Net Worth History sheet refreshed (' + sht.months + ' months). Snapshot already recorded for ' + snap.monthKey + '.', 'success');
+        } else {
+          toast('Snapshot already recorded for ' + snap.monthKey + '. Open the spreadsheet and run Tracker → Refresh Net Worth History Sheet.', 'error');
+        }
+        return;
+      }
+      if (sht.success) {
+        toast('Saved ' + (snap.count||0) + ' records for ' + snap.monthKey + ' — Net Worth History sheet updated (' + sht.months + ' months).', 'success');
+      } else {
+        toast('Snapshot saved for ' + snap.monthKey + ' but history sheet rebuild failed.', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Snapshot failed: ' + e.message, 'error'); })
+    .snapshotAndRefreshNWHistory();
 }
 
 // -- Summary Tab ------------------------------------------------------------

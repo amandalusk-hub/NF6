@@ -54,6 +54,7 @@ var COL = {
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
+  NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
   SNAPSHOTS:   ['Date','Month Key','Asset Name','Category','Currency','My Share USD'],
   ASSET_DETAILS: [
@@ -155,6 +156,9 @@ function onOpen() {
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
+    .addSeparator()
+    .addItem('Take Net Worth Snapshot (1st of month)', 'takeNWSnapshot')
+    .addItem('Refresh Net Worth History Sheet', 'generateNetWorthHistorySheet')
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
     .addItem('Reset Asset Details Schema', 'resetSchema')
@@ -311,7 +315,12 @@ function ensureSheets_() {
 }
 
 function sheetName_(key) {
-  return { ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities', FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots', ASSET_DETAILS: 'Asset Details', LIABILITY_DETAILS: 'Liability Details', ORG_CHART: 'Org Chart' }[key];
+  return {
+    ASSETS: 'Assets', LIABILITIES: 'Liabilities', ENTITIES: 'Entities',
+    FX: 'FX Rates', HISTORY: 'History', SNAPSHOTS: 'Snapshots',
+    ASSET_DETAILS: 'Asset Details', LIABILITY_DETAILS: 'Liability Details',
+    ORG_CHART: 'Org Chart', NW_SNAPSHOTS: 'NW Snapshots'
+  }[key];
 }
 
 function getSpreadsheet_() {
@@ -1805,7 +1814,11 @@ function dailySync_() {
   fetchExchangeRates();
   syncPlaidAccounts();
   refreshPropertyValues();
-  if (new Date().getDate() === 1) takeMonthlySnapshot();
+  if (new Date().getDate() === 1) {
+    takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
+    takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet
+    generateNetWorthHistorySheet();
+  }
   generateBalancesSheet();
 }
 
@@ -2120,6 +2133,317 @@ function generateBalancesSheet() {
   return { success: true };
 }
 
+// ── Net Worth Snapshot (monthly, assets + liabilities) ────────────────────────
+// Stores one row per asset/liability with a month key so we can pivot into the
+// Tiller-style Net Worth History sheet.  Safe to call daily — deduplicates by
+// month key so only one snapshot per calendar month is ever stored.
+
+function takeNWSnapshot() {
+  var now      = new Date();
+  var monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+
+  // Deduplicate: skip if a snapshot already exists for this month
+  var snapSheet = getSheet_('NW_SNAPSHOTS');
+  var existing  = snapSheet.getDataRange().getValues();
+  for (var i = 1; i < existing.length; i++) {
+    var mk = existing[i][1];
+    if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
+    if (String(mk).trim() === monthKey) {
+      return { success: false, alreadyDone: true, monthKey: monthKey };
+    }
+  }
+
+  var assets = sheetToObjects_('ASSETS');
+  var liabs  = sheetToObjects_('LIABILITIES');
+  var rows   = [];
+
+  assets.forEach(function(a) {
+    rows.push([now, monthKey, 'ASSET', a['Name'] || '', a['Category'] || 'Other', Number(a['My Share USD']) || 0]);
+  });
+  liabs.forEach(function(l) {
+    rows.push([now, monthKey, 'LIABILITY', l['Name'] || '', l['Type'] || 'Other', Number(l['USD Value']) || 0]);
+  });
+
+  if (!rows.length) return { success: false, msg: 'No data to snapshot' };
+
+  var startRow = snapSheet.getLastRow() + 1;
+  snapSheet.getRange(startRow, 1, rows.length, 6).setValues(rows);
+  // Prevent GAS auto-converting "YYYY-MM" to a Date
+  snapSheet.getRange(startRow, 2, rows.length, 1).setNumberFormat('@');
+
+  return { success: true, count: rows.length, monthKey: monthKey };
+}
+
+// Called from the frontend so the user can trigger both steps in one click.
+function snapshotAndRefreshNWHistory() {
+  var snap = takeNWSnapshot();
+  var gen  = generateNetWorthHistorySheet();
+  return { snapshot: snap, sheet: gen };
+}
+
+// ── Net Worth History Sheet (Tiller-style pivot) ──────────────────────────────
+// Reads NW_SNAPSHOTS and writes a pivot where:
+//   Column A  = row labels (NET WORTH, category names, asset names, …)
+//   Column B+ = one column per month (oldest → newest, up to 24 months)
+
+function generateNetWorthHistorySheet() {
+  var ss = getSpreadsheet_();
+  var SHEET_NAME = 'Net Worth History';
+
+  var sheet = ss.getSheetByName(SHEET_NAME);
+  if (sheet) {
+    sheet.clearContents();
+    sheet.clearFormats();
+  } else {
+    sheet = ss.insertSheet(SHEET_NAME);
+  }
+
+  // ── Read raw snapshot data ───────────────────────────────────────────────
+  var snapSheet = getSheet_('NW_SNAPSHOTS');
+  var raw = snapSheet.getDataRange().getValues();
+
+  if (raw.length < 2) {
+    sheet.getRange(1, 1).setValue(
+      'No Net Worth snapshot data yet.\n' +
+      'Click "Snapshot Net Worth" in the web app Balance History tab, ' +
+      'or run Tracker → Take Net Worth Snapshot (1st of month).'
+    );
+    return { success: false, msg: 'No data' };
+  }
+
+  // Parse: Date(0) | Month Key(1) | Type(2) | Name(3) | Category(4) | USD Value(5)
+  var byMonth = {}; // mk -> { assets: {name->{cat,val}}, liabs: {name->{type,val}} }
+
+  for (var ri = 1; ri < raw.length; ri++) {
+    var row = raw[ri];
+    var mk  = row[1];
+    if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
+    mk = String(mk).trim();
+    if (!mk) continue;
+
+    var recType = String(row[2]).trim();
+    var name    = String(row[3]).trim();
+    var cat     = String(row[4]).trim() || 'Other';
+    var val     = Number(row[5]) || 0;
+
+    if (!byMonth[mk]) byMonth[mk] = { assets: {}, liabs: {} };
+    if (recType === 'ASSET')     byMonth[mk].assets[name] = { cat: cat, val: val };
+    else if (recType === 'LIABILITY') byMonth[mk].liabs[name] = { type: cat, val: val };
+  }
+
+  // Sort months, keep last 24
+  var allMonths = Object.keys(byMonth).sort();
+  var months    = allMonths.slice(-24);
+  if (!months.length) {
+    sheet.getRange(1, 1).setValue('No valid snapshot data found.');
+    return { success: false };
+  }
+
+  var numMonths = months.length;
+  var numCols   = 1 + numMonths; // label col + one per month
+
+  // ── Month label helper ───────────────────────────────────────────────────
+  var MN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtMK(mk) {
+    var p = mk.split('-'); return MN[parseInt(p[1]) - 1] + ' ' + p[0];
+  }
+
+  // ── Build row/asset structure from the LATEST month's roster ────────────
+  var latest = byMonth[months[months.length - 1]] || { assets: {}, liabs: {} };
+
+  var assetsByCat = {};
+  CATEGORIES.forEach(function(c) { assetsByCat[c] = []; });
+  Object.keys(latest.assets).forEach(function(n) {
+    var c = latest.assets[n].cat || 'Other';
+    if (!assetsByCat[c]) assetsByCat[c] = [];
+    assetsByCat[c].push(n);
+  });
+  var usedCats = CATEGORIES.filter(function(c) { return assetsByCat[c] && assetsByCat[c].length; });
+
+  var liabsByType = {};
+  Object.keys(latest.liabs).forEach(function(n) {
+    var t = latest.liabs[n].type || 'Other';
+    if (!liabsByType[t]) liabsByType[t] = [];
+    liabsByType[t].push(n);
+  });
+  var usedLiabTypes = Object.keys(liabsByType).sort();
+
+  // ── Aggregation helpers ──────────────────────────────────────────────────
+  function assetTotal(mk) {
+    if (!byMonth[mk]) return 0;
+    return Object.keys(byMonth[mk].assets).reduce(function(s, n) { return s + byMonth[mk].assets[n].val; }, 0);
+  }
+  function liabTotal(mk) {
+    if (!byMonth[mk]) return 0;
+    return Object.keys(byMonth[mk].liabs).reduce(function(s, n) { return s + byMonth[mk].liabs[n].val; }, 0);
+  }
+  function nwTotal(mk) { return assetTotal(mk) - liabTotal(mk); }
+
+  function catTotalF(mk, cat) {
+    if (!byMonth[mk]) return null;
+    var t = 0, found = false;
+    Object.keys(byMonth[mk].assets).forEach(function(n) {
+      if (byMonth[mk].assets[n].cat === cat) { t += byMonth[mk].assets[n].val; found = true; }
+    });
+    return found ? t : null;
+  }
+  function assetValF(mk, name) {
+    return (byMonth[mk] && byMonth[mk].assets[name] != null) ? byMonth[mk].assets[name].val : null;
+  }
+  function liabTypeTotalF(mk, type) {
+    if (!byMonth[mk]) return null;
+    var t = 0, found = false;
+    Object.keys(byMonth[mk].liabs).forEach(function(n) {
+      if (byMonth[mk].liabs[n].type === type) { t += byMonth[mk].liabs[n].val; found = true; }
+    });
+    return found ? t : null;
+  }
+  function liabValF(mk, name) {
+    return (byMonth[mk] && byMonth[mk].liabs[name] != null) ? byMonth[mk].liabs[name].val : null;
+  }
+
+  // ── Define row list ──────────────────────────────────────────────────────
+  // t = type string; lbl = label text; vals = array[numMonths] of numbers|null
+  var rowDefs = [];
+
+  rowDefs.push({ t: 'header' });
+
+  rowDefs.push({ t: 'net_worth', lbl: 'NET WORTH',
+    vals: months.map(nwTotal) });
+
+  rowDefs.push({ t: 'pct_change', lbl: '% Change',
+    vals: months.map(function(mk, i) {
+      if (i === 0) return null;
+      var prev = nwTotal(months[i - 1]), curr = nwTotal(mk);
+      return prev ? (curr - prev) / Math.abs(prev) : null;
+    })
+  });
+
+  rowDefs.push({ t: 'blank' });
+
+  rowDefs.push({ t: 'asset_hdr', lbl: 'ASSET',
+    vals: months.map(assetTotal) });
+
+  usedCats.forEach(function(cat) {
+    rowDefs.push({ t: 'cat_hdr', lbl: cat.toUpperCase(),
+      vals: months.map(function(mk) { return catTotalF(mk, cat); }) });
+    assetsByCat[cat].forEach(function(name) {
+      rowDefs.push({ t: 'item', lbl: '  ' + name,
+        vals: months.map(function(mk) { return assetValF(mk, name); }) });
+    });
+  });
+
+  rowDefs.push({ t: 'blank' });
+
+  if (usedLiabTypes.length) {
+    rowDefs.push({ t: 'liab_hdr', lbl: 'LIABILITIES',
+      vals: months.map(liabTotal) });
+    usedLiabTypes.forEach(function(type) {
+      rowDefs.push({ t: 'liab_type', lbl: type.toUpperCase(),
+        vals: months.map(function(mk) { return liabTypeTotalF(mk, type); }) });
+      liabsByType[type].forEach(function(name) {
+        rowDefs.push({ t: 'liab_item', lbl: '  ' + name,
+          vals: months.map(function(mk) { return liabValF(mk, name); }) });
+      });
+    });
+  }
+
+  var numRows = rowDefs.length;
+
+  // ── Resize sheet ─────────────────────────────────────────────────────────
+  if (sheet.getMaxColumns() < numCols)
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), numCols - sheet.getMaxColumns());
+  if (sheet.getMaxRows() < numRows)
+    sheet.insertRowsAfter(sheet.getMaxRows(), numRows - sheet.getMaxRows());
+
+  // ── Build 2D values array and write in ONE call ───────────────────────────
+  var allVals = rowDefs.map(function(row) {
+    var arr = [];
+    for (var c = 0; c < numCols; c++) arr.push('');
+    if (row.t === 'header') {
+      months.forEach(function(mk, ci) { arr[1 + ci] = fmtMK(mk); });
+    } else if (row.t !== 'blank') {
+      arr[0] = row.lbl || '';
+      (row.vals || []).forEach(function(v, ci) {
+        arr[1 + ci] = (v !== null && v !== undefined) ? v : '';
+      });
+    }
+    return arr;
+  });
+
+  sheet.getRange(1, 1, numRows, numCols).setValues(allVals);
+
+  // ── Apply formatting row by row ───────────────────────────────────────────
+  var STYLE = {
+    header:     { bg: '#1B3A5C', fg: '#ffffff', bold: true,  sz: 9  },
+    net_worth:  { bg: '#1A7341', fg: '#ffffff', bold: true,  sz: 11 },
+    pct_change: { bg: '#f2f6fa', fg: '#555555', bold: false, sz: 9  },
+    blank:      { bg: '#ffffff', fg: '#ffffff', bold: false, sz: 9  },
+    asset_hdr:  { bg: '#1B3A5C', fg: '#ffffff', bold: true,  sz: 10 },
+    cat_hdr:    { bg: '#2E6DA4', fg: '#ffffff', bold: true,  sz: 9  },
+    item:       { bg: null,      fg: '#1a1a1a', bold: false, sz: 9  },
+    liab_hdr:   { bg: '#5B1A1A', fg: '#ffffff', bold: true,  sz: 10 },
+    liab_type:  { bg: '#A33030', fg: '#ffffff', bold: true,  sz: 9  },
+    liab_item:  { bg: null,      fg: '#c5221f', bold: false, sz: 9  }
+  };
+  var itemBgIdx = 0, liabItemBgIdx = 0;
+  var numFmt    = '$#,##0';
+
+  rowDefs.forEach(function(row, ri) {
+    var r   = ri + 1;
+    var st  = STYLE[row.t] || STYLE.blank;
+    var bg  = st.bg;
+
+    if (row.t === 'item')      bg = (itemBgIdx++    % 2 === 0) ? '#f5f8fc' : '#ffffff';
+    if (row.t === 'liab_item') bg = (liabItemBgIdx++ % 2 === 0) ? '#fcf5f5' : '#ffffff';
+
+    var rng = sheet.getRange(r, 1, 1, numCols);
+    rng.setBackground(bg).setFontColor(st.fg).setFontWeight(st.bold ? 'bold' : 'normal')
+       .setFontSize(st.sz).setVerticalAlignment('middle');
+
+    // Label left, values right
+    sheet.getRange(r, 1).setHorizontalAlignment('left');
+    if (numMonths > 0) sheet.getRange(r, 2, 1, numMonths).setHorizontalAlignment('right');
+
+    // Number format for value columns
+    if (row.t !== 'header' && row.t !== 'blank' && row.t !== 'pct_change' && numMonths > 0) {
+      sheet.getRange(r, 2, 1, numMonths).setNumberFormat(numFmt);
+    }
+
+    // % Change: format as % and color-code per cell (green positive, red negative)
+    if (row.t === 'pct_change' && row.vals) {
+      row.vals.forEach(function(v, ci) {
+        var cell = sheet.getRange(r, 2 + ci);
+        if (v === null || v === undefined || v === '') {
+          cell.setBackground(st.bg);
+          return;
+        }
+        cell.setNumberFormat('0.0%')
+            .setFontWeight('bold')
+            .setFontColor(v < 0 ? '#c5221f' : '#1a7341');
+      });
+    }
+  });
+
+  // ── Row heights ──────────────────────────────────────────────────────────
+  sheet.setRowHeight(1, 26); // month header
+  sheet.setRowHeight(2, 32); // NET WORTH
+  sheet.setRowHeight(3, 22); // % Change
+  for (var i = 4; i <= numRows; i++) sheet.setRowHeight(i, 20);
+
+  // ── Column widths ─────────────────────────────────────────────────────────
+  sheet.setColumnWidth(1, 235); // label column
+  for (var ci = 0; ci < numMonths; ci++) sheet.setColumnWidth(2 + ci, 105);
+
+  // ── Freeze header row and label column ───────────────────────────────────
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
+  sheet.setHiddenGridlines(true);
+
+  ss.toast('Net Worth History refreshed — ' + numMonths + ' months shown', 'Done', 4);
+  return { success: true, months: numMonths, rows: numRows };
+}
+
 // ── Database Setup ────────────────────────────────────────────────────────────
 
 function setupDatabase() {
@@ -2139,7 +2463,9 @@ function setupDatabase() {
     'Asset Details':     '#1F618D',
     'Liability Details': '#922B21',
     'Org Chart':         '#6C3483',
-    'Balances':          '#1A7341'
+    'Balances':          '#1A7341',
+    'NW Snapshots':      '#2C3E50',
+    'Net Worth History': '#1A5276'
   };
   Object.keys(tabColors).forEach(function(name) {
     var s = ss.getSheetByName(name);
