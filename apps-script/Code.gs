@@ -2138,16 +2138,27 @@ function generateBalancesSheet() {
 // Tiller-style Net Worth History sheet.  Safe to call daily — deduplicates by
 // month key so only one snapshot per calendar month is ever stored.
 
-// Returns (and lazily creates) the NW_SNAPSHOTS sheet.
-// The sheet may not exist if this feature was added after the script cache was
-// last warmed — busting the cache forces ensureSheets_() to create it.
+// Returns the NW Snapshots sheet, creating it directly if it doesn't exist.
+// We bypass getSheet_() / ensureSheets_() entirely because the script cache
+// may still hold 'sheets_ready=1' from before this sheet was introduced,
+// and getSheet_() returns null when the sheet hasn't been created yet.
 function getNWSnapshotsSheet_() {
-  var sheet = getSheet_('NW_SNAPSHOTS');
+  var ss    = getSpreadsheet_();
+  var sheet = ss.getSheetByName('NW Snapshots');
   if (!sheet) {
+    sheet = ss.insertSheet('NW Snapshots');
+    var hdrs = ['Date', 'Month Key', 'Type', 'Name', 'Category', 'USD Value'];
+    sheet.getRange(1, 1, 1, hdrs.length).setValues([hdrs])
+      .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(1, 120);
+    sheet.setColumnWidth(2, 80);
+    sheet.setColumnWidth(3, 80);
+    sheet.setColumnWidth(4, 220);
+    sheet.setColumnWidth(5, 180);
+    sheet.setColumnWidth(6, 100);
+    // Bust the sheet-ready cache so ensureSheets_() re-registers on next run
     CacheService.getScriptCache().remove('sheets_ready');
-    _sheetsReady = false;
-    ensureSheets_();
-    sheet = getSheet_('NW_SNAPSHOTS');
   }
   return sheet;
 }
