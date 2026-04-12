@@ -2375,12 +2375,6 @@ function generateNetWorthHistorySheet() {
 
   var numRows = rowDefs.length;
 
-  // ── Resize sheet ─────────────────────────────────────────────────────────
-  if (sheet.getMaxColumns() < numCols)
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), numCols - sheet.getMaxColumns());
-  if (sheet.getMaxRows() < numRows)
-    sheet.insertRowsAfter(sheet.getMaxRows(), numRows - sheet.getMaxRows());
-
   // ── Build 2D values array and write in ONE call ───────────────────────────
   var allVals = rowDefs.map(function(row) {
     var arr = [];
@@ -2396,9 +2390,19 @@ function generateNetWorthHistorySheet() {
     return arr;
   });
 
-  sheet.getRange(1, 1, numRows, numCols).setValues(allVals);
+  // ── Chart area offset ────────────────────────────────────────────────────
+  // The top CHART_OFFSET rows are reserved for the line chart; data starts below.
+  var CHART_OFFSET = 17; // rows of blank space above the data table for the chart
+  var totalRows    = CHART_OFFSET + numRows;
 
-  // ── Apply formatting row by row ───────────────────────────────────────────
+  // Resize sheet to accommodate chart rows + data rows
+  if (sheet.getMaxColumns() < numCols) sheet.insertColumnsAfter(sheet.getMaxColumns(), numCols - sheet.getMaxColumns());
+  if (sheet.getMaxRows() < totalRows)  sheet.insertRowsAfter(sheet.getMaxRows(), totalRows - sheet.getMaxRows());
+
+  // Write data starting at row CHART_OFFSET + 1
+  sheet.getRange(CHART_OFFSET + 1, 1, numRows, numCols).setValues(allVals);
+
+  // ── Apply formatting (rows shifted by CHART_OFFSET) ───────────────────────
   var STYLE = {
     header:     { bg: '#1B3A5C', fg: '#ffffff', bold: true,  sz: 9  },
     net_worth:  { bg: '#1A7341', fg: '#ffffff', bold: true,  sz: 11 },
@@ -2415,9 +2419,9 @@ function generateNetWorthHistorySheet() {
   var numFmt    = '$#,##0';
 
   rowDefs.forEach(function(row, ri) {
-    var r   = ri + 1;
-    var st  = STYLE[row.t] || STYLE.blank;
-    var bg  = st.bg;
+    var r  = ri + 1 + CHART_OFFSET; // ← shifted down by chart offset
+    var st = STYLE[row.t] || STYLE.blank;
+    var bg = st.bg;
 
     if (row.t === 'item')      bg = (itemBgIdx++    % 2 === 0) ? '#f5f8fc' : '#ffffff';
     if (row.t === 'liab_item') bg = (liabItemBgIdx++ % 2 === 0) ? '#fcf5f5' : '#ffffff';
@@ -2426,44 +2430,98 @@ function generateNetWorthHistorySheet() {
     rng.setBackground(bg).setFontColor(st.fg).setFontWeight(st.bold ? 'bold' : 'normal')
        .setFontSize(st.sz).setVerticalAlignment('middle');
 
-    // Label left, values right
     sheet.getRange(r, 1).setHorizontalAlignment('left');
     if (numMonths > 0) sheet.getRange(r, 2, 1, numMonths).setHorizontalAlignment('right');
 
-    // Number format for value columns
     if (row.t !== 'header' && row.t !== 'blank' && row.t !== 'pct_change' && numMonths > 0) {
       sheet.getRange(r, 2, 1, numMonths).setNumberFormat(numFmt);
     }
 
-    // % Change: format as % and color-code per cell (green positive, red negative)
     if (row.t === 'pct_change' && row.vals) {
       row.vals.forEach(function(v, ci) {
         var cell = sheet.getRange(r, 2 + ci);
-        if (v === null || v === undefined || v === '') {
-          cell.setBackground(st.bg);
-          return;
-        }
-        cell.setNumberFormat('0.0%')
-            .setFontWeight('bold')
+        if (v === null || v === undefined || v === '') { cell.setBackground(st.bg); return; }
+        cell.setNumberFormat('0.0%').setFontWeight('bold')
             .setFontColor(v < 0 ? '#c5221f' : '#1a7341');
       });
     }
   });
 
-  // ── Row heights ──────────────────────────────────────────────────────────
-  sheet.setRowHeight(1, 26); // month header
-  sheet.setRowHeight(2, 32); // NET WORTH
-  sheet.setRowHeight(3, 22); // % Change
-  for (var i = 4; i <= numRows; i++) sheet.setRowHeight(i, 20);
+  // ── Title row (row 1) ────────────────────────────────────────────────────
+  var currentNW = nwTotal(months[months.length - 1]);
+  sheet.getRange(1, 1).setValue('Net Worth Over Time')
+    .setFontSize(14).setFontWeight('bold').setFontColor('#0d2137')
+    .setBackground('#ffffff').setVerticalAlignment('middle');
+  sheet.getRange(1, numCols).setValue(currentNW)
+    .setFontSize(14).setFontWeight('bold').setFontColor('#0d2137')
+    .setHorizontalAlignment('right').setNumberFormat('$#,##0')
+    .setBackground('#ffffff').setVerticalAlignment('middle');
+  // Fill chart area with white
+  sheet.getRange(1, 1, CHART_OFFSET, numCols).setBackground('#ffffff');
+
+  // ── Row heights ───────────────────────────────────────────────────────────
+  sheet.setRowHeight(1, 30); // title
+  for (var ci = 2; ci <= CHART_OFFSET; ci++) sheet.setRowHeight(ci, 18); // chart area rows
+  sheet.setRowHeight(CHART_OFFSET + 1, 26); // month header
+  sheet.setRowHeight(CHART_OFFSET + 2, 32); // NET WORTH
+  sheet.setRowHeight(CHART_OFFSET + 3, 22); // % Change
+  for (var ri2 = CHART_OFFSET + 4; ri2 <= totalRows; ri2++) sheet.setRowHeight(ri2, 20);
 
   // ── Column widths ─────────────────────────────────────────────────────────
-  sheet.setColumnWidth(1, 235); // label column
-  for (var ci = 0; ci < numMonths; ci++) sheet.setColumnWidth(2 + ci, 105);
+  sheet.setColumnWidth(1, 235);
+  for (var ci2 = 0; ci2 < numMonths; ci2++) sheet.setColumnWidth(2 + ci2, 105);
 
-  // ── Freeze header row and label column ───────────────────────────────────
-  sheet.setFrozenRows(1);
+  // ── Freeze: lock the month header row + label column ────────────────────
+  sheet.setFrozenRows(CHART_OFFSET + 1);
   sheet.setFrozenColumns(1);
   sheet.setHiddenGridlines(true);
+
+  // ── Line chart ────────────────────────────────────────────────────────────
+  // Write chart series data in off-screen columns (to the right of the visible data)
+  // so the chart has contiguous data to read from.
+  var chartDataCol = numCols + 3;
+  var chartSeries  = [
+    [''].concat(months.map(fmtMK)),           // row 0: x-axis labels
+    ['Net Worth'].concat(months.map(nwTotal)), // row 1
+    ['Assets'].concat(months.map(assetTotal)), // row 2
+    ['Liabilities'].concat(months.map(liabTotal)) // row 3
+  ];
+  sheet.getRange(1, chartDataCol, 4, numMonths + 1).setValues(chartSeries);
+
+  // Remove any existing chart before inserting a new one
+  sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
+
+  var chartWidthPx  = Math.min(235 + numMonths * 105, 1100);
+  var chartHeightPx = (CHART_OFFSET - 1) * 18; // match reserved rows
+
+  var chart = sheet.newChart()
+    .setChartType(Charts.ChartType.LINE)
+    .addRange(sheet.getRange(1, chartDataCol, 4, numMonths + 1))
+    .setTransposeRowsAndColumns(true) // rows become series, first row = x-axis labels
+    .setPosition(2, 1, 0, 0)         // anchor top-left at row 2, col 1
+    .setOption('title', '')
+    .setOption('legend', { position: 'right' })
+    .setOption('series', {
+      0: { color: '#1e8e3e', lineWidth: 2 },  // Net Worth — green
+      1: { color: '#1a73e8', lineWidth: 2 },  // Assets — blue
+      2: { color: '#c5221f', lineWidth: 2 }   // Liabilities — red
+    })
+    .setOption('vAxis', {
+      format: '$#,##0,,"M"',
+      textStyle: { fontSize: 9, color: '#555555' },
+      gridlines: { color: '#e8eef4' }
+    })
+    .setOption('hAxis', {
+      textStyle: { fontSize: 9, color: '#555555' },
+      gridlines: { color: 'transparent' }
+    })
+    .setOption('backgroundColor', { fill: '#f8fafd' })
+    .setOption('chartArea', { left: 75, top: 15, right: 130, bottom: 35 })
+    .setOption('height', chartHeightPx)
+    .setOption('width', chartWidthPx)
+    .build();
+
+  sheet.insertChart(chart);
 
   ss.toast('Net Worth History refreshed — ' + numMonths + ' months shown', 'Done', 4);
   return { success: true, months: numMonths, rows: numRows };
