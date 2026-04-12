@@ -2138,12 +2138,26 @@ function generateBalancesSheet() {
 // Tiller-style Net Worth History sheet.  Safe to call daily — deduplicates by
 // month key so only one snapshot per calendar month is ever stored.
 
+// Returns (and lazily creates) the NW_SNAPSHOTS sheet.
+// The sheet may not exist if this feature was added after the script cache was
+// last warmed — busting the cache forces ensureSheets_() to create it.
+function getNWSnapshotsSheet_() {
+  var sheet = getSheet_('NW_SNAPSHOTS');
+  if (!sheet) {
+    CacheService.getScriptCache().remove('sheets_ready');
+    _sheetsReady = false;
+    ensureSheets_();
+    sheet = getSheet_('NW_SNAPSHOTS');
+  }
+  return sheet;
+}
+
 function takeNWSnapshot() {
   var now      = new Date();
   var monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
   // Deduplicate: skip if a snapshot already exists for this month
-  var snapSheet = getSheet_('NW_SNAPSHOTS');
+  var snapSheet = getNWSnapshotsSheet_();
   var existing  = snapSheet.getDataRange().getValues();
   for (var i = 1; i < existing.length; i++) {
     var mk = existing[i][1];
@@ -2199,7 +2213,7 @@ function generateNetWorthHistorySheet() {
   }
 
   // ── Read raw snapshot data ───────────────────────────────────────────────
-  var snapSheet = getSheet_('NW_SNAPSHOTS');
+  var snapSheet = getNWSnapshotsSheet_();
   var raw = snapSheet.getDataRange().getValues();
 
   if (raw.length < 2) {
