@@ -1492,7 +1492,7 @@ function getSnapshotTrend() {
 function getSnapshotMatrix() {
   var snapRows = sheetToObjects_('SNAPSHOTS');
   var monthSet  = {};
-  var assetData = {}; // name -> { category, monthKey -> value }
+  var assetData = {}; // name -> { category, mk -> value }
 
   snapRows.forEach(function(row) {
     var mk   = normalizeMonthKey_(row['Month Key']);
@@ -1504,15 +1504,12 @@ function getSnapshotMatrix() {
   });
 
   var months = Object.keys(monthSet).sort().slice(-12);
-  if (!months.length) return { months: [], assetTotals: [], liabTotals: [], netWorthTotals: [], assets: [] };
+  if (!months.length) return { months: [], assetTotals: [], liabTotals: [], netWorthTotals: [], assets: [], liabilities: [] };
 
   var assetNames = Object.keys(assetData);
   var assets = assetNames.map(function(name) {
-    return {
-      name:     name,
-      category: assetData[name].category,
-      values:   months.map(function(m) { return assetData[name][m] || 0; })
-    };
+    return { name: name, category: assetData[name].category,
+             values: months.map(function(m) { return assetData[name][m] || 0; }) };
   });
   assets.sort(function(a, b) {
     if (a.category !== b.category) return a.category.localeCompare(b.category);
@@ -1523,13 +1520,50 @@ function getSnapshotMatrix() {
     return assetNames.reduce(function(s, n) { return s + (assetData[n][m] || 0); }, 0);
   });
 
-  // Use current liabilities total for all months (history accumulates over time)
-  var liabs     = sheetToObjects_('LIABILITIES');
-  var liabTotal = liabs.reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
-  var liabTotals      = months.map(function() { return liabTotal; });
-  var netWorthTotals  = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
+  // ── Historical liability data from NW_SNAPSHOTS ──────────────────────────
+  // NW_SNAPSHOTS has per-month, per-liability rows. Use those for accurate
+  // historical net worth. Fall back to current total for months not yet snapped.
+  var liabByMonth = {};  // mk -> total USD
+  var liabData    = {};  // name -> { type, mk -> value }
 
-  return { months: months, assetTotals: assetTotals, liabTotals: liabTotals, netWorthTotals: netWorthTotals, assets: assets };
+  try {
+    var nwSheet = getNWSnapshotsSheet_();
+    var nwRaw   = nwSheet.getDataRange().getValues();
+    for (var i = 1; i < nwRaw.length; i++) {
+      var r = nwRaw[i];
+      if (String(r[2]).trim() !== 'LIABILITY') continue;
+      var mk   = r[1];
+      if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
+      mk = String(mk).trim();
+      var lname = String(r[3]).trim();
+      var ltype = String(r[4]).trim() || 'Other';
+      var lval  = Number(r[5]) || 0;
+      liabByMonth[mk] = (liabByMonth[mk] || 0) + lval;
+      if (!liabData[lname]) liabData[lname] = { type: ltype };
+      liabData[lname][mk] = lval;
+    }
+  } catch(e) { /* NW_SNAPSHOTS not yet populated; falls back to current total */ }
+
+  var currentLiabTotal = sheetToObjects_('LIABILITIES')
+    .reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
+
+  var liabTotals = months.map(function(m) {
+    return liabByMonth[m] !== undefined ? liabByMonth[m] : currentLiabTotal;
+  });
+  var netWorthTotals = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
+
+  // Build per-liability series for the table
+  var liabNames = Object.keys(liabData);
+  var liabilities = liabNames.map(function(name) {
+    return { name: name, type: liabData[name].type,
+             values: months.map(function(m) { return liabData[name][m] || 0; }) };
+  }).sort(function(a, b) {
+    if (a.type !== b.type) return a.type.localeCompare(b.type);
+    return (b.values[b.values.length - 1] || 0) - (a.values[a.values.length - 1] || 0);
+  });
+
+  return { months: months, assetTotals: assetTotals, liabTotals: liabTotals,
+           netWorthTotals: netWorthTotals, assets: assets, liabilities: liabilities };
 }
 
 // ── Plaid Integration ─────────────────────────────────────────────────────────

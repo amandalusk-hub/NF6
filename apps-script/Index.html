@@ -2687,6 +2687,23 @@ function renderBalanceData(data){
     });
   });
 
+  // LIABILITIES section (uses historical per-month data from NW_SNAPSHOTS)
+  if(data.liabTotals && data.liabTotals.some(v=>v>0)){
+    html+=`<tr><td colspan="${months.length+1}" style="height:6px;background:#e8eaed"></td></tr>`;
+    html+=`<tr style="background:#5B1A1A;color:#fff">${stickyCell('LIABILITIES','#5B1A1A','#fff')}${data.liabTotals.map(v=>cell(v,true,'#ffaaaa')).join('')}</tr>`;
+    if(data.liabilities && data.liabilities.length){
+      const byType={};
+      data.liabilities.forEach(l=>{if(!byType[l.type])byType[l.type]=[];byType[l.type].push(l);});
+      Object.entries(byType).forEach(([type,liabs])=>{
+        const typeTotals=months.map((_,mi)=>liabs.reduce((s,l)=>s+(l.values[mi]||0),0));
+        html+=`<tr style="background:#7B2D2D;color:#fff">${stickyCell(type.toUpperCase(),'#7B2D2D','#fff')}${typeTotals.map(v=>cell(v,true,'#ffaaaa')).join('')}</tr>`;
+        liabs.forEach(l=>{
+          html+=`<tr style="border-bottom:1px solid #f0f0f0" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background=''">${stickyCell(l.name,'#fff','#7B2D2D',true)}${l.values.map(v=>cell(v>0?v:null,false,'#c5221f')).join('')}</tr>`;
+        });
+      });
+    }
+  }
+
   document.getElementById('bal-tbody').innerHTML=html;
 }
 
