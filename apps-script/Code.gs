@@ -1521,18 +1521,6 @@ function getSnapshotMatrix() {
     }
   } catch(e) { /* NW_SNAPSHOTS empty — will fall back below */ }
 
-  // ── FALLBACK: old SNAPSHOTS sheet for months not yet in NW_SNAPSHOTS ─────
-  var snapRows = sheetToObjects_('SNAPSHOTS');
-  snapRows.forEach(function(row) {
-    var mk   = normalizeMonthKey_(row['Month Key']);
-    var name = row['Asset Name'] || '';
-    if (!mk || !name) return;
-    if (monthSet[mk] === 'nw') return; // NW_SNAPSHOTS already has complete data for this month
-    monthSet[mk] = 'old';
-    if (!assetData[name]) assetData[name] = { category: row['Category'] || 'Other' };
-    if (!assetData[name][mk]) assetData[name][mk] = Number(row['My Share USD']) || 0;
-  });
-
   var months = Object.keys(monthSet).sort().slice(-12);
   if (!months.length) return { months: [], assetTotals: [], liabTotals: [], netWorthTotals: [], assets: [], liabilities: [] };
 
@@ -2199,20 +2187,25 @@ function getNWSnapshotsSheet_() {
   return sheet;
 }
 
-function takeNWSnapshot() {
+function takeNWSnapshot(force) {
   var now      = new Date();
   var monthKey = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
 
-  // Deduplicate: skip if a snapshot already exists for this month
   var snapSheet = getNWSnapshotsSheet_();
   var existing  = snapSheet.getDataRange().getValues();
-  for (var i = 1; i < existing.length; i++) {
+
+  // Find and delete existing rows for this month (if force=true, overwrite; otherwise skip)
+  var rowsToDelete = [];
+  for (var i = existing.length - 1; i >= 1; i--) {
     var mk = existing[i][1];
     if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
     if (String(mk).trim() === monthKey) {
-      return { success: false, alreadyDone: true, monthKey: monthKey };
+      if (!force) return { success: false, alreadyDone: true, monthKey: monthKey };
+      rowsToDelete.push(i + 1); // 1-based sheet row
     }
   }
+  // Delete in reverse order so indices stay valid
+  rowsToDelete.sort(function(a,b){return b-a;}).forEach(function(r){ snapSheet.deleteRow(r); });
 
   var assets = sheetToObjects_('ASSETS');
   var liabs  = sheetToObjects_('LIABILITIES');
@@ -2236,8 +2229,9 @@ function takeNWSnapshot() {
 }
 
 // Called from the frontend so the user can trigger both steps in one click.
+// Always force-overwrites the current month so clicking the button always refreshes.
 function snapshotAndRefreshNWHistory() {
-  var snap = takeNWSnapshot();
+  var snap = takeNWSnapshot(true);  // force=true: delete existing month data and retake
   var gen  = generateNetWorthHistorySheet();
   return { snapshot: snap, sheet: gen };
 }
