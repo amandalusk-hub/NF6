@@ -3711,6 +3711,8 @@ function deleteLiab(id,name){
 function openLiabDetail(id){
   const liab=(state.liabilities||[]).find(l=>l.ID==id);
   if(!liab)return;
+  // Cancel any pending auto-save from a previously-open liability before overwriting the form
+  clearTimeout(_liabAutoSave);
   state._liabDetailId=id;
   document.getElementById('ld-id').value=id;
   document.getElementById('liab-detail-title').textContent=liab.Name;
@@ -3787,7 +3789,7 @@ function saveLiabilityDetails(keepOpen){
     const _balNum = parseAcct(details.balance);
     if (_balNum > 0) {
       _liab.Amount = _balNum;
-      _liab['USD Value'] = _balNum;
+      _liab['USD Value'] = _balNum; // optimistic (USD assumed); server response corrects FX
     }
   }
   renderDashboard();
@@ -3802,7 +3804,7 @@ function saveLiabilityDetails(keepOpen){
       } else {
         if (r && r.balance > 0 && _liab) {
           _liab.Amount = r.balance;
-          _liab['USD Value'] = r.balance;
+          _liab['USD Value'] = r.usdValue != null ? r.usdValue : r.balance; // use server-computed FX value
           renderDashboard();
           renderLiabilitiesTable();
         }

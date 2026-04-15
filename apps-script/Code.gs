@@ -948,7 +948,8 @@ function saveLiabilityDetails(id, detailsJson) {
     Logger.log('LIABILITY_DETAILS write failed: ' + e.message);
   }
 
-  return { success: true, balance: balanceNum, currency: currency };
+  var fxRateForReturn = getFxRate_(currency);
+  return { success: true, balance: balanceNum, usdValue: balanceNum * fxRateForReturn, currency: currency };
 }
 
 function deleteLiability(id) {
