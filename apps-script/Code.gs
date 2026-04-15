@@ -1490,17 +1490,47 @@ function getSnapshotTrend() {
 }
 
 function getSnapshotMatrix() {
-  var snapRows = sheetToObjects_('SNAPSHOTS');
-  var monthSet  = {};
-  var assetData = {}; // name -> { category, mk -> value }
+  var monthSet  = {};  // mk -> 'nw' (primary) or 'old' (fallback)
+  var assetData = {};  // name -> { category, mk -> value }
+  var liabData  = {};  // name -> { type, mk -> value }
+  var liabByMonth = {}; // mk -> total USD
 
+  // ── PRIMARY: NW_SNAPSHOTS (complete — assets + liabilities together) ──────
+  try {
+    var nwSheet = getNWSnapshotsSheet_();
+    var nwRaw   = nwSheet.getDataRange().getValues();
+    for (var i = 1; i < nwRaw.length; i++) {
+      var r = nwRaw[i];
+      var mk = r[1];
+      if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
+      mk = String(mk).trim();
+      if (!mk) continue;
+      var recType = String(r[2]).trim();
+      var name    = String(r[3]).trim();
+      var cat     = String(r[4]).trim() || 'Other';
+      var val     = Number(r[5]) || 0;
+      monthSet[mk] = 'nw'; // mark month as having full NW_SNAPSHOTS data
+      if (recType === 'ASSET') {
+        if (!assetData[name]) assetData[name] = { category: cat };
+        assetData[name][mk] = val;
+      } else if (recType === 'LIABILITY') {
+        liabByMonth[mk] = (liabByMonth[mk] || 0) + val;
+        if (!liabData[name]) liabData[name] = { type: cat };
+        liabData[name][mk] = val;
+      }
+    }
+  } catch(e) { /* NW_SNAPSHOTS empty — will fall back below */ }
+
+  // ── FALLBACK: old SNAPSHOTS sheet for months not yet in NW_SNAPSHOTS ─────
+  var snapRows = sheetToObjects_('SNAPSHOTS');
   snapRows.forEach(function(row) {
     var mk   = normalizeMonthKey_(row['Month Key']);
     var name = row['Asset Name'] || '';
     if (!mk || !name) return;
-    monthSet[mk] = true;
+    if (monthSet[mk] === 'nw') return; // NW_SNAPSHOTS already has complete data for this month
+    monthSet[mk] = 'old';
     if (!assetData[name]) assetData[name] = { category: row['Category'] || 'Other' };
-    assetData[name][mk] = Number(row['My Share USD']) || 0;
+    if (!assetData[name][mk]) assetData[name][mk] = Number(row['My Share USD']) || 0;
   });
 
   var months = Object.keys(monthSet).sort().slice(-12);
@@ -1520,41 +1550,13 @@ function getSnapshotMatrix() {
     return assetNames.reduce(function(s, n) { return s + (assetData[n][m] || 0); }, 0);
   });
 
-  // ── Historical liability data from NW_SNAPSHOTS ──────────────────────────
-  // NW_SNAPSHOTS has per-month, per-liability rows. Use those for accurate
-  // historical net worth. Fall back to current total for months not yet snapped.
-  var liabByMonth = {};  // mk -> total USD
-  var liabData    = {};  // name -> { type, mk -> value }
-
-  try {
-    var nwSheet = getNWSnapshotsSheet_();
-    var nwRaw   = nwSheet.getDataRange().getValues();
-    for (var i = 1; i < nwRaw.length; i++) {
-      var r = nwRaw[i];
-      if (String(r[2]).trim() !== 'LIABILITY') continue;
-      var mk   = r[1];
-      if (mk instanceof Date) mk = mk.getFullYear() + '-' + String(mk.getMonth() + 1).padStart(2, '0');
-      mk = String(mk).trim();
-      var lname = String(r[3]).trim();
-      var ltype = String(r[4]).trim() || 'Other';
-      var lval  = Number(r[5]) || 0;
-      liabByMonth[mk] = (liabByMonth[mk] || 0) + lval;
-      if (!liabData[lname]) liabData[lname] = { type: ltype };
-      liabData[lname][mk] = lval;
-    }
-  } catch(e) { /* NW_SNAPSHOTS not yet populated; falls back to current total */ }
-
+  // Liability totals: use NW_SNAPSHOTS per-month where available; current total otherwise
   var currentLiabTotal = sheetToObjects_('LIABILITIES')
     .reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
-
-  var liabTotals = months.map(function(m) {
-    return liabByMonth[m] !== undefined ? liabByMonth[m] : currentLiabTotal;
-  });
+  var liabTotals     = months.map(function(m) { return liabByMonth[m] !== undefined ? liabByMonth[m] : currentLiabTotal; });
   var netWorthTotals = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
 
-  // Build per-liability series for the table
-  var liabNames = Object.keys(liabData);
-  var liabilities = liabNames.map(function(name) {
+  var liabilities = Object.keys(liabData).map(function(name) {
     return { name: name, type: liabData[name].type,
              values: months.map(function(m) { return liabData[name][m] || 0; }) };
   }).sort(function(a, b) {
