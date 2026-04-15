@@ -2460,7 +2460,8 @@ function renderSummary(){
       subtitle    = det.borrower||'';
       extraMetrics= {outstanding:outstanding, paidInterest:paidInt, rate:det.loanRate, due:det.loanDue};
       if(invested>0&&paidInt>0&&det.loanDate){
-        var days=Math.max(1,(Date.now()-new Date(det.loanDate).getTime())/86400000);
+        var _ldp=det.loanDate.split('-').map(Number),_ldt=new Date(_ldp[0],_ldp[1]-1,_ldp[2]);
+        var days=Math.max(1,(Date.now()-_ldt.getTime())/86400000);
         returnPct=(paidInt/invested)*(365/days)*100;
       }
     } else if(isCash){
@@ -4013,7 +4014,12 @@ function fmtUSD(n){
 function fmtDate(d){
   if(!d)return'';
   try{
-    const dt=new Date(d);
+    var dt;
+    // Bare YYYY-MM-DD strings must be parsed as local time — new Date("YYYY-MM-DD")
+    // treats them as UTC midnight, which rolls back one day in US timezones.
+    if(typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)){
+      var p=d.split('-').map(Number);dt=new Date(p[0],p[1]-1,p[2]);
+    }else{dt=new Date(d);}
     if(isNaN(dt))return String(d);
     return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
   }catch(e){return String(d)}
