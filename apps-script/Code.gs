@@ -860,8 +860,9 @@ function addLiability(data) {
 }
 
 function updateLiability(data) {
-  var sheet = getSheet_('LIABILITIES');
-  var rows  = sheet.getDataRange().getValues();
+  var sheet   = getSheet_('LIABILITIES');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0] || [];
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] !== data.id) continue;
     var fxRate = getFxRate_(data.currency || rows[i][3]);
@@ -873,8 +874,11 @@ function updateLiability(data) {
     sheet.getRange(i + 1, 6).setValue(amount * fxRate);
     sheet.getRange(i + 1, 8).setValue(new Date());
     sheet.getRange(i + 1, 9).setValue(data.notes    !== undefined ? data.notes    : rows[i][8]);
-    sheet.getRange(i + 1, 10).setValue(data.location !== undefined ? data.location : (rows[i][9]  || ''));
-    sheet.getRange(i + 1, 11).setValue(data.details  !== undefined ? data.details  : (rows[i][10] || ''));
+    var locCol = headers.indexOf('Location') + 1;
+    if (locCol > 0) sheet.getRange(i + 1, locCol).setValue(data.location !== undefined ? data.location : (rows[i][locCol - 1] || ''));
+    // NOTE: Details column is intentionally NOT written here — it is managed
+    // exclusively by saveLiabilityDetails(). Writing it here would cause a
+    // race condition that overwrites detail data with a stale value.
     return { success: true };
   }
   return { success: false, error: 'Liability not found' };
