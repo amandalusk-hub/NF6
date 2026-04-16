@@ -598,7 +598,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
         </div>
       </div>
-      <button class="modal-close" onclick="saveAssetDetails(true);closeModal('detail-modal')" style="margin-left:8px;flex-shrink:0">x</button>
+      <button class="modal-close" onclick="saveAssetDetails(false)" style="margin-left:8px;flex-shrink:0">x</button>
     </div>
     <div class="modal-body" oninput="scheduleAssetAutoSave()" onchange="scheduleAssetAutoSave()">
       <input type="hidden" id="detail-id">
@@ -1171,7 +1171,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="modal-footer" style="justify-content:space-between;align-items:center">
       <span id="detail-save-status" style="font-size:12px;color:#1e8e3e;display:flex;align-items:center;gap:5px"></span>
       <div style="display:flex;gap:10px">
-        <button class="btn btn-secondary" onclick="saveAssetDetails(true);closeModal('detail-modal')">Close</button>
+        <button class="btn btn-secondary" onclick="saveAssetDetails(false)">Close</button>
         <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
       </div>
     </div>
@@ -1246,7 +1246,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btn-secondary btn-sm" id="liab-detail-edit-btn">Edit Core Fields</button>
-        <button class="modal-close" onclick="saveLiabilityDetails(true);closeModal('liab-detail-modal')">x</button>
+        <button class="modal-close" onclick="saveLiabilityDetails(false)">x</button>
       </div>
     </div>
     <div class="modal-body" oninput="scheduleLiabAutoSave()" onchange="scheduleLiabAutoSave()">
@@ -1368,7 +1368,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="modal-footer" style="justify-content:space-between;align-items:center">
       <span id="liab-save-status" style="font-size:12px;color:#1e8e3e;display:flex;align-items:center;gap:5px"></span>
       <div style="display:flex;gap:10px">
-        <button class="btn btn-secondary" onclick="saveLiabilityDetails(true);closeModal('liab-detail-modal')">Close</button>
+        <button class="btn btn-secondary" onclick="saveLiabilityDetails(false)">Close</button>
         <button class="btn btn-primary" onclick="saveLiabilityDetails()">Save Details</button>
       </div>
     </div>
@@ -4018,8 +4018,8 @@ function closeModal(id){document.getElementById(id).classList.remove('open')}
 document.addEventListener('click',e=>{
   if(e.target.classList.contains('modal-overlay')){
     var id=e.target.id;
-    if(id==='detail-modal'){saveAssetDetails(true);closeModal('detail-modal');return;}
-    if(id==='liab-detail-modal'){saveLiabilityDetails(true);closeModal('liab-detail-modal');return;}
+    if(id==='detail-modal'){saveAssetDetails(false);return;}
+    if(id==='liab-detail-modal'){saveLiabilityDetails(false);return;}
     e.target.classList.remove('open');
   }
 });
