@@ -3234,7 +3234,13 @@ function saveAssetDetails(keepOpen){
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
                    localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
   if (!_daName) { if(!keepOpen) toast('Asset name cannot be empty', 'error'); return; }
-  if (!keepOpen) closeModal('detail-modal');
+  var _shouldClose = !keepOpen; // capture now — close after server confirms, not immediately
+  if (_shouldClose) {
+    // Show in-modal "Saving..." and disable buttons so user can see if it fails
+    var _saveStatusEl = document.getElementById('detail-save-status');
+    if (_saveStatusEl) { _saveStatusEl.innerHTML = '&#8987; Saving&hellip;'; _saveStatusEl.style.color = '#1a73e8'; }
+    document.querySelectorAll('#detail-modal .btn-primary').forEach(function(b){ b.disabled=true; });
+  }
   // --- Optimistic local update (instant UI refresh, no server wait) ---
   var _stateAsset = (state.assets||[]).find(function(a){ return String(a.ID) === String(id); });
   if (_stateAsset) {
@@ -3251,12 +3257,13 @@ function saveAssetDetails(keepOpen){
     renderAssetsTable();
     renderDashboard();
   }
-  if (!keepOpen) toast('Saving...');
   // --- Single combined GAS call ---
   google.script.run
     .withSuccessHandler(function(r){
+      document.querySelectorAll('#detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
       if (r && r.success === false) {
-        toast(r.error || 'Save failed', 'error');
+        // Keep modal open so error is visible in footer
+        toast(r.error || 'Save failed — data was NOT saved', 'error');
         _showSaveError('detail-save-status', r.error);
         loadData();
       } else {
@@ -3265,14 +3272,16 @@ function saveAssetDetails(keepOpen){
           _stateAsset['Local Value']  = r.localValue;
         }
         _showAutoSaved('detail-save-status');
-        if (!keepOpen) toast('Saved');
+        if (_shouldClose) { closeModal('detail-modal'); toast('Saved'); }
         renderAssetsTable();
         renderDashboard();
       }
     })
     .withFailureHandler(function(e){
+      document.querySelectorAll('#detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
+      // Keep modal open — error is shown in footer so user can't miss it
+      _showSaveError('detail-save-status', 'Save FAILED — data not saved to spreadsheet. ' + e.message);
       toast('Save failed: ' + e.message, 'error');
-      _showSaveError('detail-save-status', e.message);
       loadData();
     })
     .saveFullAsset(coreData, id, JSON.stringify(details));
@@ -3782,7 +3791,12 @@ function saveLiabilityDetails(keepOpen){
     contacts:    gv('ld-contacts'),
     notes:       gv('ld-notes')
   };
-  if (!keepOpen) closeModal('liab-detail-modal');
+  var _shouldCloseLiab = !keepOpen;
+  if (_shouldCloseLiab) {
+    var _liabStatusEl = document.getElementById('liab-save-status');
+    if (_liabStatusEl) { _liabStatusEl.innerHTML = '&#8987; Saving&hellip;'; _liabStatusEl.style.color = '#1a73e8'; }
+    document.querySelectorAll('#liab-detail-modal .btn-primary').forEach(function(b){ b.disabled=true; });
+  }
   // Optimistic local update so reopening modal immediately shows saved data
   const _liab = (state.liabilities||[]).find(l=>String(l.ID)===String(id));
   if (_liab) {
@@ -3795,27 +3809,29 @@ function saveLiabilityDetails(keepOpen){
   }
   renderDashboard();
   renderLiabilitiesTable();
-  if (!keepOpen) toast('Saving...');
   google.script.run
     .withSuccessHandler(r=>{
+      document.querySelectorAll('#liab-detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
       if(r&&r.success===false){
-        toast(r.error||'Save failed','error');
+        // Keep modal open so error is visible in footer
+        toast(r.error||'Save failed — data was NOT saved','error');
         _showSaveError('liab-save-status', r.error);
         loadData();
       } else {
         if (r && r.balance > 0 && _liab) {
           _liab.Amount = r.balance;
-          _liab['USD Value'] = r.usdValue != null ? r.usdValue : r.balance; // use server-computed FX value
+          _liab['USD Value'] = r.usdValue != null ? r.usdValue : r.balance;
           renderDashboard();
           renderLiabilitiesTable();
         }
         _showAutoSaved('liab-save-status');
-        if (!keepOpen) toast('Saved');
+        if (_shouldCloseLiab) { closeModal('liab-detail-modal'); toast('Saved'); }
       }
     })
     .withFailureHandler(e=>{
+      document.querySelectorAll('#liab-detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
+      _showSaveError('liab-save-status', 'Save FAILED — data not saved. ' + e.message);
       toast('Save failed: '+e.message,'error');
-      _showSaveError('liab-save-status', e.message);
       loadData();
     })
     .saveLiabilityDetails(id,JSON.stringify(details));
