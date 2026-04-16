@@ -3104,8 +3104,9 @@ function openAssetDetail(id){
 }
 
 function saveAssetDetails(keepOpen){
-  // Never save while the modal is still loading — prevents wiping data on quick close
-  if(_loadingDetail){ if(!keepOpen) closeModal('detail-modal'); return; }
+  // Block auto-saves (keepOpen=true) while the modal is loading — form population
+  // happens before _loadingDetail is set, so explicit saves (keepOpen=false) are safe.
+  if(_loadingDetail && keepOpen) return;
   clearTimeout(_assetAutoSave);
   const id=document.getElementById('detail-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
@@ -3799,7 +3800,7 @@ function openLiabDetail(id){
 }
 
 function saveLiabilityDetails(keepOpen){
-  if(_loadingDetail){ if(!keepOpen) closeModal('liab-detail-modal'); return; }
+  if(_loadingDetail && keepOpen) return; // Block auto-saves only; explicit saves always proceed
   clearTimeout(_liabAutoSave);
   const id=document.getElementById('ld-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
