@@ -822,6 +822,28 @@ function saveFullAsset(coreData, id, detailsJson) {
   };
 }
 
+// Fast auto-save: reads only the header row + ID column, writes just the Details cell.
+// Called by the 2-second auto-save timer — much faster than saveFullAsset (~300ms vs 1-3s).
+function saveAssetDetailsOnly(id, detailsJson) {
+  var sheet   = getSheet_('ASSETS');
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return { success: false, error: 'No asset rows' };
+  var lastCol = sheet.getLastColumn();
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var detCol  = headers.indexOf('Details') + 1;
+  var updCol  = headers.indexOf('Last Updated') + 1;
+  if (detCol < 1) return { success: false, error: 'No Details column in ASSETS sheet' };
+  var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]) === String(id)) {
+      sheet.getRange(i + 2, detCol).setValue(detailsJson || '');
+      if (updCol > 0) sheet.getRange(i + 2, updCol).setValue(new Date());
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Asset not found: ' + id };
+}
+
 function deleteAsset(id) {
   var sheet = getSheet_('ASSETS');
   var rows  = sheet.getDataRange().getValues();

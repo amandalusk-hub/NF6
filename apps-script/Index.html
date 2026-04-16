@@ -3119,11 +3119,11 @@ function openAssetDetail(id){
 }
 
 function saveAssetDetails(keepOpen){
-  // Block auto-saves (keepOpen=true) while the modal is loading — form population
-  // happens before _loadingDetail is set, so explicit saves (keepOpen=false) are safe.
+  // Block auto-saves (keepOpen=true) while the modal is loading; explicit saves always proceed.
   if(_loadingDetail && keepOpen) return;
   clearTimeout(_assetAutoSave);
   const id=document.getElementById('detail-id').value;
+  if(!id) return;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
   const details={
     status:          gv('d-status'),
@@ -3249,7 +3249,27 @@ function saveAssetDetails(keepOpen){
       };
     })
   };
-  // Also gather core field changes from the detail modal header
+
+  // Auto-save path: fast details-only write, no core-field save, no modal close.
+  if (keepOpen) {
+    var _autoAsset = (state.assets||[]).find(function(a){ return String(a.ID)===String(id); });
+    if (_autoAsset) _autoAsset.Details = JSON.stringify(details); // optimistic
+    google.script.run
+      .withSuccessHandler(function(r){
+        if (r && r.success === false) {
+          _showSaveError('detail-save-status', r.error || 'Auto-save failed');
+        } else {
+          _showAutoSaved('detail-save-status');
+        }
+      })
+      .withFailureHandler(function(e){
+        _showSaveError('detail-save-status', 'Auto-save failed: ' + e.message);
+      })
+      .saveAssetDetailsOnly(id, JSON.stringify(details));
+    return;
+  }
+
+  // Explicit save path — also saves core fields (name, value, currency, etc.)
   var _daName = (document.getElementById('da-name')||{value:''}).value.trim();
   var _daCat  = (document.getElementById('da-category')||{value:''}).value;
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
@@ -4029,12 +4049,12 @@ var _assetAutoSave=null, _liabAutoSave=null, _loadingDetail=false;
 function scheduleAssetAutoSave(){
   if(_loadingDetail) return;
   clearTimeout(_assetAutoSave);
-  _assetAutoSave=setTimeout(function(){ saveAssetDetails(true); }, 3000);
+  _assetAutoSave=setTimeout(function(){ saveAssetDetails(true); }, 2000);
 }
 function scheduleLiabAutoSave(){
   if(_loadingDetail) return;
   clearTimeout(_liabAutoSave);
-  _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 3000);
+  _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 2000);
 }
 function _showAutoSaved(statusElId){
   var el = document.getElementById(statusElId);
