@@ -667,19 +667,21 @@ function saveAssetDetails(id, detailsJson) {
   var localValCol  = headers.indexOf('Local Value') + 1;
   var usdValCol    = headers.indexOf('USD Value') + 1;
   var shareUsdCol  = headers.indexOf('My Share USD') + 1;
-  var assetName    = '';
+  var assetName  = '';
+  var savedAsset = false;
   for (var i = 1; i < assetsData.length; i++) {
-    if (String(assetsData[i][0]) === String(id)) {
-      assetName = String(assetsData[i][1] || '');
-      var newRow = assetsData[i].slice();
-      if (detailsCol  > 0) newRow[detailsCol  - 1] = detailsJson || '';
-      if (lastUpdCol  > 0) newRow[lastUpdCol   - 1] = new Date();
-      // Note: asset value (Local Value / My Share USD) is managed by updateAsset().
-      // saveAssetDetails only persists the details JSON blob; it does not override value columns.
+    if (String(assetsData[i][0]) !== String(id)) continue;
+    assetName = String(assetsData[i][1] || '');
+    var newRow = assetsData[i].slice();
+    if (detailsCol > 0) newRow[detailsCol - 1] = detailsJson || '';
+    if (lastUpdCol > 0) newRow[lastUpdCol  - 1] = new Date();
+    assetsSheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+    savedAsset = true;
+    break;
+  }
 
-      assetsSheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
-      break;
-    }
+  if (!savedAsset) {
+    return { success: false, error: 'Asset ID not found in sheet (id=' + id + '). Data was NOT saved.' };
   }
 
   // 2. Upsert row in Asset Details sheet (flat columns, spreadsheet-editable)
@@ -702,14 +704,18 @@ function saveAssetDetails(id, detailsJson) {
   }
   var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
 
-  var existingRow = -1;
-  for (var j = 1; j < detData.length; j++) {
-    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
-  }
-  if (existingRow > 0) {
-    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
-  } else {
-    detSheet.appendRow(rowData);
+  try {
+    var existingRow = -1;
+    for (var j = 1; j < detData.length; j++) {
+      if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+    }
+    if (existingRow > 0) {
+      detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+    } else {
+      detSheet.appendRow(rowData);
+    }
+  } catch(e) {
+    Logger.log('ASSET_DETAILS flat sheet update failed (non-fatal): ' + e.message);
   }
 
   return { success: true };
@@ -721,39 +727,43 @@ function saveFullAsset(coreData, id, detailsJson) {
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
-  var sheet     = getSheet_('ASSETS');
-  var allRows   = sheet.getDataRange().getValues();
-  var headers   = allRows[0];
+  var sheet      = getSheet_('ASSETS');
+  var allRows    = sheet.getDataRange().getValues();
+  var headers    = allRows[0];
   var detailsCol = headers.indexOf('Details') + 1;
-  var assetName = '';
+  var assetName  = '';
+  var savedRow   = false;
+
+  // Declare outside loop so they're accessible for the return statement
+  var shareUsd = 0, localVal = 0, ownershipPct = 0;
 
   for (var i = 1; i < allRows.length; i++) {
     if (String(allRows[i][0]) !== String(id)) continue;
 
-    assetName        = String(allRows[i][1] || '');
-    var oldUsd       = Number(allRows[i][7]) || 0;
-    var currency     = (coreData && coreData.currency) || allRows[i][4];
-    var fxRate       = getFxRate_(currency);
-    var localVal     = (coreData && coreData.localValue !== undefined) ? Number(coreData.localValue) : Number(allRows[i][5]);
-    var usdVal       = localVal * fxRate;
+    assetName    = String(allRows[i][1] || '');
+    var oldUsd   = Number(allRows[i][7]) || 0;
+    var currency = (coreData && coreData.currency) || allRows[i][4];
+    var fxRate   = getFxRate_(currency);
+    localVal     = (coreData && coreData.localValue !== undefined) ? Number(coreData.localValue) : Number(allRows[i][5]);
+    var usdVal   = localVal * fxRate;
     // Ownership % is informational only — My Share USD = local value directly (no multiplication)
-    var ownershipPct = (coreData && coreData.ownershipPct !== undefined) ? Number(coreData.ownershipPct) : Number(allRows[i][8]);
-    var shareUsd     = usdVal; // always equals Mike's entered value × FX, no % applied
-    var newRow       = allRows[i].slice();
+    ownershipPct = (coreData && coreData.ownershipPct !== undefined) ? Number(coreData.ownershipPct) : Number(allRows[i][8]);
+    shareUsd     = usdVal; // always equals Mike's entered value × FX, no % applied
+    var newRow   = allRows[i].slice();
 
     // Core field updates
     if (coreData) {
-      if (coreData.name     !== undefined) newRow[1]  = coreData.name;
-      if (coreData.category !== undefined) newRow[2]  = coreData.category;
-      if (coreData.entity   !== undefined) newRow[3]  = coreData.entity;
+      if (coreData.name      !== undefined) newRow[1]  = coreData.name;
+      if (coreData.category  !== undefined) newRow[2]  = coreData.category;
+      if (coreData.entity    !== undefined) newRow[3]  = coreData.entity;
       newRow[4]  = currency;
       newRow[5]  = localVal;
       newRow[6]  = fxRate;
       newRow[7]  = usdVal;
       newRow[8]  = ownershipPct; // stored for reference only
       newRow[9]  = shareUsd;
-      if (coreData.notes    !== undefined) newRow[12] = coreData.notes;
-      if (coreData.address  !== undefined) newRow[14] = coreData.address;
+      if (coreData.notes     !== undefined) newRow[12] = coreData.notes;
+      if (coreData.address   !== undefined) newRow[14] = coreData.address;
       if (coreData.costBasis !== undefined) newRow[15] = Number(coreData.costBasis);
     }
     // Details JSON + last updated
@@ -761,6 +771,7 @@ function saveFullAsset(coreData, id, detailsJson) {
     newRow[11] = new Date(); // Last Updated
 
     sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+    savedRow = true;
 
     if (coreData && Math.abs(usdVal - oldUsd) > 0.01) {
       logHistory_(newRow[1], oldUsd, usdVal, currency, (coreData && coreData.notes) || 'Updated');
@@ -768,30 +779,38 @@ function saveFullAsset(coreData, id, detailsJson) {
     break;
   }
 
+  if (!savedRow) {
+    return { success: false, error: 'Asset ID not found in sheet (id=' + id + '). Data was NOT saved.' };
+  }
+
   // Update flat ASSET_DETAILS sheet (for spreadsheet viewing)
-  var detSheet   = getSheet_('ASSET_DETAILS');
-  var detData    = detSheet.getDataRange().getValues();
-  var detHeaders = detData[0];
-  var contacts   = det.contacts || [];
-  var colLookup  = { 'Asset ID': id, 'Asset Name': assetName };
-  ASSET_DET_MAP.forEach(function(m) {
-    var val = det[m[0]];
-    colLookup[m[1]] = Array.isArray(val) ? JSON.stringify(val) : (val || '');
-  });
-  for (var ci = 1; ci <= 4; ci++) {
-    var c = contacts[ci - 1] || {};
-    colLookup['Contact ' + ci + ' Type'] = c.type || '';
-    colLookup['Contact ' + ci + ' Name'] = c.name || '';
-  }
-  var rowData    = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
-  var existingRow = -1;
-  for (var j = 1; j < detData.length; j++) {
-    if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
-  }
-  if (existingRow > 0) {
-    detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
-  } else {
-    detSheet.appendRow(rowData);
+  try {
+    var detSheet   = getSheet_('ASSET_DETAILS');
+    var detData    = detSheet.getDataRange().getValues();
+    var detHeaders = detData[0];
+    var contacts   = det.contacts || [];
+    var colLookup  = { 'Asset ID': id, 'Asset Name': assetName };
+    ASSET_DET_MAP.forEach(function(m) {
+      var val = det[m[0]];
+      colLookup[m[1]] = Array.isArray(val) ? JSON.stringify(val) : (val || '');
+    });
+    for (var ci = 1; ci <= 4; ci++) {
+      var c = contacts[ci - 1] || {};
+      colLookup['Contact ' + ci + ' Type'] = c.type || '';
+      colLookup['Contact ' + ci + ' Name'] = c.name || '';
+    }
+    var rowData    = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
+    var existingRow = -1;
+    for (var j = 1; j < detData.length; j++) {
+      if (String(detData[j][0]) === String(id)) { existingRow = j + 1; break; }
+    }
+    if (existingRow > 0) {
+      detSheet.getRange(existingRow, 1, 1, rowData.length).setValues([rowData]);
+    } else {
+      detSheet.appendRow(rowData);
+    }
+  } catch(e) {
+    Logger.log('ASSET_DETAILS flat sheet update failed (non-fatal): ' + e.message);
   }
 
   // Return the updated values so frontend can sync
@@ -912,8 +931,9 @@ function saveLiabilityDetails(id, detailsJson) {
     balanceNum = parseFloat(String(det.balance).replace(/[$,\s]/g, '')) || 0;
   }
 
-  var liabName = '';
-  var currency = 'USD';
+  var liabName  = '';
+  var currency  = 'USD';
+  var savedLiab = false;
   for (var i = 1; i < liabData.length; i++) {
     if (String(liabData[i][0]) !== String(id)) continue;
     liabName = String(liabData[i][1] || '');
@@ -926,7 +946,12 @@ function saveLiabilityDetails(id, detailsJson) {
       liabSheet.getRange(i + 1, amtCol).setValue(balanceNum);
       liabSheet.getRange(i + 1, usdCol).setValue(balanceNum * fxRate);
     }
+    savedLiab = true;
     break;
+  }
+
+  if (!savedLiab) {
+    return { success: false, error: 'Liability ID not found in sheet (id=' + id + '). Data was NOT saved.' };
   }
 
   // 2. Upsert row in Liability Details sheet (flat columns)
