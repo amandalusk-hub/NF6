@@ -879,7 +879,7 @@ function updateLiability(data) {
     // NOTE: Details column is intentionally NOT written here — it is managed
     // exclusively by saveLiabilityDetails(). Writing it here would cause a
     // race condition that overwrites detail data with a stale value.
-    return { success: true };
+    return { success: true, usdValue: amount * fxRate, amount: amount };
   }
   return { success: false, error: 'Liability not found' };
 }

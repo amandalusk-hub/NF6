@@ -3704,7 +3704,28 @@ function saveLiability(){
   if(!data.name){toast('Name is required','error');return;}
   showLoading(true);
   closeModal('liab-modal');
-  const fn=id?google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Update failed','error');}else{toast('Liability updated');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error');}).updateLiability(data)
+  const fn=id?google.script.run.withSuccessHandler(r=>{
+    showLoading(false);
+    if(r&&r.success===false){toast(r.error||'Update failed','error');}
+    else{
+      toast('Liability updated');
+      // Update state in-place — do NOT call loadData() which would replace state.liabilities
+      // and lose any in-flight saveLiabilityDetails auto-save data.
+      const _liab=(state.liabilities||[]).find(l=>String(l.ID)===String(data.id));
+      if(_liab){
+        if(data.name!==undefined)     _liab.Name=data.name;
+        if(data.type!==undefined)     _liab.Type=data.type;
+        if(data.currency!==undefined) _liab.Currency=data.currency;
+        if(data.amount!==undefined)   _liab.Amount=data.amount;
+        if(r.usdValue!==undefined)    _liab['USD Value']=r.usdValue;
+        if(data.notes!==undefined)    _liab.Notes=data.notes;
+        if(data.location!==undefined) _liab.Location=data.location;
+        // Details intentionally left untouched — managed by saveLiabilityDetails
+      }
+      renderDashboard();
+      renderLiabilitiesTable();
+    }
+  }).withFailureHandler(e=>{showLoading(false);toast(e.message,'error');}).updateLiability(data)
               :google.script.run.withSuccessHandler(r=>{showLoading(false);if(r&&r.success===false){toast(r.error||'Add failed','error');}else{toast('Liability added');loadData();}}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error');}).addLiability(data);
 }
 
