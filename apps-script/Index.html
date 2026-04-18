@@ -2214,9 +2214,20 @@ function renderMNWList(){
     if(!aCats[c])aCats[c]=[];
     aCats[c].push(a);
   });
+  const _catOrder=['Art/Jewelry/Other','Automobile','Cash - Business','Cash - Personal',
+    'Private Equity','Public Equity (Dividends)','Public Equity (Growth)',
+    'Real Estate - Colombia','Real Estate - Dominican Republic','Real Estate - Europe',
+    'Real Estate - Puerto Rico','Real Estate - United States','VIP Medical Group'];
   const aSorted=Object.entries(aCats)
     .map(([c,items])=>[c,items,items.reduce((s,a)=>s+num(a['My Share USD']),0)])
-    .sort((a,b)=>b[2]-a[2]);
+    .sort((a,b)=>{
+      const ai=_catOrder.findIndex(x=>x.toLowerCase()===a[0].toLowerCase());
+      const bi=_catOrder.findIndex(x=>x.toLowerCase()===b[0].toLowerCase());
+      if(ai>=0&&bi>=0) return ai-bi;
+      if(ai>=0) return -1;
+      if(bi>=0) return 1;
+      return a[0].localeCompare(b[0]);
+    });
 
   let aHtml='';
   if(!assets.length){
@@ -3381,10 +3392,8 @@ function saveAssetDetails(keepOpen){
   var _daShr  = _reOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   // Value IS the direct holding value — ownership % is informational only, never multiplied
-  // For Real Estate, localValue = full property value and mySharePct = ownership % so
-  // My Share USD = localValue × mySharePct / 100 = his actual share
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
-                   localValue: _daLoc, mySharePct: _isRE ? (_daShr || 100) : 100, ownershipPct: _daShr };
+                   localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
   if (!_daName) { if(!keepOpen) toast('Asset name cannot be empty', 'error'); return; }
   var _shouldClose = !keepOpen; // capture now — close after server confirms, not immediately
   if (_shouldClose) {

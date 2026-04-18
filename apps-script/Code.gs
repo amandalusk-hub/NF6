@@ -805,13 +805,11 @@ function saveFullAsset(coreData, id, detailsJson) {
                      ? Number(coreData.localValue)
                      : (ci('Local Value') >= 0 ? Number(allRows[i][ci('Local Value')]) : 0);
     var usdVal   = localVal * fxRate;
+    // Ownership % is informational only — My Share USD = local value directly (no multiplication)
     ownershipPct = (coreData && coreData.ownershipPct !== undefined)
                      ? Number(coreData.ownershipPct)
                      : (ci('My Share %') >= 0 ? Number(allRows[i][ci('My Share %')]) : 0);
-    var mySharePct = (coreData && coreData.mySharePct !== undefined)
-                     ? Number(coreData.mySharePct)
-                     : 100;
-    shareUsd     = usdVal * mySharePct / 100;
+    shareUsd     = usdVal; // always equals entered value × FX, no % applied
     var newRow   = allRows[i].slice();
 
     // Core field updates — all via header-based index to survive column reordering
