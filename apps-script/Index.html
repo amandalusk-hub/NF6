@@ -99,9 +99,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .mnw-cat-hdr.liabs{background:#c62828;color:#fff}
 .mnw-cat-hdr-right{display:flex;align-items:center;gap:20px}
 .mnw-cat-hdr-updated{font-weight:400;opacity:.75;font-size:11px}
-.mnw-row{display:flex;justify-content:space-between;align-items:center;padding:6px 14px 6px 22px;border-bottom:1px solid #f4f4f4;cursor:pointer}
+.mnw-row{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 14px 6px 22px;border-bottom:1px solid #f4f4f4;cursor:pointer}
 .mnw-row:hover{background:#f0f7ff}
-.mnw-row-name{font-size:13px;font-style:italic;color:#1a2e44;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:8px}
+.mnw-row-name{font-size:13px;font-style:italic;color:#1a2e44;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mnw-row-right{display:flex;align-items:center;gap:20px;flex-shrink:0}
 .mnw-row-age{font-size:11px;color:#999;min-width:80px;text-align:right}
 .mnw-row-val{font-size:13px;font-weight:600;color:#0d2137;min-width:90px;text-align:right}
@@ -2266,9 +2266,14 @@ function renderMNWList(){
           }
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
-        const showEntityPrefix=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
+        const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
+        const entityDisplay=showEntity?(a.Entity==='Personal'?'MN':esc(a.Entity)):'';
         aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
-          <span class="mnw-row-name" title="${esc(a.Name)}">${showEntityPrefix?`<span style="color:#aaa;font-size:10px;font-weight:700;margin-right:3px">${esc(a.Entity)}</span>`:''}${esc(a.Name)}${loanTag}</span>
+          <div style="flex:1;min-width:0;padding-right:8px;overflow:hidden">
+            <div class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</div>
+            ${entityDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${entityDisplay}</div>`:''}
+            ${loanTag}
+          </div>
           <div class="mnw-row-right">
             <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
             <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>
