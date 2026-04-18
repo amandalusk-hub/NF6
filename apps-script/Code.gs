@@ -161,7 +161,6 @@ function onOpen() {
     .addSeparator()
     .addItem('Install Daily Trigger', 'installTriggers')
     .addSeparator()
-    .addItem('Fix Sheet Headers (run once)', 'fixSheetHeaders')
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
@@ -618,15 +617,34 @@ function addAsset(data) {
   var usdVal   = localVal * fxRate;
   var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
   var shareUsd = usdVal * sharePct / 100;
-
   var costBasis  = Number(data.costBasis) || 0;
   var nameToSave = data.name || '';
-  sheet.appendRow([
-    id, nameToSave, data.category || '', data.entity || '',
-    data.currency || 'USD', localVal, fxRate, usdVal,
-    sharePct, shareUsd, now, now, data.notes || '', '', data.address || '', costBasis,
-    data.details || ''
-  ]);
+
+  // Build row using header-based mapping so column order doesn't matter
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var row = headers.map(function(h) {
+    switch (h) {
+      case 'ID':            return id;
+      case 'Name':          return nameToSave;
+      case 'Category':      return data.category  || '';
+      case 'Entity':        return data.entity    || '';
+      case 'Currency':      return data.currency  || 'USD';
+      case 'Local Value':   return localVal;
+      case 'USD Rate':      return fxRate;
+      case 'USD Value':     return usdVal;
+      case 'My Share %':    return sharePct;
+      case 'My Share USD':  return shareUsd;
+      case 'Date Added':    return now;
+      case 'Last Updated':  return now;
+      case 'Notes':         return data.notes    || '';
+      case 'Address':       return data.address  || '';
+      case 'Cost Basis':    return costBasis;
+      case 'Details':       return data.details  || '';
+      default:              return '';
+    }
+  });
+  sheet.appendRow(row);
+  SpreadsheetApp.flush();
   return { success: true, id: id, savedName: nameToSave };
 }
 
@@ -815,6 +833,17 @@ function saveFullAsset(coreData, id, detailsJson) {
 
     sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
     SpreadsheetApp.flush(); // ensure write is committed before function returns
+
+    // Read-back verification: confirm the Details cell actually contains the written data
+    if (ci('Details') >= 0 && detailsJson) {
+      var verifyVal = sheet.getRange(i + 1, ci('Details') + 1).getValue();
+      if (verifyVal !== detailsJson) {
+        // Retry write for the Details cell specifically
+        sheet.getRange(i + 1, ci('Details') + 1).setValue(detailsJson);
+        SpreadsheetApp.flush();
+        Logger.log('saveFullAsset: Details write required retry for id=' + id);
+      }
+    }
     savedRow = true;
 
     if (coreData && Math.abs(usdVal - oldUsd) > 0.01) {
@@ -896,6 +925,15 @@ function saveAssetDetailsOnly(id, detailsJson) {
       sheet.getRange(i + 2, detCol).setValue(detailsJson || '');
       if (updCol > 0) sheet.getRange(i + 2, updCol).setValue(new Date());
       SpreadsheetApp.flush(); // ensure write commits before XHR returns
+      // Read-back verification
+      if (detailsJson) {
+        var verifyVal = sheet.getRange(i + 2, detCol).getValue();
+        if (verifyVal !== detailsJson) {
+          sheet.getRange(i + 2, detCol).setValue(detailsJson);
+          SpreadsheetApp.flush();
+          Logger.log('saveAssetDetailsOnly: Details write required retry for id=' + id);
+        }
+      }
       return { success: true };
     }
   }
@@ -1402,46 +1440,51 @@ function refreshPropertyValues() {
 
   var sheet   = getSheet_('ASSETS');
   var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
   var updated = 0;
   var errors  = [];
 
-  for (var i = 1; i < rows.length; i++) {
-    var category = String(rows[i][2] || '').trim();
-    var currency = String(rows[i][4] || '').trim();
-    var address  = String(rows[i][14] || '').trim();
+  // Header-based column index lookup
+  function hci(name) { return headers.indexOf(name); }
 
-    if (category !== 'Real Estate' || currency !== 'USD' || !address) continue;
+  for (var i = 1; i < rows.length; i++) {
+    var category = String(hci('Category')   >= 0 ? rows[i][hci('Category')]   : '').trim();
+    var currency = String(hci('Currency')   >= 0 ? rows[i][hci('Currency')]   : '').trim();
+    var address  = String(hci('Address')    >= 0 ? rows[i][hci('Address')]    : '').trim();
+
+    if (!category.startsWith('Real Estate') || currency !== 'USD' || !address) continue;
 
     if (!/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/i.test(address)) continue;
 
     var result = getRentcastEstimate_(address, apiKey);
 
     if (!result.success) {
-      errors.push(rows[i][1] + ': ' + result.error);
+      errors.push((hci('Name') >= 0 ? rows[i][hci('Name')] : rows[i][1]) + ': ' + result.error);
       Utilities.sleep(500);
       continue;
     }
 
     var sheetRow = i + 1;
-    var oldUsd   = Number(rows[i][7]) || 0;
+    var oldUsd   = hci('USD Value')    >= 0 ? (Number(rows[i][hci('USD Value')])    || 0) : 0;
     var newUsd   = result.value;
-    var sharePct = Number(rows[i][8]) || 100;
+    var sharePct = hci('My Share %')   >= 0 ? (Number(rows[i][hci('My Share %')])   || 100) : 100;
 
-    sheet.getRange(sheetRow, 6).setValue(newUsd);
-    sheet.getRange(sheetRow, 7).setValue(1);
-    sheet.getRange(sheetRow, 8).setValue(newUsd);
-    sheet.getRange(sheetRow, 10).setValue(newUsd * sharePct / 100);
-    sheet.getRange(sheetRow, 12).setValue(new Date());
+    if (hci('Local Value')  >= 0) sheet.getRange(sheetRow, hci('Local Value')  + 1).setValue(newUsd);
+    if (hci('USD Rate')     >= 0) sheet.getRange(sheetRow, hci('USD Rate')     + 1).setValue(1);
+    if (hci('USD Value')    >= 0) sheet.getRange(sheetRow, hci('USD Value')    + 1).setValue(newUsd);
+    if (hci('My Share USD') >= 0) sheet.getRange(sheetRow, hci('My Share USD') + 1).setValue(newUsd * sharePct / 100);
+    if (hci('Last Updated') >= 0) sheet.getRange(sheetRow, hci('Last Updated') + 1).setValue(new Date());
 
-    var existingNotes = String(rows[i][12] || '');
+    var existingNotes = hci('Notes') >= 0 ? String(rows[i][hci('Notes')] || '') : '';
     var rangeNote = 'Rentcast ' + formatDate_(new Date()) +
                     ': $' + formatNumber_(result.lowValue) + '–$' + formatNumber_(result.highValue);
     var newNotes = existingNotes.replace(/Rentcast [^\|]*/g, rangeNote);
     if (newNotes === existingNotes) newNotes = existingNotes ? existingNotes + ' | ' + rangeNote : rangeNote;
-    sheet.getRange(sheetRow, 13).setValue(newNotes);
+    if (hci('Notes') >= 0) sheet.getRange(sheetRow, hci('Notes') + 1).setValue(newNotes);
 
     if (Math.abs(newUsd - oldUsd) > 0.01) {
-      logHistory_(rows[i][1], oldUsd, newUsd, 'USD', 'Auto-updated via Rentcast');
+      var assetName = hci('Name') >= 0 ? rows[i][hci('Name')] : rows[i][1];
+      logHistory_(assetName, oldUsd, newUsd, 'USD', 'Auto-updated via Rentcast');
     }
 
     updated++;
@@ -1796,14 +1839,22 @@ function syncPlaidAccounts() {
   });
 
   // ── Step 2: read sheet ONCE, build lookup maps ────────────────────────────
-  var sheet = getSheet_('ASSETS');
-  var rows  = sheet.getDataRange().getValues();
-  var now   = new Date();
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  var now     = new Date();
+
+  // Header-based column indices
+  function phci(name) { return headers.indexOf(name); }
+  var plaidCol    = phci('Plaid Account ID');
+  var nameColIdx  = phci('Name');
+  var catColIdx   = phci('Category');
+  var usdValIdx   = phci('USD Value');
 
   // Map: plaidId → row index (0-based, data rows start at 1)
   var byPlaidId = {};
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][13]) byPlaidId[rows[i][13]] = i;
+    if (plaidCol >= 0 && rows[i][plaidCol]) byPlaidId[rows[i][plaidCol]] = i;
   }
 
   // ── Step 3: match and collect updates ─────────────────────────────────────
@@ -1816,39 +1867,44 @@ function syncPlaidAccounts() {
     if (matchRow === undefined) {
       // Name+category match
       for (var i = 1; i < rows.length; i++) {
-        if (rows[i][1] === acct.name && String(rows[i][2]).startsWith('Cash')) {
+        var rName = nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1];
+        var rCat  = catColIdx  >= 0 ? rows[i][catColIdx]  : rows[i][2];
+        if (rName === acct.name && String(rCat).startsWith('Cash')) {
           matchRow = i; break;
         }
       }
     }
 
     if (matchRow !== undefined) {
+      var oldUsd = usdValIdx >= 0 ? (Number(rows[matchRow][usdValIdx]) || 0) : 0;
       updates.push({ rowIdx: matchRow, acctName: acct.name, balance: acct.balance,
-                     acctId: acct.acctId, oldUsd: Number(rows[matchRow][7]) || 0 });
+                     acctId: acct.acctId, oldUsd: oldUsd });
     } else {
       newAccts.push(acct);
     }
   });
 
-  // ── Step 4: apply all updates with one setValues call per row ─────────────
+  // ── Step 4: apply all updates using header-based column positions ──────────
   updates.forEach(function(u) {
     var r = u.rowIdx + 1;   // 1-based sheet row
-    // Columns: 2=Name, 6=LocalVal, 7=FXRate, 8=USD Value, 10=My Share USD, 12=Last Updated, 14=PlaidID
-    sheet.getRange(r, 2).setValue(u.acctName);
-    sheet.getRange(r, 6, 1, 3).setValues([[u.balance, 1, u.balance]]);   // cols 6,7,8
-    sheet.getRange(r, 10).setValue(u.balance);
-    sheet.getRange(r, 12).setValue(now);
-    sheet.getRange(r, 14).setValue(u.acctId);
+    if (phci('Name')          >= 0) sheet.getRange(r, phci('Name')          + 1).setValue(u.acctName);
+    if (phci('Local Value')   >= 0) sheet.getRange(r, phci('Local Value')   + 1).setValue(u.balance);
+    if (phci('USD Rate')      >= 0) sheet.getRange(r, phci('USD Rate')      + 1).setValue(1);
+    if (phci('USD Value')     >= 0) sheet.getRange(r, phci('USD Value')     + 1).setValue(u.balance);
+    if (phci('My Share USD')  >= 0) sheet.getRange(r, phci('My Share USD')  + 1).setValue(u.balance);
+    if (phci('Last Updated')  >= 0) sheet.getRange(r, phci('Last Updated')  + 1).setValue(now);
+    if (phci('Plaid Account ID') >= 0) sheet.getRange(r, phci('Plaid Account ID') + 1).setValue(u.acctId);
     if (Math.abs(u.balance - u.oldUsd) > 0.01) logHistory_(u.acctName, u.oldUsd, u.balance, 'USD', 'Plaid sync');
   });
 
   // ── Step 5: add new accounts (append rows) ────────────────────────────────
   newAccts.forEach(function(acct) {
-    addAsset({ name: acct.name, category: 'Cash', currency: 'USD',
+    // addAsset now uses header-based mapping, so Plaid ID is passed as a no-op field;
+    // we tag the newly appended row after the fact.
+    addAsset({ name: acct.name, category: 'Cash - Personal', currency: 'USD',
                localValue: acct.balance, mySharePct: 100, notes: 'Plaid: ' + acct.acctId });
-    // Tag the newly appended row with the Plaid ID
     var newRowCount = sheet.getLastRow();
-    sheet.getRange(newRowCount, 14).setValue(acct.acctId);
+    if (phci('Plaid Account ID') >= 0) sheet.getRange(newRowCount, phci('Plaid Account ID') + 1).setValue(acct.acctId);
   });
 
   return { success: true, synced: updates.length + newAccts.length };
