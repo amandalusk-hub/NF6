@@ -1598,7 +1598,7 @@ function onDataLoaded(d){
     const hdr=d._debug.assetHeaders||[];
     if(rc>0 && state.assets.every(a=>!num(a['My Share USD']))){
       warn.style.display='block';
-      warn.innerHTML='<strong>Header mismatch detected!</strong> Sheet has '+rc+' asset row(s) but values are all $0. Current headers: <code>'+hdr.join(', ')+'</code>. <a href="#" onclick="fixHeaders();return false">Click here to fix headers</a>.';
+      warn.innerHTML='<strong>Values showing $0 — possible column mismatch.</strong> Sheet has '+rc+' asset row(s). Current headers: <code>'+hdr.join(', ')+'</code>. The system will automatically fix this on the next save. If values remain $0, open any asset, verify its values, and hit Save.';
     }else if(rc===0){
       warn.style.display='block';
       warn.innerHTML='<strong>Assets sheet is empty.</strong> Add your first asset with the "+ Add Asset" button.';
@@ -2266,8 +2266,9 @@ function renderMNWList(){
           }
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
+        const showEntityPrefix=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
         aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
-          <span class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}${loanTag}</span>
+          <span class="mnw-row-name" title="${esc(a.Name)}">${showEntityPrefix?`<span style="color:#aaa;font-size:10px;font-weight:700;margin-right:3px">${esc(a.Entity)}</span>`:''}${esc(a.Name)}${loanTag}</span>
           <div class="mnw-row-right">
             <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
             <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>

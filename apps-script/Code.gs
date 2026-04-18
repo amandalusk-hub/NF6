@@ -1992,20 +1992,14 @@ function removePlaidConnection() {
 }
 
 function fixSheetHeaders() {
-  var ss = getSpreadsheet_();
-  Object.keys(COL).forEach(function(key) {
-    var sheetName = sheetName_(key);
-    var sheet     = ss.getSheetByName(sheetName);
-    if (!sheet) return;
-    var headers = COL[key];
-    sheet.getRange(1, 1, 1, headers.length)
-      .setValues([headers])
-      .setBackground('#0d2137')
-      .setFontColor('#ffffff')
-      .setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  });
-  SpreadsheetApp.getActiveSpreadsheet().toast('All sheet headers fixed!', 'Done', 5);
+  // SAFE version: only appends missing column headers to the right.
+  // Never rewrites or reorders existing headers — doing so would misalign
+  // headers with the actual data columns and silently corrupt all reads/writes.
+  _sheetsReady = false;
+  CacheService.getScriptCache().remove('sheets_ready');
+  CacheService.getScriptCache().remove('sheets_schema');
+  ensureSheets_();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Sheet headers verified — any missing columns have been added.', 'Done', 5);
   return { success: true };
 }
 
