@@ -2237,8 +2237,13 @@ function renderMNWList(){
         // Invested amount (original cash invested, shown below current value)
         let investedAmt=0;
         const _cat=a.Category||'';
-        if(_cat==='Private Equity' && num(det.peInitial)>0) investedAmt=num(det.peInitial);
-        else if(_cat.startsWith('Real Estate') && num(det.reMyInvestment)>0) investedAmt=num(det.reMyInvestment);
+        if(_cat==='Private Equity'){
+          const ccTotal=(det.capitalCalls||[]).reduce((s,c)=>s+num(c.amount),0);
+          const total=num(det.peInitial)+ccTotal;
+          if(total>0) investedAmt=total;
+        } else if(_cat.startsWith('Real Estate') && num(det.reMyInvestment)>0){
+          investedAmt=num(det.reMyInvestment);
+        }
 
         // Parse sub-label tags -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
         let loanTag='';
@@ -3376,8 +3381,10 @@ function saveAssetDetails(keepOpen){
   var _daShr  = _reOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   // Value IS the direct holding value — ownership % is informational only, never multiplied
+  // For Real Estate, localValue = full property value and mySharePct = ownership % so
+  // My Share USD = localValue × mySharePct / 100 = his actual share
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
-                   localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
+                   localValue: _daLoc, mySharePct: _isRE ? (_daShr || 100) : 100, ownershipPct: _daShr };
   if (!_daName) { if(!keepOpen) toast('Asset name cannot be empty', 'error'); return; }
   var _shouldClose = !keepOpen; // capture now — close after server confirms, not immediately
   if (_shouldClose) {
@@ -3778,9 +3785,9 @@ function recalcRE() {
   var noiEl = document.getElementById('re-noi-summary');
   if (noiEl) noiEl.textContent = annualRev > 0 ? 'NOI: ' + fmtUSD(annualNoi) + '/yr' : '';
 
-  // Auto-sync My Share USD to header value field
+  // Auto-sync full property value to header value field (ownership % handles the share calc)
   var localEl = document.getElementById('da-local');
-  if (localEl && myShare > 0) localEl.value = fmtAcct(myShare);
+  if (localEl && propVal > 0) localEl.value = fmtAcct(propVal);
 }
 
 // -- Liabilities Table & Modal ---------------------------------------------
