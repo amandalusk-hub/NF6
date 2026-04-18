@@ -2234,11 +2234,11 @@ function renderMNWList(){
         let det={};
         try{det=JSON.parse(a.Details||'{}');}catch(e){}
 
-        // Invested amount (original cost basis, shown below current value)
+        // Invested amount (original cash invested, shown below current value)
         let investedAmt=0;
         const _cat=a.Category||'';
         if(_cat==='Private Equity' && num(det.peInitial)>0) investedAmt=num(det.peInitial);
-        else if(_cat.startsWith('Real Estate') && num(a['Cost Basis'])>0) investedAmt=num(a['Cost Basis']);
+        else if(_cat.startsWith('Real Estate') && num(det.reMyInvestment)>0) investedAmt=num(det.reMyInvestment);
 
         // Parse sub-label tags -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
         let loanTag='';
