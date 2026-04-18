@@ -301,9 +301,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           <thead><tr>
             <th onclick="sortTable('entities','Name')">Name <span class="sort-icon">^</span></th>
             <th onclick="sortTable('entities','Type')">Type <span class="sort-icon">^</span></th>
-            <th onclick="sortTable('entities','Jurisdiction')">Jurisdiction <span class="sort-icon">^</span></th>
-            <th onclick="sortTable('entities','Ownership %')">Ownership % <span class="sort-icon">^</span></th>
-            <th>Notes</th>
+            <th>Formed In</th>
+            <th>Tax ID</th>
+            <th>Ownership</th>
+            <th>Purpose</th>
             <th>Actions</th>
           </tr></thead>
           <tbody id="entities-tbody"></tbody>
@@ -1377,27 +1378,87 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 
 <!-- Entity Modal -->
 <div class="modal-overlay" id="entity-modal">
-  <div class="modal">
+  <div class="modal" style="max-width:680px">
     <div class="modal-header">
       <div class="modal-title" id="entity-modal-title">Add Entity</div>
       <button class="modal-close" onclick="closeModal('entity-modal')">x</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="e-orig-name">
-      <div class="form-two">
-        <div class="form-row"><label>Name</label><input type="text" id="e-name" placeholder="Entity name"></div>
-        <div class="form-row"><label>Type</label>
-          <select id="e-type">
-            <option>LLC</option><option>Trust</option><option>Corporation</option>
-            <option>Partnership</option><option>Individual</option><option>Other</option>
-          </select>
+
+      <!-- Core Details -->
+      <div class="detail-section">
+        <div class="detail-section-title">Core Details</div>
+        <div class="form-two">
+          <div class="form-row"><label>Entity Name</label><input type="text" id="e-name" placeholder="e.g. Blue Panda Family LP"></div>
+          <div class="form-row"><label>Entity Type</label>
+            <select id="e-type">
+              <option>LLC</option>
+              <option>C Corporation (1120)</option>
+              <option>S Corporation (1120-S)</option>
+              <option>LP / Partnership (1065)</option>
+              <option>Trust</option>
+              <option>Individual</option>
+              <option>Sole Proprietorship</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Formed In</label><input type="text" id="e-jurisdiction" placeholder="e.g. Delaware, Puerto Rico"></div>
+          <div class="form-row"><label>Date of Creation</label><input type="date" id="e-date-created"></div>
+        </div>
+        <div class="form-two">
+          <div class="form-row"><label>Tax ID / EIN</label><input type="text" id="e-tax-id" placeholder="e.g. 84-2892294"></div>
+          <div class="form-row"><label>Trust Structure</label><input type="text" id="e-trust-structure" placeholder="e.g. 2021 MN Family Trust"></div>
+        </div>
+        <div class="form-row"><label>Purpose</label><input type="text" id="e-purpose" placeholder="e.g. RE &amp; foreign investment holding"></div>
+      </div>
+
+      <!-- Ownership -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('e-owners-body')">
+          <span>Ownership</span><span class="pe-block-chevron">-</span>
+        </div>
+        <div class="pe-block-body" id="e-owners-body">
+          <div style="display:grid;grid-template-columns:1fr 80px 28px;gap:6px;margin-bottom:4px;padding:0 4px">
+            <span style="font-size:11px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Owner / Entity</span>
+            <span style="font-size:11px;color:#8ab;font-weight:600;text-transform:uppercase;letter-spacing:.5px">%</span>
+            <span></span>
+          </div>
+          <div id="e-owners-list"></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+            <button type="button" class="btn btn-secondary" style="font-size:13px" onclick="addEntityOwnerRow()">+ Add Owner</button>
+            <span id="e-owners-total" style="font-size:12px;color:#8ab"></span>
+          </div>
         </div>
       </div>
-      <div class="form-two">
-        <div class="form-row"><label>Jurisdiction</label><input type="text" id="e-jurisdiction" placeholder="e.g. Delaware, USA"></div>
-        <div class="form-row"><label>Ownership %</label><input type="number" id="e-ownership" value="100" min="0" max="100" step="0.01"></div>
+
+      <!-- Documents -->
+      <div class="pe-block" style="margin-top:8px">
+        <div class="pe-block-hdr" onclick="toggleBlock('e-docs-body')">
+          <span>Documents</span><span class="pe-block-chevron">+</span>
+        </div>
+        <div class="pe-block-body" id="e-docs-body" style="display:none">
+          <div class="form-row">
+            <label>Operating Agreement</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="text" id="e-operating-agreement" placeholder="Paste Google Drive link" style="flex:1" oninput="updateEntityLink('e-operating-agreement','e-oa-link')">
+              <a id="e-oa-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>EIN / Tax Document</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="text" id="e-ein-document" placeholder="Paste Google Drive link" style="flex:1" oninput="updateEntityLink('e-ein-document','e-ein-link')">
+              <a id="e-ein-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="form-row"><label>Notes</label><textarea id="e-notes" placeholder="Optional notes..."></textarea></div>
+
+      <!-- Notes -->
+      <div class="form-row" style="margin-top:10px"><label>Notes</label><textarea id="e-notes" placeholder="Optional notes..."></textarea></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('entity-modal')">Cancel</button>
@@ -2312,24 +2373,37 @@ function renderEntitiesTable(){
   const q=(document.getElementById('entity-search').value||'').toLowerCase();
   let rows=[...state.entities].filter(e=>{
     if(!q)return true;
-    return (e.Name+e.Type+e.Jurisdiction).toLowerCase().includes(q);
+    return (e.Name+e.Type+(e.Jurisdiction||'')+(e['Tax ID']||'')+(e.Purpose||'')).toLowerCase().includes(q);
   });
   const {col,asc}=state.sort.entities;
   rows.sort((a,b)=>cmp(a[col],b[col],asc));
   const tb=document.getElementById('entities-tbody');
-  if(!rows.length){tb.innerHTML=`<tr><td colspan="6" class="no-data">No entities found</td></tr>`;return;}
-  tb.innerHTML=rows.map(e=>`
+  if(!rows.length){tb.innerHTML=`<tr><td colspan="7" class="no-data">No entities found</td></tr>`;return;}
+  tb.innerHTML=rows.map(e=>{
+    // Parse owners JSON for display
+    var ownersHtml='';
+    try {
+      var owners=JSON.parse(e.Owners||'[]');
+      if(owners.length){
+        ownersHtml=owners.map(o=>`<div style="white-space:nowrap;font-size:12px">${esc(o.name||'')}${o.pct?'&nbsp;<span style="color:#8ab">'+o.pct+'%</span>':''}</div>`).join('');
+      } else if(num(e['Ownership %'])){
+        ownersHtml=`<span style="font-size:12px">${num(e['Ownership %'])}%</span>`;
+      }
+    } catch(ex){ ownersHtml=num(e['Ownership %'])+'%'; }
+    return `
     <tr>
-      <td>${esc(e.Name)}</td>
+      <td style="font-weight:600">${esc(e.Name)}</td>
       <td>${esc(e.Type||'')}</td>
       <td>${esc(e.Jurisdiction||'')}</td>
-      <td>${num(e['Ownership %'])}%</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.Notes||'')}</td>
+      <td style="font-family:monospace;font-size:12px">${esc(e['Tax ID']||'')}</td>
+      <td>${ownersHtml||'--'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#8ab">${esc(e.Purpose||'')}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick='openEntityModal(${JSON.stringify(e.Name)})'>Edit</button>
         <button class="btn btn-danger btn-sm" onclick='deleteEntity(${JSON.stringify(e.Name)})'>Del</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 }
 
 // -- History Table ----------------------------------------------------------
@@ -3910,33 +3984,116 @@ function saveLiabilityDetails(keepOpen){
 }
 
 // -- Entity Modal -----------------------------------------------------------
-function openEntityModal(name){
-  const entity=name?state.entities.find(e=>e.Name==name):null;
-  document.getElementById('entity-modal-title').textContent=entity?'Edit Entity':'Add Entity';
-  document.getElementById('e-orig-name').value=entity?entity.Name:'';
-  document.getElementById('e-name').value=entity?entity.Name:'';
-  document.getElementById('e-type').value=entity?entity.Type:'LLC';
-  document.getElementById('e-jurisdiction').value=entity?entity.Jurisdiction:'';
-  document.getElementById('e-ownership').value=entity?entity['Ownership %']:100;
-  document.getElementById('e-notes').value=entity?entity.Notes:'';
+function addEntityOwnerRow(name, pct) {
+  var list = document.getElementById('e-owners-list');
+  var row = document.createElement('div');
+  row.className = 'entity-owner-row';
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 80px 28px;gap:6px;align-items:center;margin-bottom:6px';
+  row.innerHTML =
+    '<input type="text" class="owner-name" placeholder="Owner name" style="font-size:13px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:5px 8px" value="'+esc(name||'')+'" oninput="updateEntityOwnerTotal()">' +
+    '<input type="number" class="owner-pct" placeholder="%" min="0" max="100" step="0.01" style="font-size:13px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:5px 8px;text-align:right" value="'+(pct||'')+'" oninput="updateEntityOwnerTotal()">' +
+    '<button type="button" style="background:none;border:none;color:#e55;cursor:pointer;font-size:18px;line-height:1;padding:0;justify-self:center" onclick="this.closest(\'.entity-owner-row\').remove();updateEntityOwnerTotal()">×</button>';
+  list.appendChild(row);
+  updateEntityOwnerTotal();
+}
+
+function updateEntityOwnerTotal() {
+  var total = Array.from(document.querySelectorAll('#e-owners-list .owner-pct'))
+    .reduce(function(s,el){ return s + (parseFloat(el.value)||0); }, 0);
+  var el = document.getElementById('e-owners-total');
+  if (!el) return;
+  el.textContent = total ? 'Total: ' + total.toFixed(total%1?2:0) + '%' : '';
+  el.style.color = (total > 100 || (total > 0 && total < 100)) ? '#facc15' : '#1e8e3e';
+}
+
+function updateEntityLink(inputId, linkId) {
+  var v = (document.getElementById(inputId)||{}).value||'';
+  var a = document.getElementById(linkId);
+  if (!a) return;
+  if (v && v.startsWith('http')) { a.href=v; a.style.display='inline-block'; }
+  else { a.href='#'; a.style.display='none'; }
+}
+
+function openEntityModal(name) {
+  var entity = name ? state.entities.find(function(e){ return e.Name===name; }) : null;
+  document.getElementById('entity-modal-title').textContent = entity ? 'Edit Entity' : 'Add Entity';
+  document.getElementById('e-orig-name').value  = entity ? entity.Name : '';
+  document.getElementById('e-name').value       = entity ? entity.Name : '';
+  document.getElementById('e-jurisdiction').value= entity ? (entity.Jurisdiction||'') : '';
+  document.getElementById('e-date-created').value= entity ? (entity['Date Created']||'') : '';
+  document.getElementById('e-tax-id').value     = entity ? (entity['Tax ID']||'') : '';
+  document.getElementById('e-trust-structure').value = entity ? (entity['Trust Structure']||'') : '';
+  document.getElementById('e-purpose').value    = entity ? (entity.Purpose||'') : '';
+  document.getElementById('e-notes').value      = entity ? (entity.Notes||'') : '';
+
+  // Type — match option or fall back to first
+  var typeEl = document.getElementById('e-type');
+  var typeVal = entity ? (entity.Type||'') : '';
+  var typeMatched = false;
+  for (var i=0;i<typeEl.options.length;i++){
+    if(typeEl.options[i].value===typeVal){typeEl.selectedIndex=i;typeMatched=true;break;}
+  }
+  if(!typeMatched) typeEl.selectedIndex=0;
+
+  // Document links
+  var oa = entity ? (entity['Operating Agreement']||'') : '';
+  document.getElementById('e-operating-agreement').value = oa;
+  updateEntityLink('e-operating-agreement','e-oa-link');
+  var ein = entity ? (entity['EIN Document']||'') : '';
+  document.getElementById('e-ein-document').value = ein;
+  updateEntityLink('e-ein-document','e-ein-link');
+
+  // Owners
+  document.getElementById('e-owners-list').innerHTML = '';
+  var owners = [];
+  try { owners = JSON.parse(entity && entity.Owners ? entity.Owners : '[]'); } catch(ex){}
+  if (!owners.length && entity && num(entity['Ownership %'])) {
+    owners = [{ name: '', pct: num(entity['Ownership %']) }];
+  }
+  if (owners.length) {
+    owners.forEach(function(o){ addEntityOwnerRow(o.name, o.pct); });
+  } else {
+    addEntityOwnerRow('', 100);
+  }
+  updateEntityOwnerTotal();
   openModal('entity-modal');
 }
 
-function saveEntity(){
-  const origName=document.getElementById('e-orig-name').value;
-  const data={
-    originalName:origName,
-    name:document.getElementById('e-name').value.trim(),
-    type:document.getElementById('e-type').value,
-    jurisdiction:document.getElementById('e-jurisdiction').value.trim(),
-    ownershipPct:parseFloat(document.getElementById('e-ownership').value)||100,
-    notes:document.getElementById('e-notes').value.trim()
+function saveEntity() {
+  var origName = document.getElementById('e-orig-name').value;
+  var name = document.getElementById('e-name').value.trim();
+  if (!name) { toast('Entity name is required','error'); return; }
+
+  var owners = Array.from(document.querySelectorAll('#e-owners-list .entity-owner-row')).map(function(row){
+    return { name: row.querySelector('.owner-name').value.trim(),
+             pct:  parseFloat(row.querySelector('.owner-pct').value)||0 };
+  }).filter(function(o){ return o.name || o.pct; });
+  var totalPct = owners.reduce(function(s,o){ return s+o.pct; }, 0);
+
+  var data = {
+    originalName:       origName,
+    name:               name,
+    type:               document.getElementById('e-type').value,
+    jurisdiction:       document.getElementById('e-jurisdiction').value.trim(),
+    dateCreated:        document.getElementById('e-date-created').value,
+    taxId:              document.getElementById('e-tax-id').value.trim(),
+    trustStructure:     document.getElementById('e-trust-structure').value.trim(),
+    purpose:            document.getElementById('e-purpose').value.trim(),
+    operatingAgreement: document.getElementById('e-operating-agreement').value.trim(),
+    einDocument:        document.getElementById('e-ein-document').value.trim(),
+    notes:              document.getElementById('e-notes').value.trim(),
+    ownershipPct:       totalPct || 100,
+    ownersJson:         JSON.stringify(owners)
   };
-  if(!data.name){toast('Entity name is required','error');return;}
   showLoading(true);
   closeModal('entity-modal');
-  const fn=origName?google.script.run.withSuccessHandler(()=>{toast('Entity updated');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).updateEntity(data)
-                   :google.script.run.withSuccessHandler(()=>{toast('Entity added');loadData()}).withFailureHandler(e=>{showLoading(false);toast(e.message,'error')}).addEntity(data);
+  if (origName) {
+    google.script.run.withSuccessHandler(function(){ toast('Entity updated'); loadData(); })
+      .withFailureHandler(function(e){ showLoading(false); toast(e.message,'error'); }).updateEntity(data);
+  } else {
+    google.script.run.withSuccessHandler(function(){ toast('Entity added'); loadData(); })
+      .withFailureHandler(function(e){ showLoading(false); toast(e.message,'error'); }).addEntity(data);
+  }
 }
 
 function deleteEntity(name){

@@ -52,7 +52,7 @@ var SUPPORTED_CURRENCIES = {
 var COL = {
   ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details'],
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details'],
-  ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes'],
+  ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
   HISTORY:     ['Date','Asset Name','Old Value USD','New Value USD','Delta USD','Currency','Notes'],
@@ -856,24 +856,53 @@ function deleteAsset(id) {
 // ── Entities CRUD ─────────────────────────────────────────────────────────────
 
 function addEntity(data) {
-  getSheet_('ENTITIES').appendRow([
-    data.name || '', data.type || '', data.jurisdiction || '',
-    data.ownershipPct !== undefined ? Number(data.ownershipPct) : 100,
-    data.notes || ''
-  ]);
+  var sheet   = getSheet_('ENTITIES');
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var row = headers.map(function(h) {
+    switch (h) {
+      case 'Name':                return data.name                 || '';
+      case 'Type':                return data.type                 || '';
+      case 'Jurisdiction':        return data.jurisdiction         || '';
+      case 'Ownership %':         return data.ownershipPct !== undefined ? Number(data.ownershipPct) : 100;
+      case 'Notes':               return data.notes                || '';
+      case 'Tax ID':              return data.taxId                || '';
+      case 'Date Created':        return data.dateCreated          || '';
+      case 'Purpose':             return data.purpose              || '';
+      case 'Trust Structure':     return data.trustStructure       || '';
+      case 'Operating Agreement': return data.operatingAgreement   || '';
+      case 'EIN Document':        return data.einDocument          || '';
+      case 'Owners':              return data.ownersJson           || '';
+      default:                    return '';
+    }
+  });
+  sheet.appendRow(row);
   return { success: true };
 }
 
 function updateEntity(data) {
-  var sheet = getSheet_('ENTITIES');
-  var rows  = sheet.getDataRange().getValues();
+  var sheet   = getSheet_('ENTITIES');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  function ci(name) { return headers.indexOf(name); }
+  function cur(name) { var j = ci(name); return j >= 0 ? rows[i][j] : ''; }
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] !== data.originalName) continue;
-    sheet.getRange(i + 1, 1).setValue(data.name         || rows[i][0]);
-    sheet.getRange(i + 1, 2).setValue(data.type         || rows[i][1]);
-    sheet.getRange(i + 1, 3).setValue(data.jurisdiction || rows[i][2]);
-    sheet.getRange(i + 1, 4).setValue(data.ownershipPct !== undefined ? Number(data.ownershipPct) : rows[i][3]);
-    sheet.getRange(i + 1, 5).setValue(data.notes        !== undefined ? data.notes : rows[i][4]);
+    var newRow = rows[i].slice();
+    // Always-present legacy columns
+    newRow[0] = data.name             !== undefined ? data.name                          : newRow[0];
+    newRow[1] = data.type             !== undefined ? data.type                          : newRow[1];
+    newRow[2] = data.jurisdiction     !== undefined ? data.jurisdiction                  : newRow[2];
+    newRow[3] = data.ownershipPct     !== undefined ? Number(data.ownershipPct)          : newRow[3];
+    newRow[4] = data.notes            !== undefined ? data.notes                         : newRow[4];
+    // New extended columns (only written if column exists)
+    if (ci('Tax ID')              >= 0) newRow[ci('Tax ID')]              = data.taxId              !== undefined ? data.taxId              : cur('Tax ID');
+    if (ci('Date Created')        >= 0) newRow[ci('Date Created')]        = data.dateCreated        !== undefined ? data.dateCreated        : cur('Date Created');
+    if (ci('Purpose')             >= 0) newRow[ci('Purpose')]             = data.purpose            !== undefined ? data.purpose            : cur('Purpose');
+    if (ci('Trust Structure')     >= 0) newRow[ci('Trust Structure')]     = data.trustStructure     !== undefined ? data.trustStructure     : cur('Trust Structure');
+    if (ci('Operating Agreement') >= 0) newRow[ci('Operating Agreement')] = data.operatingAgreement !== undefined ? data.operatingAgreement : cur('Operating Agreement');
+    if (ci('EIN Document')        >= 0) newRow[ci('EIN Document')]        = data.einDocument        !== undefined ? data.einDocument        : cur('EIN Document');
+    if (ci('Owners')              >= 0) newRow[ci('Owners')]              = data.ownersJson         !== undefined ? data.ownersJson         : cur('Owners');
+    sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
     return { success: true };
   }
   return { success: false, error: 'Not found' };
