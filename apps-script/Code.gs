@@ -275,12 +275,25 @@ function doGet() {
 // ── Sheet Bootstrapping ───────────────────────────────────────────────────────
 
 var _sheetsReady = false;
+// Build a fingerprint of the current COL schema so the cache is automatically
+// invalidated whenever columns are added to any sheet definition.
+function _schemaFingerprint() {
+  return Object.keys(COL).map(function(k) {
+    var v = COL[k];
+    return k + ':' + (Array.isArray(v) ? v.join(',') : '');
+  }).join('|');
+}
+
 function ensureSheets_() {
   if (_sheetsReady) return;
-  // Use script cache so the full sheet scan is skipped across executions
-  // (GAS globals reset per execution, but CacheService persists for up to 6h)
+  // Use script cache so the full sheet scan is skipped across executions.
+  // The fingerprint key ensures the cache is invalidated automatically when
+  // the COL schema changes (new columns added in a code update).
   var cache = CacheService.getScriptCache();
-  if (cache.get('sheets_ready') === '1') { _sheetsReady = true; return; }
+  var fp = _schemaFingerprint();
+  if (cache.get('sheets_ready') === '1' && cache.get('sheets_schema') === fp) {
+    _sheetsReady = true; return;
+  }
 
   var ss = getSpreadsheet_();
   Object.keys(COL).forEach(function(key) {
@@ -297,7 +310,6 @@ function ensureSheets_() {
         .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
       sheet.setFrozenRows(1);
       sheet.setColumnWidth(1, 220);
-      cache.remove('sheets_ready'); // new sheet added — invalidate cache
     } else {
       var lastCol  = sheet.getLastColumn();
       var existing = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
@@ -306,11 +318,11 @@ function ensureSheets_() {
         var startCol = lastCol + 1;
         sheet.getRange(1, startCol, 1, missing.length).setValues([missing])
           .setBackground('#0d2137').setFontColor('#ffffff').setFontWeight('bold');
-        cache.remove('sheets_ready'); // schema changed — invalidate
       }
     }
   });
-  cache.put('sheets_ready', '1', 21600); // valid for 6 hours
+  cache.put('sheets_ready', '1', 21600);
+  cache.put('sheets_schema', fp, 21600);
   _sheetsReady = true;
 }
 
@@ -887,6 +899,7 @@ function addEntity(data) {
     }
   });
   sheet.appendRow(row);
+  SpreadsheetApp.flush();
   return { success: true };
 }
 
@@ -899,24 +912,24 @@ function updateEntity(data) {
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] !== data.originalName) continue;
     var newRow = rows[i].slice();
-    // Always-present legacy columns
-    newRow[0] = data.name             !== undefined ? data.name                          : newRow[0];
-    newRow[1] = data.type             !== undefined ? data.type                          : newRow[1];
-    newRow[2] = data.jurisdiction     !== undefined ? data.jurisdiction                  : newRow[2];
-    newRow[3] = data.ownershipPct     !== undefined ? Number(data.ownershipPct)          : newRow[3];
-    newRow[4] = data.notes            !== undefined ? data.notes                         : newRow[4];
-    // New extended columns (only written if column exists)
-    if (ci('Tax ID')              >= 0) newRow[ci('Tax ID')]              = data.taxId              !== undefined ? data.taxId              : cur('Tax ID');
-    if (ci('Date Created')        >= 0) newRow[ci('Date Created')]        = data.dateCreated        !== undefined ? data.dateCreated        : cur('Date Created');
-    if (ci('Purpose')             >= 0) newRow[ci('Purpose')]             = data.purpose            !== undefined ? data.purpose            : cur('Purpose');
-    if (ci('Trust Structure')     >= 0) newRow[ci('Trust Structure')]     = data.trustStructure     !== undefined ? data.trustStructure     : cur('Trust Structure');
+    // All columns via header-based lookup — immune to column reordering
+    if (ci('Name')               >= 0) newRow[ci('Name')]               = data.name               !== undefined ? data.name                 : cur('Name');
+    if (ci('Type')               >= 0) newRow[ci('Type')]               = data.type               !== undefined ? data.type                 : cur('Type');
+    if (ci('Jurisdiction')       >= 0) newRow[ci('Jurisdiction')]       = data.jurisdiction       !== undefined ? data.jurisdiction         : cur('Jurisdiction');
+    if (ci('Ownership %')        >= 0) newRow[ci('Ownership %')]        = data.ownershipPct       !== undefined ? Number(data.ownershipPct) : cur('Ownership %');
+    if (ci('Notes')              >= 0) newRow[ci('Notes')]              = data.notes              !== undefined ? data.notes               : cur('Notes');
+    if (ci('Tax ID')             >= 0) newRow[ci('Tax ID')]             = data.taxId              !== undefined ? data.taxId               : cur('Tax ID');
+    if (ci('Date Created')       >= 0) newRow[ci('Date Created')]       = data.dateCreated        !== undefined ? data.dateCreated         : cur('Date Created');
+    if (ci('Purpose')            >= 0) newRow[ci('Purpose')]            = data.purpose            !== undefined ? data.purpose             : cur('Purpose');
+    if (ci('Trust Structure')    >= 0) newRow[ci('Trust Structure')]    = data.trustStructure     !== undefined ? data.trustStructure      : cur('Trust Structure');
     if (ci('Operating Agreement') >= 0) newRow[ci('Operating Agreement')] = data.operatingAgreement !== undefined ? data.operatingAgreement : cur('Operating Agreement');
-    if (ci('EIN Document')        >= 0) newRow[ci('EIN Document')]        = data.einDocument        !== undefined ? data.einDocument        : cur('EIN Document');
-    if (ci('Owners')              >= 0) newRow[ci('Owners')]              = data.ownersJson         !== undefined ? data.ownersJson         : cur('Owners');
+    if (ci('EIN Document')       >= 0) newRow[ci('EIN Document')]       = data.einDocument        !== undefined ? data.einDocument         : cur('EIN Document');
+    if (ci('Owners')             >= 0) newRow[ci('Owners')]             = data.ownersJson         !== undefined ? data.ownersJson          : cur('Owners');
     sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+    SpreadsheetApp.flush();
     return { success: true };
   }
-  return { success: false, error: 'Not found' };
+  return { success: false, error: 'Entity not found: ' + data.originalName };
 }
 
 function deleteEntity(name) {
