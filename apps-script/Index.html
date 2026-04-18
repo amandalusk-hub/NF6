@@ -2231,11 +2231,18 @@ function renderMNWList(){
         </div>
       </div>`;
       [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
-        // Parse due date tag -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
+        let det={};
+        try{det=JSON.parse(a.Details||'{}');}catch(e){}
+
+        // Invested amount (original cost basis, shown below current value)
+        let investedAmt=0;
+        const _cat=a.Category||'';
+        if(_cat==='Private Equity' && num(det.peInitial)>0) investedAmt=num(det.peInitial);
+        else if(_cat.startsWith('Real Estate') && num(a['Cost Basis'])>0) investedAmt=num(a['Cost Basis']);
+
+        // Parse sub-label tags -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
         let loanTag='';
         try{
-          let det={};
-          try{det=JSON.parse(a.Details||'{}');}catch(e){}
           const parts=[];
           // Borrower + payment summary sub-label (loans only)
           if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
@@ -2274,9 +2281,12 @@ function renderMNWList(){
             ${entityDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${entityDisplay}</div>`:''}
             ${loanTag}
           </div>
-          <div class="mnw-row-right">
+          <div class="mnw-row-right" style="align-items:flex-start">
             <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
-            <span class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</span>
+            <div style="text-align:right">
+              <div class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</div>
+              ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">Invested ${fmtUSD(investedAmt)}</div>`:''}
+            </div>
           </div>
         </div>`;
       });
