@@ -609,43 +609,45 @@ function addAsset(data) {
 }
 
 function updateAsset(data) {
-  var sheet = getSheet_('ASSETS');
-  var rows  = sheet.getDataRange().getValues();
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  function ci(name) { return headers.indexOf(name); }
+  function cur(name) { var j = ci(name); return j >= 0 ? rows[i][j] : ''; }
 
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] !== data.id) continue;
 
-    var oldUsd   = Number(rows[i][7]) || 0;
-    var currency = data.currency || rows[i][4];
+    var oldUsd   = ci('USD Value') >= 0 ? (Number(rows[i][ci('USD Value')]) || 0) : 0;
+    var currency = data.currency || cur('Currency') || 'USD';
     var fxRate   = getFxRate_(currency);
-    var localVal = data.localValue !== undefined ? Number(data.localValue) : Number(rows[i][5]);
+    var localVal = data.localValue !== undefined ? Number(data.localValue) : (Number(cur('Local Value')) || 0);
     var usdVal   = localVal * fxRate;
-    var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : Number(rows[i][8]);
+    var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : (Number(cur('My Share %')) || 0);
     var shareUsd = usdVal * sharePct / 100;
     var now      = new Date();
 
-    var updates = [
-      [2,  data.name     !== undefined ? data.name     : rows[i][1]],
-      [3,  data.category !== undefined ? data.category : rows[i][2]],
-      [4,  data.entity   !== undefined ? data.entity   : rows[i][3]],
-      [5,  currency],
-      [6,  localVal],
-      [7,  fxRate],
-      [8,  usdVal],
-      [9,  sharePct],
-      [10, shareUsd],
-      [12, now],
-      [13, data.notes   !== undefined ? data.notes   : rows[i][12]],
-      [15, data.address  !== undefined ? data.address  : rows[i][14]],
-      [16, data.costBasis !== undefined ? Number(data.costBasis) : (Number(rows[i][15]) || 0)],
-      [17, data.details   !== undefined ? data.details           : (rows[i][16] || '')]
-    ];
     var newRow = rows[i].slice();
-    updates.forEach(function(u) { newRow[u[0] - 1] = u[1]; });
+    if (ci('Name')       >= 0) newRow[ci('Name')]       = data.name     !== undefined ? data.name     : cur('Name');
+    if (ci('Category')   >= 0) newRow[ci('Category')]   = data.category !== undefined ? data.category : cur('Category');
+    if (ci('Entity')     >= 0) newRow[ci('Entity')]      = data.entity   !== undefined ? data.entity   : cur('Entity');
+    if (ci('Currency')   >= 0) newRow[ci('Currency')]   = currency;
+    if (ci('Local Value') >= 0) newRow[ci('Local Value')] = localVal;
+    if (ci('USD Rate')   >= 0) newRow[ci('USD Rate')]   = fxRate;
+    if (ci('USD Value')  >= 0) newRow[ci('USD Value')]  = usdVal;
+    if (ci('My Share %') >= 0) newRow[ci('My Share %')] = sharePct;
+    if (ci('My Share USD') >= 0) newRow[ci('My Share USD')] = shareUsd;
+    if (ci('Last Updated') >= 0) newRow[ci('Last Updated')] = now;
+    if (ci('Notes')      >= 0) newRow[ci('Notes')]      = data.notes    !== undefined ? data.notes    : cur('Notes');
+    if (ci('Address')    >= 0) newRow[ci('Address')]    = data.address  !== undefined ? data.address  : cur('Address');
+    if (ci('Cost Basis') >= 0) newRow[ci('Cost Basis')] = data.costBasis !== undefined ? Number(data.costBasis) : (Number(cur('Cost Basis')) || 0);
+    if (ci('Details')    >= 0) newRow[ci('Details')]    = data.details  !== undefined ? data.details  : cur('Details');
     sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+    SpreadsheetApp.flush();
 
     if (Math.abs(usdVal - oldUsd) > 0.01) {
-      logHistory_(data.name || rows[i][1], oldUsd, usdVal, currency, data.notes || 'Manual update');
+      var nameForLog = ci('Name') >= 0 ? newRow[ci('Name')] : (data.name || rows[i][1]);
+      logHistory_(nameForLog, oldUsd, usdVal, currency, data.notes || 'Manual update');
     }
     return { success: true };
   }
@@ -727,12 +729,14 @@ function saveFullAsset(coreData, id, detailsJson) {
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
-  var sheet      = getSheet_('ASSETS');
-  var allRows    = sheet.getDataRange().getValues();
-  var headers    = allRows[0];
-  var detailsCol = headers.indexOf('Details') + 1;
-  var assetName  = '';
-  var savedRow   = false;
+  var sheet   = getSheet_('ASSETS');
+  var allRows = sheet.getDataRange().getValues();
+  var headers = allRows[0];
+  var assetName = '';
+  var savedRow  = false;
+
+  // Header-based column index lookup — immune to column reordering
+  function ci(name) { return headers.indexOf(name); }
 
   // Declare outside loop so they're accessible for the return statement
   var shareUsd = 0, localVal = 0, ownershipPct = 0;
@@ -740,41 +744,47 @@ function saveFullAsset(coreData, id, detailsJson) {
   for (var i = 1; i < allRows.length; i++) {
     if (String(allRows[i][0]) !== String(id)) continue;
 
-    assetName    = String(allRows[i][1] || '');
-    var oldUsd   = Number(allRows[i][7]) || 0;
-    var currency = (coreData && coreData.currency) || allRows[i][4];
+    assetName    = String((ci('Name') >= 0 ? allRows[i][ci('Name')] : allRows[i][1]) || '');
+    var oldUsd   = ci('USD Value') >= 0 ? (Number(allRows[i][ci('USD Value')]) || 0) : 0;
+    var currency = (coreData && coreData.currency) || (ci('Currency') >= 0 ? allRows[i][ci('Currency')] : 'USD');
     var fxRate   = getFxRate_(currency);
-    localVal     = (coreData && coreData.localValue !== undefined) ? Number(coreData.localValue) : Number(allRows[i][5]);
+    localVal     = (coreData && coreData.localValue !== undefined)
+                     ? Number(coreData.localValue)
+                     : (ci('Local Value') >= 0 ? Number(allRows[i][ci('Local Value')]) : 0);
     var usdVal   = localVal * fxRate;
     // Ownership % is informational only — My Share USD = local value directly (no multiplication)
-    ownershipPct = (coreData && coreData.ownershipPct !== undefined) ? Number(coreData.ownershipPct) : Number(allRows[i][8]);
-    shareUsd     = usdVal; // always equals Mike's entered value × FX, no % applied
+    ownershipPct = (coreData && coreData.ownershipPct !== undefined)
+                     ? Number(coreData.ownershipPct)
+                     : (ci('My Share %') >= 0 ? Number(allRows[i][ci('My Share %')]) : 0);
+    shareUsd     = usdVal; // always equals entered value × FX, no % applied
     var newRow   = allRows[i].slice();
 
-    // Core field updates
+    // Core field updates — all via header-based index to survive column reordering
     if (coreData) {
-      if (coreData.name      !== undefined) newRow[1]  = coreData.name;
-      if (coreData.category  !== undefined) newRow[2]  = coreData.category;
-      if (coreData.entity    !== undefined) newRow[3]  = coreData.entity;
-      newRow[4]  = currency;
-      newRow[5]  = localVal;
-      newRow[6]  = fxRate;
-      newRow[7]  = usdVal;
-      newRow[8]  = ownershipPct; // stored for reference only
-      newRow[9]  = shareUsd;
-      if (coreData.notes     !== undefined) newRow[12] = coreData.notes;
-      if (coreData.address   !== undefined) newRow[14] = coreData.address;
-      if (coreData.costBasis !== undefined) newRow[15] = Number(coreData.costBasis);
+      if (coreData.name      !== undefined && ci('Name')       >= 0) newRow[ci('Name')]       = coreData.name;
+      if (coreData.category  !== undefined && ci('Category')   >= 0) newRow[ci('Category')]   = coreData.category;
+      if (coreData.entity    !== undefined && ci('Entity')     >= 0) newRow[ci('Entity')]      = coreData.entity;
+      if (ci('Currency')    >= 0) newRow[ci('Currency')]    = currency;
+      if (ci('Local Value') >= 0) newRow[ci('Local Value')] = localVal;
+      if (ci('USD Rate')    >= 0) newRow[ci('USD Rate')]    = fxRate;
+      if (ci('USD Value')   >= 0) newRow[ci('USD Value')]   = usdVal;
+      if (ci('My Share %')  >= 0) newRow[ci('My Share %')]  = ownershipPct;
+      if (ci('My Share USD') >= 0) newRow[ci('My Share USD')] = shareUsd;
+      if (coreData.notes     !== undefined && ci('Notes')      >= 0) newRow[ci('Notes')]      = coreData.notes;
+      if (coreData.address   !== undefined && ci('Address')    >= 0) newRow[ci('Address')]    = coreData.address;
+      if (coreData.costBasis !== undefined && ci('Cost Basis') >= 0) newRow[ci('Cost Basis')] = Number(coreData.costBasis);
     }
-    // Details JSON + last updated
-    if (detailsCol > 0) newRow[detailsCol - 1] = detailsJson || '';
-    newRow[11] = new Date(); // Last Updated
+    // Details JSON + last updated — always by header name
+    if (ci('Details')      >= 0) newRow[ci('Details')]      = detailsJson || '';
+    if (ci('Last Updated') >= 0) newRow[ci('Last Updated')] = new Date();
 
     sheet.getRange(i + 1, 1, 1, newRow.length).setValues([newRow]);
+    SpreadsheetApp.flush(); // ensure write is committed before function returns
     savedRow = true;
 
     if (coreData && Math.abs(usdVal - oldUsd) > 0.01) {
-      logHistory_(newRow[1], oldUsd, usdVal, currency, (coreData && coreData.notes) || 'Updated');
+      var nameForLog = ci('Name') >= 0 ? newRow[ci('Name')] : newRow[1];
+      logHistory_(nameForLog, oldUsd, usdVal, currency, (coreData && coreData.notes) || 'Updated');
     }
     break;
   }
@@ -794,10 +804,10 @@ function saveFullAsset(coreData, id, detailsJson) {
       var val = det[m[0]];
       colLookup[m[1]] = Array.isArray(val) ? JSON.stringify(val) : (val || '');
     });
-    for (var ci = 1; ci <= 4; ci++) {
-      var c = contacts[ci - 1] || {};
-      colLookup['Contact ' + ci + ' Type'] = c.type || '';
-      colLookup['Contact ' + ci + ' Name'] = c.name || '';
+    for (var cIdx = 1; cIdx <= 4; cIdx++) {
+      var c = contacts[cIdx - 1] || {};
+      colLookup['Contact ' + cIdx + ' Type'] = c.type || '';
+      colLookup['Contact ' + cIdx + ' Name'] = c.name || '';
     }
     var rowData    = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
     var existingRow = -1;
@@ -838,6 +848,7 @@ function saveAssetDetailsOnly(id, detailsJson) {
     if (String(ids[i][0]) === String(id)) {
       sheet.getRange(i + 2, detCol).setValue(detailsJson || '');
       if (updCol > 0) sheet.getRange(i + 2, updCol).setValue(new Date());
+      SpreadsheetApp.flush(); // ensure write commits before XHR returns
       return { success: true };
     }
   }
