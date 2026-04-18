@@ -1410,7 +1410,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="form-two">
           <div class="form-row"><label>Tax ID / EIN</label><input type="text" id="e-tax-id" placeholder="e.g. 84-2892294"></div>
-          <div class="form-row"><label>Trust Structure</label><input type="text" id="e-trust-structure" placeholder="e.g. 2021 MN Family Trust"></div>
+          <div class="form-row"><label>Trust Structure</label><select id="e-trust-structure" style="width:100%"><option value="">-- Select Trust --</option><option value="MN Family Trust - Irrevocable">MN Family Trust - Irrevocable</option><option value="2019 MN Family Revocable Trust">2019 MN Family Revocable Trust</option><option value="NF6 Family 2026 Trust">NF6 Family 2026 Trust</option></select></div>
         </div>
         <div class="form-row"><label>Purpose</label><input type="text" id="e-purpose" placeholder="e.g. RE &amp; foreign investment holding"></div>
       </div>
@@ -2343,7 +2343,7 @@ function renderAssetsTable(){
   tb.innerHTML=rows.map(a=>`
     <tr style="cursor:pointer" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
       <td>
-        <span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
+        ${a.Entity?`<span style="color:#888;font-size:11px;font-weight:600">${esc(a.Entity)}</span> `:`<span style="color:#888;font-size:11px;font-weight:600">MN</span> `}<span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
         ${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}
       </td>
       <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
@@ -3783,7 +3783,7 @@ function renderLiabilitiesTable(){
   tb.innerHTML=rows.map(l=>`
     <tr style="cursor:pointer" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
       <td style="font-weight:500">
-        <span style="color:#c5221f">${esc(l.Name||'')}</span>
+        ${l.Entity?`<span style="color:#888;font-size:11px;font-weight:600">${esc(l.Entity)}</span> `:`<span style="color:#888;font-size:11px;font-weight:600">MN</span> `}<span style="color:#c5221f">${esc(l.Name||'')}</span>
         ${l.Location?`<div style="font-size:11px;color:#888;margin-top:2px;font-style:italic">${esc(l.Location)}</div>`:''}
       </td>
       <td><span class="badge" style="background:#fce8e622;color:#c5221f">${esc(l.Type||'')}</span></td>
