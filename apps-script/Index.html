@@ -3331,13 +3331,17 @@ function saveAssetDetails(keepOpen){
     google.script.run
       .withSuccessHandler(function(r){
         if (r && r.success === false) {
-          _showSaveError('detail-save-status', r.error || 'Auto-save failed');
+          var msg = r.error || 'Auto-save failed — your data may not be saved';
+          _showSaveError('detail-save-status', msg);
+          toast(msg, 'error'); // prominent alert so it's not missed
         } else {
           _showAutoSaved('detail-save-status');
         }
       })
       .withFailureHandler(function(e){
-        _showSaveError('detail-save-status', 'Auto-save failed: ' + e.message);
+        var msg = 'Auto-save failed: ' + e.message;
+        _showSaveError('detail-save-status', msg);
+        toast(msg, 'error');
       })
       .saveAssetDetailsOnly(id, JSON.stringify(details));
     return;

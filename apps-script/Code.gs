@@ -81,7 +81,11 @@ var COL = {
     // ── Private Equity ────────────────────────────────────────────────────
     'PE Manager','PE Tax Treatment','PE Year Invested','PE Target Exit Year',
     'PE Year Sold','PE Year Written Off','PE Initial Investment','PE Ownership %',
-    'PE Maturity Date','PE Return Rate','PE Capital Calls','PE Distributions','PE Notes'
+    'PE Maturity Date','PE Return Rate','PE Capital Calls','PE Distributions','PE Notes',
+    // ── Automobile ────────────────────────────────────────────────────────
+    'Vehicle','Year','VIN','License Plate',
+    'Insurance Provider','Insurance Policy','Insurance Start','Insurance End','Insurance Renewal',
+    'Auto Drive Folder'
   ],
   LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
   ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
@@ -103,7 +107,7 @@ var ASSET_DET_MAP = [
   ['loanOriginal','Original Amount'],['loanBalance','Outstanding Balance'],
   ['loanRate','Interest Rate'],['loanStatus','Loan Status'],['loanDate','Loan Date'],
   ['loanDue','Due Date'],['loanTerms','Loan Terms'],['loanPayment','Payment Schedule'],
-  ['loanReceived','Received To Date'],['loanCollateral','Collateral'],
+  ['loanInterestAccrued','Received To Date'],['loanCollateral','Collateral'],
   ['loanDrive','Drive Link'],['loanAttorney','Attorney'],['loanNotes','Loan Notes'],
   // Cash / Bank
   ['cashBank','Cash Bank'],['cashAcctType','Cash Account Type'],
@@ -118,7 +122,13 @@ var ASSET_DET_MAP = [
   ['peInitial','PE Initial Investment'],['peOwnership','PE Ownership %'],
   ['peMaturity','PE Maturity Date'],['peRate','PE Return Rate'],
   ['capitalCalls','PE Capital Calls'],['distributions','PE Distributions'],
-  ['peNotes','PE Notes']
+  ['peNotes','PE Notes'],
+  // Automobile
+  ['autoVehicle','Vehicle'],['autoYear','Year'],['autoVin','VIN'],
+  ['autoPlate','License Plate'],['autoInsProvider','Insurance Provider'],
+  ['autoInsPolicy','Insurance Policy'],['autoInsStart','Insurance Start'],
+  ['autoInsEnd','Insurance End'],['autoInsRenewal','Insurance Renewal'],
+  ['autoDrive','Auto Drive Folder']
 ];
 
 // Maps JS field names ↔ Liability Details sheet column names
@@ -744,6 +754,19 @@ function saveFullAsset(coreData, id, detailsJson) {
   var sheet   = getSheet_('ASSETS');
   var allRows = sheet.getDataRange().getValues();
   var headers = allRows[0];
+
+  // Auto-create the Details column if it doesn't exist yet (missed by cached ensureSheets_)
+  if (headers.indexOf('Details') < 0) {
+    _sheetsReady = false;
+    CacheService.getScriptCache().remove('sheets_schema');
+    ensureSheets_();
+    allRows  = sheet.getDataRange().getValues();
+    headers  = allRows[0];
+    if (headers.indexOf('Details') < 0) {
+      return { success: false, error: 'Details column missing from ASSETS sheet — run Setup Database Structure from the spreadsheet menu to fix' };
+    }
+  }
+
   var assetName = '';
   var savedRow  = false;
 
@@ -854,7 +877,19 @@ function saveAssetDetailsOnly(id, detailsJson) {
   var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   var detCol  = headers.indexOf('Details') + 1;
   var updCol  = headers.indexOf('Last Updated') + 1;
-  if (detCol < 1) return { success: false, error: 'No Details column in ASSETS sheet' };
+
+  // Auto-create the Details column if it doesn't exist yet
+  if (detCol < 1) {
+    _sheetsReady = false;
+    CacheService.getScriptCache().remove('sheets_schema');
+    ensureSheets_();
+    lastCol = sheet.getLastColumn();
+    headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    detCol  = headers.indexOf('Details') + 1;
+    updCol  = headers.indexOf('Last Updated') + 1;
+    if (detCol < 1) return { success: false, error: 'Details column missing from ASSETS sheet — run Setup Database Structure from the spreadsheet menu to fix' };
+  }
+
   var ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
   for (var i = 0; i < ids.length; i++) {
     if (String(ids[i][0]) === String(id)) {
