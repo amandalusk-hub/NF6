@@ -1919,11 +1919,11 @@ function syncPlaidAccounts() {
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
 
 function syncSnapTradeAccounts() {
-  var holdings;
-  try { holdings = getAllHoldings(); } catch(e) {
+  var accounts;
+  try { accounts = listSnapTradeAccounts(); } catch(e) {
     return { success: false, error: 'SnapTrade API error: ' + e.message };
   }
-  if (!holdings || !holdings.length) {
+  if (!accounts || !accounts.length) {
     return { success: false, error: 'No SnapTrade accounts found. Use Connect Schwab / Connect Fidelity first.' };
   }
 
@@ -1933,7 +1933,7 @@ function syncSnapTradeAccounts() {
   var now     = new Date();
   function ci(name) { return headers.indexOf(name); }
 
-  // Build lookup: snapTradeId → row index (1-based data rows stored as 0-based offset from row 1)
+  // Build lookup: snapTradeId → row index
   var bySnapId = {};
   var stCol    = ci('SnapTrade ID');
   for (var i = 1; i < rows.length; i++) {
@@ -1943,53 +1943,28 @@ function syncSnapTradeAccounts() {
 
   var synced = 0;
 
-  holdings.forEach(function(item) {
-    var info      = item.account   || {};
-    var balances  = item.balances  || [];
-    var positions = item.positions || [];
-    var acctId    = info.id;
+  // One row per account using total balance — mirrors the Plaid/Chase pattern.
+  // Individual holdings are NOT synced to avoid double-counting net worth.
+  accounts.forEach(function(acct) {
+    var acctId = acct.id;
     if (!acctId) return;
 
-    var inst  = info.institution_name || '';
-    var aName = info.name             || 'Account';
-    var last4 = (info.number || '').replace(/\D/g, '').slice(-4);
+    var inst   = acct.institution_name || '';
+    var aName  = acct.name             || 'Account';
+    var last4  = (acct.number || '').replace(/\D/g, '').slice(-4);
     var suffix = last4 ? ' \u00b7\u00b7\u00b7' + last4 : '';
+    var total  = (acct.balance && acct.balance.total) ? (Number(acct.balance.total.amount) || 0) : 0;
+    var cur    = (acct.balance && acct.balance.total && acct.balance.total.currency)
+                   ? acct.balance.total.currency : 'USD';
 
-    // ── Cash row ─────────────────────────────────────────────────────────
-    var cashBal = 0;
-    balances.forEach(function(b) {
-      var cur = (b.currency && b.currency.code) ? b.currency.code : 'USD';
-      if (cur === 'USD') cashBal += (Number(b.cash) || 0);
-    });
     snapUpsert_(sheet, rows, headers, ci, bySnapId, now, {
       snapId:   acctId,
       name:     (inst ? inst + ' - ' : '') + aName + suffix,
-      category: 'Cash - Personal',
-      currency: 'USD',
-      value:    cashBal
+      category: 'Public Equity (Growth)',
+      currency: cur,
+      value:    total
     });
     synced++;
-
-    // ── Position rows ────────────────────────────────────────────────────
-    positions.forEach(function(pos) {
-      var sym = '';
-      try { sym = pos.symbol.symbol.symbol; } catch(e2) {}
-      if (!sym) return;
-
-      var units  = Number(pos.units) || 0;
-      var price  = Number(pos.price) || 0;
-      var avgCost = Number(pos.average_purchase_price) || 0;
-
-      snapUpsert_(sheet, rows, headers, ci, bySnapId, now, {
-        snapId:    acctId + ':' + sym,
-        name:      (inst ? inst + ' - ' : '') + sym,
-        category:  'Public Equity (Growth)',
-        currency:  'USD',
-        value:     units * price,
-        costBasis: units * avgCost
-      });
-      synced++;
-    });
   });
 
   return { success: true, synced: synced };
@@ -2004,7 +1979,7 @@ function snapUpsert_(sheet, rows, headers, ci, bySnapId, now, data) {
   if (matchRow !== undefined) {
     var r      = matchRow + 1;
     var oldUsd = ci('USD Value') >= 0 ? (Number(rows[matchRow][ci('USD Value')]) || 0) : 0;
-    if (ci('Name')         >= 0) sheet.getRange(r, ci('Name')         + 1).setValue(data.name);
+    // Name is intentionally NOT overwritten — lets the user rename without it reverting on sync
     if (ci('Local Value')  >= 0) sheet.getRange(r, ci('Local Value')  + 1).setValue(data.value);
     if (ci('USD Rate')     >= 0) sheet.getRange(r, ci('USD Rate')     + 1).setValue(fxRate);
     if (ci('USD Value')    >= 0) sheet.getRange(r, ci('USD Value')    + 1).setValue(usdVal);
