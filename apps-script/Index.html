@@ -216,6 +216,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
         <button class="btn btn-secondary" onclick="recoverDetailsFromSheet()" style="background:#1a3d6e;color:#7eb8f7;border-color:#2a5080" title="Restore detail data (contacts, payments, etc.) from spreadsheet">Restore Data</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
+        <button class="btn btn-secondary" onclick="connectBrokerage('SCHWAB')">Connect Schwab</button>
+        <button class="btn btn-secondary" onclick="connectBrokerage('FIDELITY')">Connect Fidelity</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
         <button class="btn btn-secondary" onclick="manageBankNames()" style="opacity:.75;font-size:12px">Bank Names</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
@@ -4210,11 +4212,10 @@ function refreshRates(){
 // -- Property Values ---------------------------------------------------------
 function syncAccounts(){
   showLoading(true);
-  toast('Syncing bank accounts — this can take 30-60s with multiple institutions...','success');
-  // Safety timeout: if GAS takes too long, unblock the UI and let it finish in background
+  toast('Syncing all accounts (Plaid + SnapTrade) — this can take 30-60s...','success');
   var _syncTimeout = setTimeout(function(){
     showLoading(false);
-    toast('Sync is taking longer than expected. It may still be running — refresh the page in a minute to see updated balances.','error');
+    toast('Sync is taking longer than expected. It may still be running — refresh in a minute.','error');
   }, 90000);
   google.script.run
     .withSuccessHandler(function(r){
@@ -4222,11 +4223,25 @@ function syncAccounts(){
       showLoading(false);
       if(r&&r.success===false){toast(r.error||'Sync failed','error');return;}
       var updated = r&&r.synced!=null ? r.synced : 0;
-      toast('Sync complete — '+updated+' account(s) updated');
+      var warn = r&&r.errors&&r.errors.length ? ' (warnings: '+r.errors.join('; ')+')' : '';
+      toast('Sync complete — '+updated+' account(s) updated'+warn);
       loadData();
     })
     .withFailureHandler(function(e){clearTimeout(_syncTimeout);showLoading(false);toast('Sync error: '+e.message,'error');})
-    .syncPlaidAccounts();
+    .syncAllAccounts();
+}
+
+function connectBrokerage(broker){
+  var label = broker==='SCHWAB' ? 'Charles Schwab' : 'Fidelity';
+  toast('Generating '+label+' connection link...','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(!r||!r.redirectURI){toast('Could not get connection URL','error');return;}
+      window.open(r.redirectURI,'_blank');
+      toast('Connection portal opened in new tab. After linking, click Sync Accounts.','success');
+    })
+    .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
+    .generateConnectionPortalUrl(broker);
 }
 
 function refreshProperties(){

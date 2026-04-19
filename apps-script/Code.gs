@@ -50,7 +50,7 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID'],
   LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
@@ -154,8 +154,12 @@ function onOpen() {
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
+    .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
-    .addItem('Connect Bank Account', 'openPlaidLink')
+    .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
+    .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
+    .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
     .addItem('Remove Plaid Connection', 'removePlaidConnection')
     .addSeparator()
@@ -639,7 +643,9 @@ function addAsset(data) {
       case 'Notes':         return data.notes    || '';
       case 'Address':       return data.address  || '';
       case 'Cost Basis':    return costBasis;
-      case 'Details':       return data.details  || '';
+      case 'Details':       return data.details      || '';
+      case 'Source':        return data.source        || '';
+      case 'SnapTrade ID':  return data.snapTradeId   || '';
       default:              return '';
     }
   });
@@ -1910,6 +1916,118 @@ function syncPlaidAccounts() {
   return { success: true, synced: updates.length + newAccts.length };
 }
 
+// ── SnapTrade Sync ────────────────────────────────────────────────────────────
+
+function syncSnapTradeAccounts() {
+  var holdings;
+  try { holdings = getAllHoldings(); } catch(e) {
+    return { success: false, error: 'SnapTrade API error: ' + e.message };
+  }
+  if (!holdings || !holdings.length) {
+    return { success: false, error: 'No SnapTrade accounts found. Use Connect Schwab / Connect Fidelity first.' };
+  }
+
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  var now     = new Date();
+  function ci(name) { return headers.indexOf(name); }
+
+  // Build lookup: snapTradeId → row index (1-based data rows stored as 0-based offset from row 1)
+  var bySnapId = {};
+  var stCol    = ci('SnapTrade ID');
+  for (var i = 1; i < rows.length; i++) {
+    var stId = stCol >= 0 ? String(rows[i][stCol] || '') : '';
+    if (stId) bySnapId[stId] = i;
+  }
+
+  var synced = 0;
+
+  holdings.forEach(function(item) {
+    var info      = item.account   || {};
+    var balances  = item.balances  || [];
+    var positions = item.positions || [];
+    var acctId    = info.id;
+    if (!acctId) return;
+
+    var inst  = info.institution_name || '';
+    var aName = info.name             || 'Account';
+    var last4 = (info.number || '').replace(/\D/g, '').slice(-4);
+    var suffix = last4 ? ' \u00b7\u00b7\u00b7' + last4 : '';
+
+    // ── Cash row ─────────────────────────────────────────────────────────
+    var cashBal = 0;
+    balances.forEach(function(b) {
+      var cur = (b.currency && b.currency.code) ? b.currency.code : 'USD';
+      if (cur === 'USD') cashBal += (Number(b.cash) || 0);
+    });
+    snapUpsert_(sheet, rows, headers, ci, bySnapId, now, {
+      snapId:   acctId,
+      name:     (inst ? inst + ' - ' : '') + aName + suffix,
+      category: 'Cash - Personal',
+      currency: 'USD',
+      value:    cashBal
+    });
+    synced++;
+
+    // ── Position rows ────────────────────────────────────────────────────
+    positions.forEach(function(pos) {
+      var sym = '';
+      try { sym = pos.symbol.symbol.symbol; } catch(e2) {}
+      if (!sym) return;
+
+      var units  = Number(pos.units) || 0;
+      var price  = Number(pos.price) || 0;
+      var avgCost = Number(pos.average_purchase_price) || 0;
+
+      snapUpsert_(sheet, rows, headers, ci, bySnapId, now, {
+        snapId:    acctId + ':' + sym,
+        name:      (inst ? inst + ' - ' : '') + sym,
+        category:  'Public Equity (Growth)',
+        currency:  'USD',
+        value:     units * price,
+        costBasis: units * avgCost
+      });
+      synced++;
+    });
+  });
+
+  return { success: true, synced: synced };
+}
+
+// Upsert helper — updates existing SnapTrade row or creates a new one.
+function snapUpsert_(sheet, rows, headers, ci, bySnapId, now, data) {
+  var fxRate = getFxRate_(data.currency || 'USD');
+  var usdVal = (Number(data.value) || 0) * fxRate;
+  var matchRow = bySnapId[data.snapId];
+
+  if (matchRow !== undefined) {
+    var r      = matchRow + 1;
+    var oldUsd = ci('USD Value') >= 0 ? (Number(rows[matchRow][ci('USD Value')]) || 0) : 0;
+    if (ci('Name')         >= 0) sheet.getRange(r, ci('Name')         + 1).setValue(data.name);
+    if (ci('Local Value')  >= 0) sheet.getRange(r, ci('Local Value')  + 1).setValue(data.value);
+    if (ci('USD Rate')     >= 0) sheet.getRange(r, ci('USD Rate')     + 1).setValue(fxRate);
+    if (ci('USD Value')    >= 0) sheet.getRange(r, ci('USD Value')    + 1).setValue(usdVal);
+    if (ci('My Share USD') >= 0) sheet.getRange(r, ci('My Share USD') + 1).setValue(usdVal);
+    if (ci('Last Updated') >= 0) sheet.getRange(r, ci('Last Updated') + 1).setValue(now);
+    if (data.costBasis !== undefined && ci('Cost Basis') >= 0)
+      sheet.getRange(r, ci('Cost Basis') + 1).setValue(data.costBasis);
+    if (Math.abs(usdVal - oldUsd) > 0.01)
+      logHistory_(data.name, oldUsd, usdVal, data.currency || 'USD', 'SnapTrade sync');
+  } else {
+    addAsset({
+      name:        data.name,
+      category:    data.category,
+      currency:    data.currency || 'USD',
+      localValue:  data.value,
+      mySharePct:  100,
+      costBasis:   data.costBasis || 0,
+      source:      'SnapTrade',
+      snapTradeId: data.snapId
+    });
+  }
+}
+
 // ── Plaid UI Helpers ──────────────────────────────────────────────────────────
 
 function setPlaidCredentials() {
@@ -2024,9 +2142,17 @@ function installTriggers() {
   return { success: true };
 }
 
+function syncAllAccounts() {
+  var synced = 0;
+  var errors = [];
+  try { var p = syncPlaidAccounts();    if (p && p.synced)  synced += p.synced;  } catch(e) { errors.push('Plaid: '     + e.message); }
+  try { var s = syncSnapTradeAccounts(); if (s && s.synced)  synced += s.synced;  } catch(e) { errors.push('SnapTrade: ' + e.message); }
+  return { success: true, synced: synced, errors: errors.length ? errors : undefined };
+}
+
 function dailySync_() {
   fetchExchangeRates();
-  syncPlaidAccounts();
+  syncAllAccounts();
   refreshPropertyValues();
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
