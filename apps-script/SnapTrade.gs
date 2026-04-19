@@ -370,20 +370,14 @@ function openSnapTradePortalDialog_(brokerCode, brokerLabel) {
     var result = generateConnectionPortalUrl(brokerCode);
     var url    = result && result.redirectURI;
     if (!url) throw new Error('No redirectURI returned from SnapTrade.');
-    var html = HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:20px">' +
-      '<p>Click below to connect your <b>' + brokerLabel + '</b> account.</p>' +
-      '<p style="color:#888;font-size:12px">The link expires in 5 minutes. After connecting, ' +
-      'close this dialog and run <b>Sync SnapTrade (Schwab + Fidelity)</b>.</p>' +
-      '<div style="text-align:center;margin:24px 0">' +
-      '<a href="' + url + '" target="_blank" ' +
-      'style="background:#1a73e8;color:#fff;padding:12px 28px;border-radius:4px;' +
-      'text-decoration:none;font-size:14px">Open Connection Portal</a>' +
-      '</div></div>'
-    ).setWidth(420).setHeight(200);
-    SpreadsheetApp.getUi().showModalDialog(html, 'Connect ' + brokerLabel);
+    SpreadsheetApp.getUi().alert(
+      'Connect ' + brokerLabel,
+      'Copy and open this URL in your browser (link expires in 5 minutes):\n\n' + url +
+      '\n\nAfter connecting, run  Tracker → Sync SnapTrade (Schwab + Fidelity).',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
   } catch(e) {
-    SpreadsheetApp.getUi().alert('Error generating connection URL: ' + e.message);
+    SpreadsheetApp.getUi().alert('SnapTrade Error', e.message, SpreadsheetApp.getUi().ButtonSet.OK);
   }
 }
 
