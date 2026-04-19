@@ -2153,6 +2153,8 @@ function instSortBalances_(items, cat) {
       var n  = a['Name'] || '';
       var di = n.indexOf(' - ');
       key = di >= 0 ? n.substring(0, di) : n;
+      // Normalize: strip qualifiers so "JP Morgan Brokerage" groups with "JP Morgan"
+      key = key.replace(/\s+Brokerage$/i, '').trim();
     }
     if (!groupMap[key]) groupMap[key] = [];
     groupMap[key].push(a);

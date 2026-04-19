@@ -2219,6 +2219,8 @@ function _instSort(items, cat){
       const n=a.Name||a['Name']||'';
       const di=n.indexOf(' - ');
       key=di>=0?n.substring(0,di):n;
+      // Normalize: strip qualifiers so "JP Morgan Brokerage" groups with "JP Morgan"
+      key=key.replace(/\s+Brokerage$/i,'').trim();
     }
     if(!groupMap[key])groupMap[key]=[];
     groupMap[key].push(a);
