@@ -570,7 +570,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <div class="modal" style="max-width:780px">
     <div class="modal-header" style="align-items:flex-start">
       <div style="flex:1;min-width:0">
-        <input type="text" id="da-name" placeholder="Asset name" style="font-size:16px;font-weight:600;width:100%;background:none;border:none;border-bottom:1px solid #2a4060;color:inherit;padding:2px 0 4px;outline:none;margin-bottom:8px">
+        <input type="text" id="da-name" placeholder="Asset name" oninput="scheduleAssetAutoSave()" style="font-size:16px;font-weight:600;width:100%;background:none;border:none;border-bottom:1px solid #2a4060;color:inherit;padding:2px 0 4px;outline:none;margin-bottom:8px">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <select id="da-category" onchange="onDetailCategoryChange()" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px">
             <option>Real Estate - United States</option><option>Real Estate - Colombia</option><option>Real Estate - Puerto Rico</option>
@@ -3356,16 +3356,29 @@ function saveAssetDetails(keepOpen){
     })
   };
 
-  // Auto-save path: fast details-only write, no core-field save, no modal close.
+  // Auto-save path: saves everything (name + core fields + details) so name changes are never lost.
   if (keepOpen) {
+    var _autoName = (document.getElementById('da-name')||{value:''}).value.trim();
+    var _autoCat  = (document.getElementById('da-category')||{value:''}).value;
+    var _autoEnt  = (document.getElementById('da-entity')||{value:''}).value;
+    var _autoCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
+    var _autoIsRE = _autoCat.startsWith('Real Estate');
+    var _autoReOwn= _autoIsRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
+    var _autoShr  = _autoReOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
+    var _autoLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
+    var _autoCoreData = { id: id, name: _autoName||undefined, category: _autoCat, entity: _autoEnt,
+                          currency: _autoCur, localValue: _autoLoc, mySharePct: 100, ownershipPct: _autoShr };
     var _autoAsset = (state.assets||[]).find(function(a){ return String(a.ID)===String(id); });
-    if (_autoAsset) _autoAsset.Details = JSON.stringify(details); // optimistic
+    if (_autoAsset) {
+      if (_autoName) _autoAsset.Name = _autoName;
+      _autoAsset.Details = JSON.stringify(details);
+    }
     google.script.run
       .withSuccessHandler(function(r){
         if (r && r.success === false) {
           var msg = r.error || 'Auto-save failed — your data may not be saved';
           _showSaveError('detail-save-status', msg);
-          toast(msg, 'error'); // prominent alert so it's not missed
+          toast(msg, 'error');
         } else {
           _showAutoSaved('detail-save-status');
         }
@@ -3375,7 +3388,7 @@ function saveAssetDetails(keepOpen){
         _showSaveError('detail-save-status', msg);
         toast(msg, 'error');
       })
-      .saveAssetDetailsOnly(id, JSON.stringify(details));
+      .saveFullAsset(_autoCoreData, id, JSON.stringify(details));
     return;
   }
 
