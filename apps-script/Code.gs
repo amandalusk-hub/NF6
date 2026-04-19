@@ -14,21 +14,21 @@
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 var CATEGORIES = [
-  'Real Estate - United States',
-  'Real Estate - Colombia',
-  'Real Estate - Puerto Rico',
-  'Real Estate - Dominican Republic',
-  'Real Estate - Europe',
-  'Cash - Personal',
+  'Art/Jewelry/Other',
+  'Automobile',
   'Cash - Business',
+  'Cash - Personal',
+  'Loans Receivable',
   'Private Equity',
   'Public Equity (Dividends)',
   'Public Equity (Growth)',
-  'Loans Receivable',
-  'Automobile',
-  'Art/Jewelry/Other',
-  'Crypto',
+  'Real Estate - Colombia',
+  'Real Estate - Dominican Republic',
+  'Real Estate - Europe',
+  'Real Estate - Puerto Rico',
+  'Real Estate - United States',
   'VIP Medical Group',
+  'Crypto',
   'Insurance',
   'Other'
 ];
