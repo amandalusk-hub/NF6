@@ -1893,7 +1893,7 @@ function syncPlaidAccounts() {
   // ── Step 4: apply all updates using header-based column positions ──────────
   updates.forEach(function(u) {
     var r = u.rowIdx + 1;   // 1-based sheet row
-    if (phci('Name')          >= 0) sheet.getRange(r, phci('Name')          + 1).setValue(u.acctName);
+    // Name intentionally not overwritten — preserves user-edited names (e.g. Chase → JP Morgan)
     if (phci('Local Value')   >= 0) sheet.getRange(r, phci('Local Value')   + 1).setValue(u.balance);
     if (phci('USD Rate')      >= 0) sheet.getRange(r, phci('USD Rate')      + 1).setValue(1);
     if (phci('USD Value')     >= 0) sheet.getRange(r, phci('USD Value')     + 1).setValue(u.balance);
