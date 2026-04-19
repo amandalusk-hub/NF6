@@ -2207,17 +2207,24 @@ function daysSince(dateVal){
 
 // Sort items within a category: group by institution (by combined total desc),
 // then within each institution group sort by value desc.
-function _instSort(items){
-  const instMap={};
+// For Loans Receivable and Private Equity: group by Entity instead of institution.
+function _instSort(items, cat){
+  const byEntity=cat==='Loans Receivable'||cat==='Private Equity';
+  const groupMap={};
   items.forEach(a=>{
-    const n=a.Name||a['Name']||'';
-    const di=n.indexOf(' - ');
-    const inst=di>=0?n.substring(0,di):n;
-    if(!instMap[inst])instMap[inst]=[];
-    instMap[inst].push(a);
+    let key;
+    if(byEntity){
+      key=a.Entity||a['Entity']||'(No Entity)';
+    }else{
+      const n=a.Name||a['Name']||'';
+      const di=n.indexOf(' - ');
+      key=di>=0?n.substring(0,di):n;
+    }
+    if(!groupMap[key])groupMap[key]=[];
+    groupMap[key].push(a);
   });
-  return Object.entries(instMap)
-    .map(([inst,accts])=>({inst,accts,tot:accts.reduce((s,a)=>s+num(a['My Share USD']),0)}))
+  return Object.entries(groupMap)
+    .map(([key,accts])=>({key,accts,tot:accts.reduce((s,a)=>s+num(a['My Share USD']),0)}))
     .sort((a,b)=>b.tot-a.tot)
     .flatMap(({accts})=>accts.sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])));
 }
@@ -2260,7 +2267,7 @@ function renderMNWList(){
           <span>${fmtUSD(total)}</span>
         </div>
       </div>`;
-      _instSort(items).forEach(a=>{
+      _instSort(items,cat).forEach(a=>{
         let det={};
         try{det=JSON.parse(a.Details||'{}');}catch(e){}
 

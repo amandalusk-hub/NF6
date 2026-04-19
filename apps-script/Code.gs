@@ -2139,22 +2139,29 @@ function dailySync_() {
 
 // ── Balances Sheet (Tiller-style Net Worth view) ──────────────────────────────
 
-// Sort items within a category: institution groups ordered by combined total desc,
-// within each group sorted by value desc. Institution = text before first ' - '.
-function instSortBalances_(items) {
-  var instMap = {};
+/// Sort items within a category: institution groups ordered by combined total desc,
+// within each group sorted by value desc. For Loans Receivable and Private Equity,
+// groups by Entity instead of institution name.
+function instSortBalances_(items, cat) {
+  var byEntity = (cat === 'Loans Receivable' || cat === 'Private Equity');
+  var groupMap = {};
   items.forEach(function(a) {
-    var n  = a['Name'] || '';
-    var di = n.indexOf(' - ');
-    var inst = di >= 0 ? n.substring(0, di) : n;
-    if (!instMap[inst]) instMap[inst] = [];
-    instMap[inst].push(a);
+    var key;
+    if (byEntity) {
+      key = a['Entity'] || '(No Entity)';
+    } else {
+      var n  = a['Name'] || '';
+      var di = n.indexOf(' - ');
+      key = di >= 0 ? n.substring(0, di) : n;
+    }
+    if (!groupMap[key]) groupMap[key] = [];
+    groupMap[key].push(a);
   });
   var sorted = [];
-  Object.keys(instMap)
-    .map(function(inst) {
-      return { inst: inst, accts: instMap[inst],
-               tot: instMap[inst].reduce(function(s,a){ return s + a._usd; }, 0) };
+  Object.keys(groupMap)
+    .map(function(key) {
+      return { key: key, accts: groupMap[key],
+               tot: groupMap[key].reduce(function(s,a){ return s + a._usd; }, 0) };
     })
     .sort(function(a,b){ return b.tot - a.tot; })
     .forEach(function(g) {
@@ -2255,7 +2262,7 @@ function generateBalancesSheet() {
     var catTotal = items.reduce(function(s, a) { return s + a._usd; }, 0);
     var latest   = latestDate(items);
     assetRows.push({ type: 'cat_header', label: cat, updated: daysAgo(latest), total: catTotal });
-    instSortBalances_(items).forEach(function(a) {
+    instSortBalances_(items, cat).forEach(function(a) {
       assetRows.push({ type: 'item', label: a['Name'] || '', updated: daysAgo(a._lastUpdated), value: a._usd });
     });
   });
