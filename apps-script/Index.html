@@ -2205,6 +2205,23 @@ function daysSince(dateVal){
   return n+' days ago';
 }
 
+// Sort items within a category: group by institution (by combined total desc),
+// then within each institution group sort by value desc.
+function _instSort(items){
+  const instMap={};
+  items.forEach(a=>{
+    const n=a.Name||a['Name']||'';
+    const di=n.indexOf(' - ');
+    const inst=di>=0?n.substring(0,di):n;
+    if(!instMap[inst])instMap[inst]=[];
+    instMap[inst].push(a);
+  });
+  return Object.entries(instMap)
+    .map(([inst,accts])=>({inst,accts,tot:accts.reduce((s,a)=>s+num(a['My Share USD']),0)}))
+    .sort((a,b)=>b.tot-a.tot)
+    .flatMap(({accts})=>accts.sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])));
+}
+
 function renderMNWList(){
   const assets=state.assets||[];
   const liabs=state.liabilities||[];
@@ -2243,7 +2260,7 @@ function renderMNWList(){
           <span>${fmtUSD(total)}</span>
         </div>
       </div>`;
-      [...items].sort((a,b)=>num(b['My Share USD'])-num(a['My Share USD'])).forEach(a=>{
+      _instSort(items).forEach(a=>{
         let det={};
         try{det=JSON.parse(a.Details||'{}');}catch(e){}
 
