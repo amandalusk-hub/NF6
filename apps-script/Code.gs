@@ -2122,7 +2122,7 @@ function installTriggers() {
 
 function setWeeklyPDFRecipient() {
   var ui   = SpreadsheetApp.getUi();
-  var resp = ui.prompt('Weekly PDF Email', 'Enter the email address to receive the weekly Balances PDF:', ui.ButtonSet.OK_CANCEL);
+  var resp = ui.prompt('Weekly PDF Email', 'Enter email address(es) to receive the weekly Balances PDF.\nFor multiple recipients, separate with commas:\n e.g. alice@example.com, bob@example.com', ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   var email = resp.getResponseText().trim();
   if (!email) { ui.alert('No email entered.'); return; }
