@@ -2167,12 +2167,13 @@ function weeklyPDFEmail() {
   var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
   var pdfBlob = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
 
-  GmailApp.sendEmail(
-    recipient,
-    'Weekly Net Worth Summary — ' + dateLabel,
-    'Your weekly net worth summary is attached.',
-    { attachments: [pdfBlob], name: 'Net Worth Tracker' }
-  );
+  MailApp.sendEmail({
+    to:          recipient,
+    subject:     'Weekly Net Worth Summary — ' + dateLabel,
+    body:        'Your weekly net worth summary is attached.',
+    name:        'Net Worth Tracker',
+    attachments: [pdfBlob]
+  });
 
   Logger.log('weeklyPDFEmail: sent to ' + recipient);
   return { success: true };
