@@ -163,7 +163,8 @@ function onOpen() {
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
     .addItem('Remove Plaid Connection', 'removePlaidConnection')
     .addSeparator()
-    .addItem('Install Daily Trigger', 'installTriggers')
+    .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
+    .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
     .addSeparator()
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
@@ -2110,10 +2111,70 @@ function debugSheetHeaders() {
 
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'dailySync_') ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('dailySync_').timeBased().everyDays(1).atHour(7).create();
-  SpreadsheetApp.getActiveSpreadsheet().toast('Daily sync scheduled for 7 AM', 'Trigger Installed', 5);
+  ScriptApp.newTrigger('weeklyPDFEmail').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync at 7AM + weekly PDF email on Mondays at 8AM', 'Triggers Installed', 5);
+  return { success: true };
+}
+
+function setWeeklyPDFRecipient() {
+  var ui   = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Weekly PDF Email', 'Enter the email address to receive the weekly Balances PDF:', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var email = resp.getResponseText().trim();
+  if (!email) { ui.alert('No email entered.'); return; }
+  PropertiesService.getScriptProperties().setProperty('WEEKLY_PDF_RECIPIENT', email);
+  ui.alert('Weekly PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mondays at 8 AM.');
+}
+
+function weeklyPDFEmail() {
+  var props     = PropertiesService.getScriptProperties();
+  var recipient = props.getProperty('WEEKLY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('weeklyPDFEmail: WEEKLY_PDF_RECIPIENT not set — skipping');
+    return { success: false, error: 'No recipient configured. Use Tracker → Set Weekly PDF Email Recipient.' };
+  }
+
+  // Regenerate Balances sheet to ensure it is current
+  generateBalancesSheet();
+
+  var ss    = getSpreadsheet_();
+  var sheet = ss.getSheetByName('Balances');
+  if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
+
+  var ssId    = ss.getId();
+  var sheetId = sheet.getSheetId();
+  var url = 'https://docs.google.com/spreadsheets/d/' + ssId +
+            '/export?exportFormat=pdf&format=pdf' +
+            '&size=letter&portrait=false&fitw=true&gridlines=false' +
+            '&sheetnames=false&printtitle=false&pagenumbers=false' +
+            '&gid=' + sheetId;
+
+  var token    = ScriptApp.getOAuthToken();
+  var response = UrlFetchApp.fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + token },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() !== 200) {
+    return { success: false, error: 'PDF export failed: HTTP ' + response.getResponseCode() };
+  }
+
+  var dateStr = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
+  var pdfBlob = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
+
+  GmailApp.sendEmail(
+    recipient,
+    'Weekly Net Worth Summary — ' + dateLabel,
+    'Your weekly net worth summary is attached.',
+    { attachments: [pdfBlob], name: 'Net Worth Tracker' }
+  );
+
+  Logger.log('weeklyPDFEmail: sent to ' + recipient);
   return { success: true };
 }
 

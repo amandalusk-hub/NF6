@@ -583,7 +583,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <option>Crypto</option><option>VIP Medical Group</option><option>Insurance</option><option>Other</option>
           </select>
           <select id="da-entity" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px"><option value="">-- Entity --</option></select>
-          <select id="da-currency" onchange="updateDetailPreview()" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px">
+          <select id="da-currency" onchange="updateDetailPreview(); updateCurrencyLabel(); recalcRE();" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px">
             <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option><option>BRL</option>
             <option>MXN</option><option>CAD</option><option>JPY</option><option>CHF</option><option>AUD</option><option>DOP</option>
           </select>
@@ -2933,7 +2933,7 @@ function onDetailCategoryChange(){
   if (valRow) valRow.style.display = 'flex';
   // Label for the value field — always Mike's direct value
   var lbl = document.getElementById('da-local-label');
-  if (lbl) lbl.textContent = "Value";
+  if (lbl) { var _lc=(document.getElementById('da-currency')||{}).value||'USD'; lbl.textContent = _lc!=='USD'?'Value ('+_lc+')':'Value'; }
   // Ownership % always shown (informational only, never used in calculation)
   var shrWrap = document.getElementById('da-share-wrap');
   if (shrWrap) shrWrap.style.display = 'flex';
@@ -2966,8 +2966,13 @@ function updateDetailPreview(){
   if (rate > 0) {
     previewEl.textContent = '≈ ' + fmtUSD(localAmt * rate) + ' USD';
   } else {
-    previewEl.textContent = '(no FX rate)';
+    previewEl.textContent = '(no FX rate — run Tracker → Refresh FX Rates)';
   }
+}
+function updateCurrencyLabel() {
+  var cur = (document.getElementById('da-currency')||{}).value || 'USD';
+  var lbl = document.getElementById('da-local-label');
+  if (lbl) lbl.textContent = cur !== 'USD' ? 'Value (' + cur + ')' : 'Value';
 }
 
 
@@ -3079,6 +3084,7 @@ function openAssetDetail(id){
   var _ownershipPct = _daIsPE ? (det0.peOwnership || num(asset['My Share %'])) : num(asset['My Share %']);
   document.getElementById('da-share').value = _ownershipPct||'';
   updateDetailPreview();
+  updateCurrencyLabel();
 
   let det={}; try{det=JSON.parse(asset.Details||'{}');}catch(e){det={}; }
 
@@ -3785,12 +3791,18 @@ function recalcRE() {
   var cat = (document.getElementById('da-category')||{}).value || '';
   if (!cat.startsWith('Real Estate')) return;
 
+  // FX rate: convert local currency amounts to USD for display
+  var cur      = (document.getElementById('da-currency')||{}).value || 'USD';
+  var fxEntry  = (state.fxRates||[]).find(function(r){ return r.Currency === cur; });
+  var fxRate   = (fxEntry && num(fxEntry['Rate to USD']) > 0) ? num(fxEntry['Rate to USD']) : 1;
+  var toUSD    = function(v) { return v * fxRate; };
+
   var propVal  = parseAcct((document.getElementById('d-re-property-value')||{value:''}).value);
   var ownership= parseFloat((document.getElementById('d-re-ownership')||document.getElementById('da-share')||{}).value || '0') || 0;
   var invested = parseAcct((document.getElementById('d-re-invested')||{value:''}).value);
   var purchaseDateStr = (document.getElementById('d-purchase-date')||{}).value || '';
 
-  // Income/expense for cap rate & NOI
+  // Income/expense for cap rate & NOI (all in local currency)
   var revenue     = parseAcct((document.getElementById('d-revenue')||{value:''}).value);
   var opex        = parseAcct((document.getElementById('d-opex')||{value:''}).value);
   var taxes       = parseAcct((document.getElementById('d-taxes')||{value:''}).value);
@@ -3812,7 +3824,6 @@ function recalcRE() {
     var purchaseDate = new Date(purchaseDateStr);
     var daysElapsed  = Math.max(1, (Date.now() - purchaseDate.getTime()) / 86400000);
     var yearsElapsed = daysElapsed / 365;
-    // Total return = unrealized appreciation + NOI received over hold period
     var totalReturn  = unrealizedGain + (annualNoi > 0 ? annualNoi * yearsElapsed : 0);
     if (yearsElapsed > 0) {
       returnText = ((totalReturn / invested / yearsElapsed) * 100).toFixed(1) + '%';
@@ -3822,22 +3833,29 @@ function recalcRE() {
   var gainColor = unrealizedGain >= 0 ? '#4ade80' : '#f87171';
   var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
   var setColor = function(id, c) { var el = document.getElementById(id); if (el) el.style.color = c; };
-  set('d-re-prop-val-display', propVal  > 0 ? fmtUSD(propVal)   : '--');
-  set('d-re-my-share-display', myShare  > 0 ? fmtUSD(myShare)   : '--');
+  // Property value: show in local currency so the raw number is meaningful
+  var propValStr = propVal > 0
+    ? (cur !== 'USD' ? cur + ' ' + Math.round(propVal).toLocaleString('en-US') : fmtUSD(propVal))
+    : '--';
+  set('d-re-prop-val-display', propValStr);
+  set('d-re-my-share-display', myShare  > 0 ? fmtUSD(toUSD(myShare))          : '--');
   set('d-re-return-display',   returnText);
-  set('d-re-invested-display', invested > 0 ? fmtUSD(invested)  : '--');
-  set('d-re-gain-display',     (myShare > 0 && invested > 0) ? fmtUSD(unrealizedGain) : '--');
+  set('d-re-invested-display', invested > 0 ? fmtUSD(toUSD(invested))         : '--');
+  set('d-re-gain-display',     (myShare > 0 && invested > 0) ? fmtUSD(toUSD(unrealizedGain)) : '--');
   setColor('d-re-gain-display', gainColor);
   set('d-re-cap-rate-display', capRate  > 0 ? capRate.toFixed(1) + '%' : '--');
-  set('re-annual-rev', annualRev > 0 ? fmtUSD(annualRev) : '--');
-  set('re-annual-exp', annualExp > 0 ? fmtUSD(annualExp) : '--');
-  set('re-annual-noi', annualRev > 0 ? fmtUSD(annualNoi) : '--');
+  set('re-annual-rev', annualRev > 0 ? fmtUSD(toUSD(annualRev)) : '--');
+  set('re-annual-exp', annualExp > 0 ? fmtUSD(toUSD(annualExp)) : '--');
+  set('re-annual-noi', annualRev > 0 ? fmtUSD(toUSD(annualNoi)) : '--');
   var noiEl = document.getElementById('re-noi-summary');
-  if (noiEl) noiEl.textContent = annualRev > 0 ? 'NOI: ' + fmtUSD(annualNoi) + '/yr' : '';
+  if (noiEl) noiEl.textContent = annualRev > 0 ? 'NOI: ' + fmtUSD(toUSD(annualNoi)) + '/yr' : '';
 
-  // Auto-sync full property value to header value field (ownership % handles the share calc)
+  // Auto-sync full property value to header value field (in local currency; FX handled on save)
   var localEl = document.getElementById('da-local');
-  if (localEl && propVal > 0) localEl.value = fmtAcct(propVal);
+  if (localEl && propVal > 0) {
+    localEl.value = fmtAcct(propVal);
+    updateDetailPreview(); // refresh the ≈ USD preview
+  }
 }
 
 // -- Liabilities Table & Modal ---------------------------------------------
