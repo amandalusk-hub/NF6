@@ -2275,13 +2275,16 @@ function renderMNWList(){
 
         // Invested amount (original cash invested, shown below current value)
         let investedAmt=0;
+        let investedYear='';
         const _cat=a.Category||'';
         if(_cat==='Private Equity'){
           const ccTotal=(det.capitalCalls||[]).reduce((s,c)=>s+num(c.amount),0);
           const total=num(det.peInitial)+ccTotal;
           if(total>0) investedAmt=total;
+          if(det.peYearIn) investedYear=String(det.peYearIn);
         } else if(_cat.startsWith('Real Estate') && num(det.reMyInvestment)>0){
           investedAmt=num(det.reMyInvestment);
+          if(det.purchaseDate){ try{ investedYear=String(new Date(det.purchaseDate).getFullYear()); }catch(e){} }
         }
 
         // Parse sub-label tags -- shown for Loans Receivable, Private Equity, and any asset with a maturity date
@@ -2329,7 +2332,7 @@ function renderMNWList(){
             <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
             <div style="text-align:right">
               <div class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</div>
-              ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">Invested ${fmtUSD(investedAmt)}</div>`:''}
+              ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">${investedYear?`<span style="color:#bbb;margin-right:5px">${investedYear}</span>`:''}Invested ${fmtUSD(investedAmt)}</div>`:''}
             </div>
           </div>
         </div>`;

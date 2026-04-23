@@ -2242,6 +2242,7 @@ function generateBalancesSheet() {
   // ── get or create the Balances sheet ──────────────────────────────────────
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (sheet) {
+    sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
     sheet.clearContents();
     sheet.clearFormats();
   } else {
@@ -2536,6 +2537,56 @@ function generateBalancesSheet() {
   // ── Hide gridlines & freeze top rows ──────────────────────────────────────
   sheet.setHiddenGridlines(true);
   sheet.setFrozenRows(5);
+
+  // ── Pie charts ────────────────────────────────────────────────────────────
+  var chartDataRow = 6 + maxRows + 3;
+
+  // Asset allocation data (category → total)
+  var assetCatData = [['Category', 'USD Value']];
+  usedAssetCats.forEach(function(cat) {
+    var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
+    if (catTotal > 0) assetCatData.push([cat, catTotal]);
+  });
+
+  // Net worth breakdown data
+  var nwData = [['Type', 'USD Value'], ['Assets', totalAssets], ['Liabilities', totalLiabs]];
+
+  // Write helper data (white text on white bg — used only as chart source)
+  sheet.getRange(chartDataRow, 1, assetCatData.length, 2).setValues(assetCatData)
+    .setFontColor('#ffffff').setBackground('#ffffff');
+  sheet.getRange(chartDataRow, 4, nwData.length, 2).setValues(nwData)
+    .setFontColor('#ffffff').setBackground('#ffffff');
+
+  // Asset allocation pie chart
+  var allocRange = sheet.getRange(chartDataRow, 1, assetCatData.length, 2);
+  sheet.insertChart(sheet.newChart()
+    .setChartType(Charts.ChartType.PIE)
+    .addRange(allocRange)
+    .setOption('title', 'Asset Allocation')
+    .setOption('pieSliceText', 'percentage')
+    .setOption('legend', {position: 'right', textStyle: {fontSize: 10}})
+    .setOption('backgroundColor', {fill: '#f8fafc'})
+    .setOption('chartArea', {left: 20, top: 30, width: '55%', height: '80%'})
+    .setOption('width',  520)
+    .setOption('height', 340)
+    .setPosition(chartDataRow + assetCatData.length + 1, 1, 0, 0)
+    .build());
+
+  // Net worth breakdown pie chart (Assets vs Liabilities)
+  var nwRange = sheet.getRange(chartDataRow, 4, nwData.length, 2);
+  sheet.insertChart(sheet.newChart()
+    .setChartType(Charts.ChartType.PIE)
+    .addRange(nwRange)
+    .setOption('title', 'Assets vs Liabilities')
+    .setOption('pieSliceText', 'percentage')
+    .setOption('colors', ['#1A7341', '#A33030'])
+    .setOption('legend', {position: 'bottom', textStyle: {fontSize: 10}})
+    .setOption('backgroundColor', {fill: '#f8fafc'})
+    .setOption('chartArea', {left: 20, top: 30, width: '70%', height: '70%'})
+    .setOption('width',  340)
+    .setOption('height', 260)
+    .setPosition(chartDataRow + assetCatData.length + 1, 8, 0, 0)
+    .build());
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
