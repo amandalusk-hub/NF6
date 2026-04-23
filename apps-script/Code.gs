@@ -2540,8 +2540,12 @@ function generateBalancesSheet() {
 
   // ── Pie charts (rendered as PNG images via Charts service) ───────────────
   var chartAnchorRow = 6 + maxRows + 2;
+  // Blue palette — matches the web app's monochromatic style
+  var blueColors = ['#0d2137','#1a3a5c','#1e5799','#2563a0','#2e7bc4',
+                    '#4a95d5','#6fb0e8','#3b6ea8','#91c5f0','#5584b8',
+                    '#b5d9f7','#7099c8','#d0e8fa'];
 
-  // Build asset allocation data table
+  // Assets by Category
   var allocTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Category')
     .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
@@ -2552,33 +2556,40 @@ function generateBalancesSheet() {
 
   var allocImage = Charts.newPieChart()
     .setDataTable(allocTable)
-    .setTitle('Asset Allocation')
+    .setTitle('Assets by Category')
     .setOption('pieSliceText', 'percentage')
-    .setOption('legend', {position: 'right'})
-    .setOption('backgroundColor', '#f8fafc')
-    .setDimensions(460, 320)
+    .setOption('colors', blueColors)
+    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
+    .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
+    .setOption('backgroundColor', '#ffffff')
+    .setOption('chartArea', {left: 10, top: 40, width: '50%', height: '82%'})
+    .setDimensions(580, 360)
     .build()
     .getAs('image/png');
   sheet.insertImage(allocImage, 1, chartAnchorRow);
 
-  // Build assets vs liabilities data table
-  var nwTable = Charts.newDataTable()
+  // Liabilities by Type
+  var liabTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Type')
-    .addColumn(Charts.ColumnType.NUMBER, 'USD Value')
-    .addRow(['Assets', totalAssets])
-    .addRow(['Liabilities', totalLiabs]);
+    .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
+  Object.keys(liabTypes).forEach(function(t) {
+    var typeTotal = liabTypes[t].reduce(function(s, l) { return s + l._usd; }, 0);
+    if (typeTotal > 0) liabTable.addRow([t, typeTotal]);
+  });
 
-  var nwImage = Charts.newPieChart()
-    .setDataTable(nwTable)
-    .setTitle('Assets vs Liabilities')
+  var liabImage = Charts.newPieChart()
+    .setDataTable(liabTable)
+    .setTitle('Liabilities by Type')
     .setOption('pieSliceText', 'percentage')
-    .setOption('colors', ['#1A7341', '#A33030'])
-    .setOption('legend', {position: 'right'})
-    .setOption('backgroundColor', '#f8fafc')
-    .setDimensions(460, 320)
+    .setOption('colors', blueColors)
+    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
+    .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
+    .setOption('backgroundColor', '#ffffff')
+    .setOption('chartArea', {left: 10, top: 40, width: '50%', height: '82%'})
+    .setDimensions(580, 360)
     .build()
     .getAs('image/png');
-  sheet.insertImage(nwImage, 8, chartAnchorRow);
+  sheet.insertImage(liabImage, 8, chartAnchorRow);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
