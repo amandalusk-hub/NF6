@@ -2557,6 +2557,9 @@ function generateBalancesSheet() {
   sheet.getRange(chartDataRow, 4, nwData.length, 2).setValues(nwData)
     .setFontColor('#ffffff').setBackground('#ffffff');
 
+  // Flush all pending writes so the chart engine can read the data
+  SpreadsheetApp.flush();
+
   // Asset allocation pie chart
   var allocRange = sheet.getRange(chartDataRow, 1, assetCatData.length, 2);
   sheet.insertChart(sheet.newChart()
