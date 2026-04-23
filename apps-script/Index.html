@@ -3814,7 +3814,7 @@ function recalcRE() {
   var maintenance = parseAcct((document.getElementById('d-maintenance')||{value:''}).value);
   var utilities   = parseAcct((document.getElementById('d-utilities')||{value:''}).value);
 
-  var myShare        = (propVal > 0 && ownership > 0) ? propVal * ownership / 100 : 0;
+  var myShare        = propVal; // ownership % is informational only — value entered IS Mike's share
   var unrealizedGain = (myShare > 0 && invested > 0) ? myShare - invested : 0;
 
   var annualRev  = revenue * 12;
