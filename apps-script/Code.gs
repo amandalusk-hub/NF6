@@ -2538,62 +2538,47 @@ function generateBalancesSheet() {
   sheet.setHiddenGridlines(true);
   sheet.setFrozenRows(5);
 
-  // ── Pie charts ────────────────────────────────────────────────────────────
-  // Write chart source data to a hidden helper sheet — Apps Script charts
-  // cannot read data written in the same execution as the chart creation,
-  // so a separate persistent sheet is the reliable workaround.
-  var helperSheetName = '_ChartData';
-  var helperSheet = ss.getSheetByName(helperSheetName);
-  if (!helperSheet) {
-    helperSheet = ss.insertSheet(helperSheetName);
-    helperSheet.hideSheet();
-  }
-  helperSheet.clearContents();
-
-  // Asset allocation data (category → total)
-  var assetCatData = [['Category', 'USD Value']];
-  usedAssetCats.forEach(function(cat) {
-    var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
-    if (catTotal > 0) assetCatData.push([cat, catTotal]);
-  });
-
-  // Net worth breakdown data
-  var nwData = [['Type', 'USD Value'], ['Assets', totalAssets], ['Liabilities', totalLiabs]];
-
-  helperSheet.getRange(1, 1, assetCatData.length, 2).setValues(assetCatData);
-  helperSheet.getRange(1, 4, nwData.length, 2).setValues(nwData);
-  SpreadsheetApp.flush();
-
+  // ── Pie charts (rendered as PNG images via Charts service) ───────────────
   var chartAnchorRow = 6 + maxRows + 2;
 
-  // Asset allocation pie chart
-  sheet.insertChart(sheet.newChart()
-    .setChartType(Charts.ChartType.PIE)
-    .addRange(helperSheet.getRange(1, 1, assetCatData.length, 2))
-    .setOption('title', 'Asset Allocation')
-    .setOption('pieSliceText', 'percentage')
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 10}})
-    .setOption('backgroundColor', {fill: '#f8fafc'})
-    .setOption('chartArea', {left: 10, top: 30, width: '55%', height: '80%'})
-    .setOption('width',  460)
-    .setOption('height', 320)
-    .setPosition(chartAnchorRow, 1, 0, 0)
-    .build());
+  // Build asset allocation data table
+  var allocTable = Charts.newDataTable()
+    .addColumn(Charts.ColumnType.STRING, 'Category')
+    .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
+  usedAssetCats.forEach(function(cat) {
+    var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
+    if (catTotal > 0) allocTable.addRow([cat, catTotal]);
+  });
 
-  // Assets vs Liabilities pie chart (same size)
-  sheet.insertChart(sheet.newChart()
-    .setChartType(Charts.ChartType.PIE)
-    .addRange(helperSheet.getRange(1, 4, nwData.length, 2))
-    .setOption('title', 'Assets vs Liabilities')
+  var allocImage = Charts.newPieChart()
+    .setDataTable(allocTable)
+    .setTitle('Asset Allocation')
+    .setOption('pieSliceText', 'percentage')
+    .setOption('legend', {position: 'right'})
+    .setOption('backgroundColor', '#f8fafc')
+    .setDimensions(460, 320)
+    .build()
+    .getAs('image/png');
+  sheet.insertImage(allocImage, 1, chartAnchorRow);
+
+  // Build assets vs liabilities data table
+  var nwTable = Charts.newDataTable()
+    .addColumn(Charts.ColumnType.STRING, 'Type')
+    .addColumn(Charts.ColumnType.NUMBER, 'USD Value')
+    .addRow(['Assets', totalAssets])
+    .addRow(['Liabilities', totalLiabs]);
+
+  var nwImage = Charts.newPieChart()
+    .setDataTable(nwTable)
+    .setTitle('Assets vs Liabilities')
     .setOption('pieSliceText', 'percentage')
     .setOption('colors', ['#1A7341', '#A33030'])
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 10}})
-    .setOption('backgroundColor', {fill: '#f8fafc'})
-    .setOption('chartArea', {left: 10, top: 30, width: '55%', height: '80%'})
-    .setOption('width',  460)
-    .setOption('height', 320)
-    .setPosition(chartAnchorRow, 8, 0, 0)
-    .build());
+    .setOption('legend', {position: 'right'})
+    .setOption('backgroundColor', '#f8fafc')
+    .setDimensions(460, 320)
+    .build()
+    .getAs('image/png');
+  sheet.insertImage(nwImage, 8, chartAnchorRow);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
