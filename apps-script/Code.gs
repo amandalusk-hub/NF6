@@ -2539,7 +2539,16 @@ function generateBalancesSheet() {
   sheet.setFrozenRows(5);
 
   // ── Pie charts ────────────────────────────────────────────────────────────
-  var chartDataRow = 6 + maxRows + 3;
+  // Write chart source data to a hidden helper sheet — Apps Script charts
+  // cannot read data written in the same execution as the chart creation,
+  // so a separate persistent sheet is the reliable workaround.
+  var helperSheetName = '_ChartData';
+  var helperSheet = ss.getSheetByName(helperSheetName);
+  if (!helperSheet) {
+    helperSheet = ss.insertSheet(helperSheetName);
+    helperSheet.hideSheet();
+  }
+  helperSheet.clearContents();
 
   // Asset allocation data (category → total)
   var assetCatData = [['Category', 'USD Value']];
@@ -2551,44 +2560,39 @@ function generateBalancesSheet() {
   // Net worth breakdown data
   var nwData = [['Type', 'USD Value'], ['Assets', totalAssets], ['Liabilities', totalLiabs]];
 
-  // Write helper data (white text on white bg — used only as chart source)
-  sheet.getRange(chartDataRow, 1, assetCatData.length, 2).setValues(assetCatData)
-    .setFontColor('#ffffff').setBackground('#ffffff');
-  sheet.getRange(chartDataRow, 4, nwData.length, 2).setValues(nwData)
-    .setFontColor('#ffffff').setBackground('#ffffff');
-
-  // Flush all pending writes so the chart engine can read the data
+  helperSheet.getRange(1, 1, assetCatData.length, 2).setValues(assetCatData);
+  helperSheet.getRange(1, 4, nwData.length, 2).setValues(nwData);
   SpreadsheetApp.flush();
 
+  var chartAnchorRow = 6 + maxRows + 2;
+
   // Asset allocation pie chart
-  var allocRange = sheet.getRange(chartDataRow, 1, assetCatData.length, 2);
   sheet.insertChart(sheet.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(allocRange)
+    .addRange(helperSheet.getRange(1, 1, assetCatData.length, 2))
     .setOption('title', 'Asset Allocation')
     .setOption('pieSliceText', 'percentage')
     .setOption('legend', {position: 'right', textStyle: {fontSize: 10}})
     .setOption('backgroundColor', {fill: '#f8fafc'})
-    .setOption('chartArea', {left: 20, top: 30, width: '55%', height: '80%'})
-    .setOption('width',  520)
-    .setOption('height', 340)
-    .setPosition(chartDataRow + assetCatData.length + 1, 1, 0, 0)
+    .setOption('chartArea', {left: 10, top: 30, width: '55%', height: '80%'})
+    .setOption('width',  460)
+    .setOption('height', 320)
+    .setPosition(chartAnchorRow, 1, 0, 0)
     .build());
 
-  // Net worth breakdown pie chart (Assets vs Liabilities)
-  var nwRange = sheet.getRange(chartDataRow, 4, nwData.length, 2);
+  // Assets vs Liabilities pie chart (same size)
   sheet.insertChart(sheet.newChart()
     .setChartType(Charts.ChartType.PIE)
-    .addRange(nwRange)
+    .addRange(helperSheet.getRange(1, 4, nwData.length, 2))
     .setOption('title', 'Assets vs Liabilities')
     .setOption('pieSliceText', 'percentage')
     .setOption('colors', ['#1A7341', '#A33030'])
-    .setOption('legend', {position: 'bottom', textStyle: {fontSize: 10}})
+    .setOption('legend', {position: 'right', textStyle: {fontSize: 10}})
     .setOption('backgroundColor', {fill: '#f8fafc'})
-    .setOption('chartArea', {left: 20, top: 30, width: '70%', height: '70%'})
-    .setOption('width',  340)
-    .setOption('height', 260)
-    .setPosition(chartDataRow + assetCatData.length + 1, 8, 0, 0)
+    .setOption('chartArea', {left: 10, top: 30, width: '55%', height: '80%'})
+    .setOption('width',  460)
+    .setOption('height', 320)
+    .setPosition(chartAnchorRow, 8, 0, 0)
     .build());
 
   // ── Activate the sheet ────────────────────────────────────────────────────
