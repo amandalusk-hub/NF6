@@ -2236,38 +2236,30 @@ function instSortBalances_(items, cat) {
 }
 
 function quickChartPie_(title, labels, values, colors) {
-  // labels already contain "Category  X.X%" from the caller — do not re-append %
-  // datalabels must be explicitly disabled; QuickChart registers it globally
-  var config = {
-    type: 'pie',
-    data: {
-      labels: labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderWidth: 2,
-        borderColor: '#ffffff'
-      }]
-    },
-    options: {
-      plugins: {
-        datalabels: { display: false },
-        legend: {
-          position: 'right',
-          labels: { color: '#1a2e44', font: { size: 11 }, padding: 10, boxWidth: 14 }
-        },
-        title: {
-          display: true,
-          text: title,
-          color: '#0d2137',
-          font: { size: 13, weight: 'bold' },
-          padding: { bottom: 8 }
-        }
-      }
-    }
-  };
+  // JS string config (not JSON) so we can embed function expressions for datalabels.
+  // labels already contain "Category  X.X%" — datalabels formatter shows only the %.
+  var cfg = '{'
+    + 'type:"pie",'
+    + 'data:{labels:' + JSON.stringify(labels) + ','
+    + 'datasets:[{data:' + JSON.stringify(values) + ','
+    + 'backgroundColor:' + JSON.stringify(colors) + ','
+    + 'borderWidth:2,borderColor:"#ffffff"}]},'
+    + 'options:{plugins:{'
+    + 'datalabels:{'
+    + 'display:function(ctx){'
+    +   'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
+    +   'return ctx.dataset.data[ctx.dataIndex]/tot>=0.05;'  // only slices ≥ 5%
+    + '},'
+    + 'color:"#fff",font:{weight:"bold",size:12},'
+    + 'formatter:function(val,ctx){'
+    +   'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
+    +   'return (val/tot*100).toFixed(1)+"%";'
+    + '}},'
+    + 'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
+    + 'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
+    + '}}}';
   var url = 'https://quickchart.io/chart?v=3&w=620&h=360&devicePixelRatio=1&backgroundColor=white&c='
-            + encodeURIComponent(JSON.stringify(config));
+            + encodeURIComponent(cfg);
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   return resp.getBlob().setName(title + '.png');
 }
