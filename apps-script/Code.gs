@@ -2510,29 +2510,36 @@ function generateBalancesSheet() {
   }
 
   // ── Column widths ──────────────────────────────────────────────────────────
-  sheet.setColumnWidth(1,  140);  // A - asset name (part 1)
-  sheet.setColumnWidth(2,  100);  // B - name (cont.)
+  sheet.setColumnWidth(1,  160);  // A - asset name (part 1)
+  sheet.setColumnWidth(2,  120);  // B - name (cont.)
   sheet.setColumnWidth(3,   80);  // C - name (cont.)
   sheet.setColumnWidth(4,  100);  // D - days ago
   sheet.setColumnWidth(5,    8);  // E - spacer
   sheet.setColumnWidth(6,  110);  // F - value
   sheet.setColumnWidth(7,   20);  // G - gap
-  sheet.setColumnWidth(8,  140);  // H - liab name (part 1)
-  sheet.setColumnWidth(9,  100);  // I - name (cont.)
+  sheet.setColumnWidth(8,  160);  // H - liab name (part 1)
+  sheet.setColumnWidth(9,  120);  // I - name (cont.)
   sheet.setColumnWidth(10,  80);  // J - name (cont.)
   sheet.setColumnWidth(11, 100);  // K - days ago
   sheet.setColumnWidth(12,   8);  // L - spacer
   sheet.setColumnWidth(13, 110);  // M - value
 
-  // ── Row heights ────────────────────────────────────────────────────────────
-  sheet.setRowHeight(1, 40);
-  sheet.setRowHeight(2, 22);
+  // ── Row heights & vertical alignment ──────────────────────────────────────
+  sheet.setRowHeight(1, 44);
+  sheet.setRowHeight(2, 24);
   sheet.setRowHeight(3, 10);
-  sheet.setRowHeight(4, 36);
+  sheet.setRowHeight(4, 40);
   sheet.setRowHeight(5, 10);
   for (var ri = 6; ri < 6 + maxRows; ri++) {
-    sheet.setRowHeight(ri, 22);
+    sheet.setRowHeight(ri, 30);
   }
+
+  // Vertically center all data rows and wrap long names
+  var dataRange = sheet.getRange(6, 1, maxRows, 13);
+  dataRange.setVerticalAlignment('middle');
+  // Wrap text in the name columns only (A–C assets, H–J liabilities)
+  sheet.getRange(6, 1, maxRows, 3).setWrap(true);
+  sheet.getRange(6, 8, maxRows, 3).setWrap(true);
 
   // ── Hide gridlines & freeze top rows ──────────────────────────────────────
   sheet.setHiddenGridlines(true);
