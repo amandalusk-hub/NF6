@@ -2534,12 +2534,10 @@ function generateBalancesSheet() {
     sheet.setRowHeight(ri, 30);
   }
 
-  // Vertically center all data rows and wrap long names
+  // Vertically center all data rows; clip overflow so rows stay uniform height
   var dataRange = sheet.getRange(6, 1, maxRows, 13);
   dataRange.setVerticalAlignment('middle');
-  // Wrap text in the name columns only (A–C assets, H–J liabilities)
-  sheet.getRange(6, 1, maxRows, 3).setWrap(true);
-  sheet.getRange(6, 8, maxRows, 3).setWrap(true);
+  dataRange.setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
 
   // ── Hide gridlines & freeze top rows ──────────────────────────────────────
   sheet.setHiddenGridlines(true);
@@ -2552,13 +2550,16 @@ function generateBalancesSheet() {
                     '#4a95d5','#6fb0e8','#3b6ea8','#91c5f0','#5584b8',
                     '#b5d9f7','#7099c8','#d0e8fa'];
 
-  // Assets by Category
+  // Assets by Category — legend label includes % so it's self-explanatory
   var allocTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Category')
     .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
   usedAssetCats.forEach(function(cat) {
     var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
-    if (catTotal > 0) allocTable.addRow([cat, catTotal]);
+    if (catTotal > 0) {
+      var pct = totalAssets > 0 ? (catTotal / totalAssets * 100).toFixed(1) : '0.0';
+      allocTable.addRow([cat + '  ' + pct + '%', catTotal]);
+    }
   });
 
   var allocImage = Charts.newPieChart()
@@ -2569,19 +2570,22 @@ function generateBalancesSheet() {
     .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
     .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
     .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '50%', height: '82%'})
-    .setDimensions(580, 360)
+    .setOption('chartArea', {left: 10, top: 40, width: '45%', height: '82%'})
+    .setDimensions(640, 380)
     .build()
     .getAs('image/png');
   sheet.insertImage(allocImage, 1, chartAnchorRow);
 
-  // Liabilities by Type
+  // Liabilities by Type — legend label includes %
   var liabTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Type')
     .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
   Object.keys(liabTypes).forEach(function(t) {
     var typeTotal = liabTypes[t].reduce(function(s, l) { return s + l._usd; }, 0);
-    if (typeTotal > 0) liabTable.addRow([t, typeTotal]);
+    if (typeTotal > 0) {
+      var pct = totalLiabs > 0 ? (typeTotal / totalLiabs * 100).toFixed(1) : '0.0';
+      liabTable.addRow([t + '  ' + pct + '%', typeTotal]);
+    }
   });
 
   var liabImage = Charts.newPieChart()
@@ -2592,8 +2596,8 @@ function generateBalancesSheet() {
     .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
     .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
     .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '50%', height: '82%'})
-    .setDimensions(580, 360)
+    .setOption('chartArea', {left: 10, top: 40, width: '45%', height: '82%'})
+    .setDimensions(640, 380)
     .build()
     .getAs('image/png');
   sheet.insertImage(liabImage, 8, chartAnchorRow);
