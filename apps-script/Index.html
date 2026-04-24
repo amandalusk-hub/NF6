@@ -2244,16 +2244,13 @@ function renderMNWList(){
     if(!aCats[c])aCats[c]=[];
     aCats[c].push(a);
   });
-  const _catOrder=['Art/Jewelry/Other','Automobile','Cash - Business','Cash - Personal',
-    'Public Equity (Dividends)','Public Equity (Growth)',
-    'Loans Receivable','Private Equity',
-    'Real Estate - Colombia','Real Estate - Dominican Republic','Real Estate - Europe',
-    'Real Estate - Puerto Rico','Real Estate - United States','VIP Medical Group'];
+  // Use server-sent category order (state.categories comes from CATEGORIES in Code.gs)
+  const _catOrder = state.categories && state.categories.length ? state.categories : [];
   const aSorted=Object.entries(aCats)
     .map(([c,items])=>[c,items,items.reduce((s,a)=>s+num(a['My Share USD']),0)])
     .sort((a,b)=>{
-      const ai=_catOrder.findIndex(x=>x.toLowerCase()===a[0].toLowerCase());
-      const bi=_catOrder.findIndex(x=>x.toLowerCase()===b[0].toLowerCase());
+      const ai=_catOrder.indexOf(a[0]);
+      const bi=_catOrder.indexOf(b[0]);
       if(ai>=0&&bi>=0) return ai-bi;
       if(ai>=0) return -1;
       if(bi>=0) return 1;
