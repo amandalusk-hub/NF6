@@ -2236,32 +2236,42 @@ function instSortBalances_(items, cat) {
 }
 
 function quickChartPie_(title, labels, values, colors) {
-  // Compute totals and embed % directly in legend labels to avoid datalabels plugin.
   var total = values.reduce(function(s, v) { return s + v; }, 0);
+  // Embed % in each legend label so it shows once, cleanly
   var labelsPct = labels.map(function(l, i) {
     var pct = total > 0 ? (values[i] / total * 100).toFixed(1) : '0';
     return l + '  ' + pct + '%';
   });
-  var cfg = '{'
-    + 'type:"pie",'
-    + 'data:{'
-    +   'labels:' + JSON.stringify(labelsPct) + ','
-    +   'datasets:[{'
-    +     'data:' + JSON.stringify(values) + ','
-    +     'backgroundColor:' + JSON.stringify(colors) + ','
-    +     'borderWidth:2,borderColor:"#ffffff"'
-    +   '}]'
-    + '},'
-    + 'options:{'
-    +   'plugins:{'
-    +     'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:8,boxWidth:14}},'
-    +     'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
-    +   '}'
-    + '}'
-    + '}';
-  // w=600&h=350&devicePixelRatio=1 keeps blob well under 2MB limit
-  var url = 'https://quickchart.io/chart?w=600&h=350&devicePixelRatio=1&backgroundColor=white&c='
-            + encodeURIComponent(cfg);
+  // Use v=3 (Chart.js 3) — no auto value labels on slices, pure JSON config
+  var config = {
+    type: 'pie',
+    data: {
+      labels: labelsPct,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    },
+    options: {
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#1a2e44', font: { size: 11 }, padding: 10, boxWidth: 14 }
+        },
+        title: {
+          display: true,
+          text: title,
+          color: '#0d2137',
+          font: { size: 13, weight: 'bold' },
+          padding: { bottom: 8 }
+        }
+      }
+    }
+  };
+  var url = 'https://quickchart.io/chart?v=3&w=620&h=360&devicePixelRatio=1&backgroundColor=white&c='
+            + encodeURIComponent(JSON.stringify(config));
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   return resp.getBlob().setName(title + '.png');
 }
