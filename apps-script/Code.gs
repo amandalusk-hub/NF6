@@ -2558,7 +2558,7 @@ function generateBalancesSheet() {
     var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
     if (catTotal > 0) {
       var pct = totalAssets > 0 ? (catTotal / totalAssets * 100).toFixed(1) : '0.0';
-      allocTable.addRow([cat + '  ' + pct + '%', catTotal]);
+      allocTable.addRow([cat + ' ' + pct + '%', catTotal]);
     }
   });
 
@@ -2567,16 +2567,16 @@ function generateBalancesSheet() {
     .setTitle('Assets by Category')
     .setOption('pieSliceText', 'percentage')
     .setOption('colors', blueColors)
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
-    .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
+    .setOption('legend', {position: 'labeled', textStyle: {fontSize: 11, color: '#1a2e44'}})
+    .setOption('titleTextStyle', {fontSize: 14, bold: true, color: '#0d2137'})
     .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '45%', height: '82%'})
-    .setDimensions(640, 380)
+    .setOption('chartArea', {left: 80, top: 40, width: '65%', height: '80%'})
+    .setDimensions(720, 420)
     .build()
     .getAs('image/png');
   sheet.insertImage(allocImage, 1, chartAnchorRow);
 
-  // Liabilities by Type — legend label includes %
+  // Liabilities by Type
   var liabTable = Charts.newDataTable()
     .addColumn(Charts.ColumnType.STRING, 'Type')
     .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
@@ -2584,7 +2584,7 @@ function generateBalancesSheet() {
     var typeTotal = liabTypes[t].reduce(function(s, l) { return s + l._usd; }, 0);
     if (typeTotal > 0) {
       var pct = totalLiabs > 0 ? (typeTotal / totalLiabs * 100).toFixed(1) : '0.0';
-      liabTable.addRow([t + '  ' + pct + '%', typeTotal]);
+      liabTable.addRow([t + ' ' + pct + '%', typeTotal]);
     }
   });
 
@@ -2593,11 +2593,11 @@ function generateBalancesSheet() {
     .setTitle('Liabilities by Type')
     .setOption('pieSliceText', 'percentage')
     .setOption('colors', blueColors)
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
-    .setOption('titleTextStyle', {fontSize: 13, bold: true, color: '#0d2137'})
+    .setOption('legend', {position: 'labeled', textStyle: {fontSize: 11, color: '#1a2e44'}})
+    .setOption('titleTextStyle', {fontSize: 14, bold: true, color: '#0d2137'})
     .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '45%', height: '82%'})
-    .setDimensions(640, 380)
+    .setOption('chartArea', {left: 80, top: 40, width: '65%', height: '80%'})
+    .setDimensions(720, 420)
     .build()
     .getAs('image/png');
   sheet.insertImage(liabImage, 8, chartAnchorRow);
