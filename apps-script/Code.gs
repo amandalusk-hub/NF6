@@ -2236,17 +2236,12 @@ function instSortBalances_(items, cat) {
 }
 
 function quickChartPie_(title, labels, values, colors) {
-  var total = values.reduce(function(s, v) { return s + v; }, 0);
-  // Embed % in each legend label so it shows once, cleanly
-  var labelsPct = labels.map(function(l, i) {
-    var pct = total > 0 ? (values[i] / total * 100).toFixed(1) : '0';
-    return l + '  ' + pct + '%';
-  });
-  // Use v=3 (Chart.js 3) — no auto value labels on slices, pure JSON config
+  // labels already contain "Category  X.X%" from the caller — do not re-append %
+  // datalabels must be explicitly disabled; QuickChart registers it globally
   var config = {
     type: 'pie',
     data: {
-      labels: labelsPct,
+      labels: labels,
       datasets: [{
         data: values,
         backgroundColor: colors,
@@ -2256,6 +2251,7 @@ function quickChartPie_(title, labels, values, colors) {
     },
     options: {
       plugins: {
+        datalabels: { display: false },
         legend: {
           position: 'right',
           labels: { color: '#1a2e44', font: { size: 11 }, padding: 10, boxWidth: 14 }
