@@ -2235,6 +2235,39 @@ function instSortBalances_(items, cat) {
   return sorted;
 }
 
+function quickChartPie_(title, labels, values, colors) {
+  // Builds a Chart.js pie chart via quickchart.io and returns a PNG blob.
+  // Config is a JS string (not JSON) so we can embed a datalabels formatter.
+  var cfg = '{'
+    + 'type:"pie",'
+    + 'data:{'
+    +   'labels:' + JSON.stringify(labels) + ','
+    +   'datasets:[{'
+    +     'data:' + JSON.stringify(values) + ','
+    +     'backgroundColor:' + JSON.stringify(colors) + ','
+    +     'borderWidth:2,borderColor:"#ffffff"'
+    +   '}]'
+    + '},'
+    + 'options:{'
+    +   'plugins:{'
+    +     'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
+    +     'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:14,weight:"bold"},padding:{bottom:10}},'
+    +     'datalabels:{color:"#fff",font:{weight:"bold",size:11},'
+    +       'formatter:function(val,ctx){'
+    +         'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
+    +         'var p=(val/tot*100);'
+    +         'return p>=4?p.toFixed(1)+"%":"";'
+    +       '}'
+    +     '}'
+    +   '}'
+    + '}'
+    + '}';
+  var url = 'https://quickchart.io/chart?w=820&h=400&backgroundColor=white&c='
+            + encodeURIComponent(cfg);
+  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  return resp.getBlob().setName(title + '.png');
+}
+
 function generateBalancesSheet() {
   var ss        = getSpreadsheet_();
   var SHEET_NAME = 'Balances';
@@ -2545,62 +2578,37 @@ function generateBalancesSheet() {
 
   // ── Pie charts (rendered as PNG images via Charts service) ───────────────
   var chartAnchorRow = 6 + maxRows + 2;
-  // Blue palette — matches the web app's monochromatic style
+  // Blue palette — matches the web app
   var blueColors = ['#0d2137','#1a3a5c','#1e5799','#2563a0','#2e7bc4',
                     '#4a95d5','#6fb0e8','#3b6ea8','#91c5f0','#5584b8',
                     '#b5d9f7','#7099c8','#d0e8fa'];
 
-  // Assets by Category — legend label includes % so it's self-explanatory
-  var allocTable = Charts.newDataTable()
-    .addColumn(Charts.ColumnType.STRING, 'Category')
-    .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
-  usedAssetCats.forEach(function(cat) {
+  // Build asset data
+  var assetLabels = [], assetValues = [], assetBg = [];
+  usedAssetCats.forEach(function(cat, i) {
     var catTotal = assetCats[cat].reduce(function(s, a) { return s + a._usd; }, 0);
     if (catTotal > 0) {
       var pct = totalAssets > 0 ? (catTotal / totalAssets * 100).toFixed(1) : '0.0';
-      allocTable.addRow([cat + ' ' + pct + '%', catTotal]);
+      assetLabels.push(cat + '  ' + pct + '%');
+      assetValues.push(Math.round(catTotal));
+      assetBg.push(blueColors[assetBg.length % blueColors.length]);
     }
   });
 
-  var allocImage = Charts.newPieChart()
-    .setDataTable(allocTable)
-    .setTitle('Assets by Category')
-    .setOption('pieSliceText', 'none')
-    .setOption('colors', blueColors)
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
-    .setOption('titleTextStyle', {fontSize: 14, bold: true, color: '#0d2137'})
-    .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '38%', height: '85%'})
-    .setDimensions(900, 420)
-    .build()
-    .getAs('image/png');
-  sheet.insertImage(allocImage, 1, chartAnchorRow);
-
-  // Liabilities by Type
-  var liabTable = Charts.newDataTable()
-    .addColumn(Charts.ColumnType.STRING, 'Type')
-    .addColumn(Charts.ColumnType.NUMBER, 'USD Value');
+  // Build liability data
+  var liabLabels = [], liabValues = [], liabBg = [];
   Object.keys(liabTypes).forEach(function(t) {
     var typeTotal = liabTypes[t].reduce(function(s, l) { return s + l._usd; }, 0);
     if (typeTotal > 0) {
       var pct = totalLiabs > 0 ? (typeTotal / totalLiabs * 100).toFixed(1) : '0.0';
-      liabTable.addRow([t + ' ' + pct + '%', typeTotal]);
+      liabLabels.push(t + '  ' + pct + '%');
+      liabValues.push(Math.round(typeTotal));
+      liabBg.push(blueColors[liabBg.length % blueColors.length]);
     }
   });
 
-  var liabImage = Charts.newPieChart()
-    .setDataTable(liabTable)
-    .setTitle('Liabilities by Type')
-    .setOption('pieSliceText', 'none')
-    .setOption('colors', blueColors)
-    .setOption('legend', {position: 'right', textStyle: {fontSize: 11, color: '#1a2e44'}})
-    .setOption('titleTextStyle', {fontSize: 14, bold: true, color: '#0d2137'})
-    .setOption('backgroundColor', '#ffffff')
-    .setOption('chartArea', {left: 10, top: 40, width: '38%', height: '85%'})
-    .setDimensions(900, 420)
-    .build()
-    .getAs('image/png');
-  sheet.insertImage(liabImage, 8, chartAnchorRow);
+  sheet.insertImage(quickChartPie_('Assets by Category',  assetLabels, assetValues, assetBg), 1, chartAnchorRow);
+  sheet.insertImage(quickChartPie_('Liabilities by Type', liabLabels,  liabValues,  liabBg),  8, chartAnchorRow);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
