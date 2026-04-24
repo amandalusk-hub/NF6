@@ -2542,7 +2542,7 @@ function generateBalancesSheet() {
   // ── Column widths ──────────────────────────────────────────────────────────
   sheet.setColumnWidth(1,  160);  // A - asset name (part 1)
   sheet.setColumnWidth(2,  120);  // B - name (cont.)
-  sheet.setColumnWidth(3,  110);  // C - name (cont.)
+  sheet.setColumnWidth(3,  150);  // C - name (cont.)
   sheet.setColumnWidth(4,  100);  // D - days ago
   sheet.setColumnWidth(5,    8);  // E - spacer
   sheet.setColumnWidth(6,  110);  // F - value
@@ -2605,7 +2605,7 @@ function generateBalancesSheet() {
   });
 
   sheet.insertImage(quickChartPie_('Assets by Category',  assetLabels, assetValues, assetBg), 1, chartAnchorRow);
-  sheet.insertImage(quickChartPie_('Liabilities by Type', liabLabels,  liabValues,  liabBg),  8, chartAnchorRow);
+  sheet.insertImage(quickChartPie_('Liabilities by Type', liabLabels,  liabValues,  liabBg),  9, chartAnchorRow);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
