@@ -2258,7 +2258,7 @@ function quickChartPie_(title, labels, values, colors) {
     + 'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
     + 'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
     + '}}}';
-  var url = 'https://quickchart.io/chart?v=3&w=620&h=360&devicePixelRatio=1&backgroundColor=white&c='
+  var url = 'https://quickchart.io/chart?v=3&w=750&h=360&devicePixelRatio=1&backgroundColor=white&c='
             + encodeURIComponent(cfg);
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   return resp.getBlob().setName(title + '.png');
@@ -2542,7 +2542,7 @@ function generateBalancesSheet() {
   // ── Column widths ──────────────────────────────────────────────────────────
   sheet.setColumnWidth(1,  160);  // A - asset name (part 1)
   sheet.setColumnWidth(2,  120);  // B - name (cont.)
-  sheet.setColumnWidth(3,   80);  // C - name (cont.)
+  sheet.setColumnWidth(3,  110);  // C - name (cont.)
   sheet.setColumnWidth(4,  100);  // D - days ago
   sheet.setColumnWidth(5,    8);  // E - spacer
   sheet.setColumnWidth(6,  110);  // F - value
