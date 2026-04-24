@@ -2236,12 +2236,16 @@ function instSortBalances_(items, cat) {
 }
 
 function quickChartPie_(title, labels, values, colors) {
-  // Builds a Chart.js pie chart via quickchart.io and returns a PNG blob.
-  // Config is a JS string (not JSON) so we can embed a datalabels formatter.
+  // Compute totals and embed % directly in legend labels to avoid datalabels plugin.
+  var total = values.reduce(function(s, v) { return s + v; }, 0);
+  var labelsPct = labels.map(function(l, i) {
+    var pct = total > 0 ? (values[i] / total * 100).toFixed(1) : '0';
+    return l + '  ' + pct + '%';
+  });
   var cfg = '{'
     + 'type:"pie",'
     + 'data:{'
-    +   'labels:' + JSON.stringify(labels) + ','
+    +   'labels:' + JSON.stringify(labelsPct) + ','
     +   'datasets:[{'
     +     'data:' + JSON.stringify(values) + ','
     +     'backgroundColor:' + JSON.stringify(colors) + ','
@@ -2250,19 +2254,13 @@ function quickChartPie_(title, labels, values, colors) {
     + '},'
     + 'options:{'
     +   'plugins:{'
-    +     'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
-    +     'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:14,weight:"bold"},padding:{bottom:10}},'
-    +     'datalabels:{color:"#fff",font:{weight:"bold",size:11},'
-    +       'formatter:function(val,ctx){'
-    +         'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
-    +         'var p=(val/tot*100);'
-    +         'return p>=4?p.toFixed(1)+"%":"";'
-    +       '}'
-    +     '}'
+    +     'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:8,boxWidth:14}},'
+    +     'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
     +   '}'
     + '}'
     + '}';
-  var url = 'https://quickchart.io/chart?w=820&h=400&backgroundColor=white&c='
+  // w=600&h=350&devicePixelRatio=1 keeps blob well under 2MB limit
+  var url = 'https://quickchart.io/chart?w=600&h=350&devicePixelRatio=1&backgroundColor=white&c='
             + encodeURIComponent(cfg);
   var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
   return resp.getBlob().setName(title + '.png');
