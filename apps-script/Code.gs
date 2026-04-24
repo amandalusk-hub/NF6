@@ -2280,6 +2280,7 @@ function generateBalancesSheet() {
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (sheet) {
     sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
+    sheet.getImages().forEach(function(img) { img.remove(); });
     sheet.clearContents();
     sheet.clearFormats();
   } else {
