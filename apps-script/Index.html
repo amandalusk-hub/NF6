@@ -90,21 +90,24 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .form-row textarea{resize:vertical;min-height:70px}
 .form-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .modal-footer{padding:14px 20px;border-top:1px solid #eee;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0}
-/* MNW4-style grouped list */
-.mnw-section-hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+/* MNW4-style grouped list — 3-column grid: name | updated | value */
+.mnw-grid{display:grid;grid-template-columns:1fr 80px 145px;gap:12px;align-items:center}
+.mnw-section-hdr{padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
 .mnw-section-hdr.assets{background:#0d2137;color:#fff}
 .mnw-section-hdr.liabs{background:#7f1d1d;color:#fff}
-.mnw-cat-hdr{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+.mnw-section-hdr-total{text-align:right}
+.mnw-cat-hdr{padding:7px 14px;font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
 .mnw-cat-hdr.assets{background:#1a3a5c;color:#fff}
 .mnw-cat-hdr.liabs{background:#c62828;color:#fff}
-.mnw-cat-hdr-right{display:flex;align-items:center;gap:20px}
-.mnw-cat-hdr-updated{font-weight:400;opacity:.75;font-size:11px}
-.mnw-row{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 14px 6px 22px;border-bottom:1px solid #f4f4f4;cursor:pointer}
+.mnw-cat-hdr-updated{text-align:right;font-weight:400;opacity:.75;font-size:11px}
+.mnw-cat-hdr-total{text-align:right}
+.mnw-row{padding:6px 14px 6px 22px;border-bottom:1px solid #f4f4f4;cursor:pointer;align-items:flex-start}
 .mnw-row:hover{background:#f0f7ff}
+.mnw-row-name-cell{min-width:0;overflow:hidden}
 .mnw-row-name{font-size:13px;font-style:italic;color:#1a2e44;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mnw-row-right{display:flex;align-items:center;gap:20px;flex-shrink:0}
-.mnw-row-age{font-size:11px;color:#999;min-width:80px;text-align:right}
-.mnw-row-val{font-size:13px;font-weight:600;color:#0d2137;min-width:90px;text-align:right}
+.mnw-row-age{font-size:11px;color:#999;text-align:right;align-self:center}
+.mnw-row-val-cell{text-align:right;min-width:0}
+.mnw-row-val{font-size:13px;font-weight:600;color:#0d2137}
 .mnw-col{}
 /* Detail sections */
 .detail-section{margin-bottom:22px;padding-bottom:22px;border-bottom:1px solid #f0f0f0}
@@ -171,17 +174,19 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="two-col" style="margin-bottom:20px">
       <!-- Assets column -->
       <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
-        <div class="mnw-section-hdr assets">
+        <div class="mnw-section-hdr mnw-grid assets">
           <span>Assets</span>
-          <span id="mnw-assets-total">$0</span>
+          <span></span>
+          <span class="mnw-section-hdr-total" id="mnw-assets-total">$0</span>
         </div>
         <div class="mnw-col" id="mnw-assets-list"></div>
       </div>
       <!-- Liabilities column -->
       <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
-        <div class="mnw-section-hdr liabs">
+        <div class="mnw-section-hdr mnw-grid liabs">
           <span>Liabilities</span>
-          <span id="mnw-liab-total">$0</span>
+          <span></span>
+          <span class="mnw-section-hdr-total" id="mnw-liab-total">$0</span>
         </div>
         <div class="mnw-col" id="mnw-liab-list"></div>
       </div>
@@ -2262,12 +2267,10 @@ function renderMNWList(){
     aHtml='<div class="no-data" style="padding:32px">No assets yet</div>';
   }else{
     aSorted.forEach(([cat,items,total])=>{
-      aHtml+=`<div class="mnw-cat-hdr assets">
+      aHtml+=`<div class="mnw-cat-hdr mnw-grid assets">
         <span>${esc(cat)}</span>
-        <div class="mnw-cat-hdr-right">
-          <span class="mnw-cat-hdr-updated">Updated</span>
-          <span>${fmtUSD(total)}</span>
-        </div>
+        <span class="mnw-cat-hdr-updated">Updated</span>
+        <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       _instSort(items,cat).forEach(a=>{
         let det={};
@@ -2322,18 +2325,16 @@ function renderMNWList(){
         }catch(e){}
         const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
         const entityDisplay=showEntity?(a.Entity==='Personal'?'MN':esc(a.Entity)):'';
-        aHtml+=`<div class="mnw-row" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
-          <div style="flex:1;min-width:0;padding-right:8px;overflow:hidden">
+        aHtml+=`<div class="mnw-row mnw-grid" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
+          <div class="mnw-row-name-cell">
             <div class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</div>
             ${entityDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${entityDisplay}</div>`:''}
             ${loanTag}
           </div>
-          <div class="mnw-row-right" style="align-items:flex-start">
-            <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
-            <div style="text-align:right">
-              <div class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</div>
-              ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">${investedYear?`<span style="color:#bbb;margin-right:5px">${investedYear}</span>`:''}Invested ${fmtUSD(investedAmt)}</div>`:''}
-            </div>
+          <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
+          <div class="mnw-row-val-cell">
+            <div class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</div>
+            ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">${investedYear?`<span style="color:#bbb;margin-right:5px">${investedYear}</span>`:''}Invested ${fmtUSD(investedAmt)}</div>`:''}
           </div>
         </div>`;
       });
@@ -2358,18 +2359,18 @@ function renderMNWList(){
     lHtml='<div class="no-data" style="padding:32px">No liabilities recorded</div>';
   }else{
     lSorted.forEach(([type,items,total])=>{
-      lHtml+=`<div class="mnw-cat-hdr liabs">
+      lHtml+=`<div class="mnw-cat-hdr mnw-grid liabs">
         <span>${esc(type)}</span>
-        <div class="mnw-cat-hdr-right">
-          <span class="mnw-cat-hdr-updated">Updated</span>
-          <span>${fmtUSD(total)}</span>
-        </div>
+        <span class="mnw-cat-hdr-updated">Updated</span>
+        <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
-        lHtml+=`<div class="mnw-row" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
-          <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${l.Location?`<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>`:''}</span>
-          <div class="mnw-row-right">
-            <span class="mnw-row-age">${daysSince(l['Last Updated']||l['Date Added'])}</span>
+        lHtml+=`<div class="mnw-row mnw-grid" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
+          <div class="mnw-row-name-cell">
+            <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${l.Location?`<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>`:''}</span>
+          </div>
+          <span class="mnw-row-age">${daysSince(l['Last Updated']||l['Date Added'])}</span>
+          <div class="mnw-row-val-cell">
             <span class="mnw-row-val" style="color:#c5221f">${fmtUSD(num(l['USD Value']))}</span>
           </div>
         </div>`;
@@ -3395,26 +3396,28 @@ function saveAssetDetails(keepOpen){
     })
   };
 
-  // Auto-save path: saves everything (name + core fields + details) so name changes are never lost.
+  // Auto-save path: writes only the Details JSON cell (~300ms).
+  // Name/value/currency/entity changes are saved on explicit save (Save Details
+  // button, modal close, or click outside) — that path uses saveFullAsset.
   if (keepOpen) {
+    // In-flight guard: never run two auto-saves at once.
+    // If one is already running, mark a follow-up so we re-fire when it returns.
+    if (_autoSaveInFlight) { _autoSavePending = true; return; }
+    _autoSaveInFlight = true;
     var _autoName = (document.getElementById('da-name')||{value:''}).value.trim();
-    var _autoCat  = (document.getElementById('da-category')||{value:''}).value;
-    var _autoEnt  = (document.getElementById('da-entity')||{value:''}).value;
-    var _autoCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
-    var _autoIsRE = _autoCat.startsWith('Real Estate');
-    var _autoReOwn= _autoIsRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
-    var _autoShr  = _autoReOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
-    var _autoLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
-    var _autoCoreData = { id: id, name: _autoName||undefined, category: _autoCat, entity: _autoEnt,
-                          currency: _autoCur, localValue: _autoLoc, mySharePct: 100, ownershipPct: _autoShr };
     var _autoAsset = (state.assets||[]).find(function(a){ return String(a.ID)===String(id); });
     if (_autoAsset) {
       if (_autoName) _autoAsset.Name = _autoName;
       _autoAsset.Details = JSON.stringify(details);
       _autoAsset['Last Updated'] = new Date().toISOString();
     }
+    var _autoDone = function(){
+      _autoSaveInFlight = false;
+      if (_autoSavePending) { _autoSavePending = false; scheduleAssetAutoSave(); }
+    };
     google.script.run
       .withSuccessHandler(function(r){
+        _autoDone();
         if (r && r.success === false) {
           var msg = r.error || 'Auto-save failed — your data may not be saved';
           _showSaveError('detail-save-status', msg);
@@ -3424,11 +3427,12 @@ function saveAssetDetails(keepOpen){
         }
       })
       .withFailureHandler(function(e){
+        _autoDone();
         var msg = 'Auto-save failed: ' + e.message;
         _showSaveError('detail-save-status', msg);
         toast(msg, 'error');
       })
-      .saveFullAsset(_autoCoreData, id, JSON.stringify(details));
+      .saveAssetDetailsOnly(id, JSON.stringify(details));
     return;
   }
 
@@ -4014,6 +4018,8 @@ function openLiabDetail(id){
 
 function saveLiabilityDetails(keepOpen){
   if(_loadingDetail && keepOpen) return; // Block auto-saves only; explicit saves always proceed
+  // In-flight guard for liability auto-saves (mirrors asset path).
+  if (keepOpen && _liabAutoSaveInFlight) { _liabAutoSavePending = true; return; }
   clearTimeout(_liabAutoSave);
   const id=document.getElementById('ld-id').value;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
@@ -4059,8 +4065,15 @@ function saveLiabilityDetails(keepOpen){
   }
   renderDashboard();
   renderLiabilitiesTable();
+  if (keepOpen) _liabAutoSaveInFlight = true;
+  var _liabDone = function(){
+    if (!keepOpen) return;
+    _liabAutoSaveInFlight = false;
+    if (_liabAutoSavePending) { _liabAutoSavePending = false; scheduleLiabAutoSave(); }
+  };
   google.script.run
     .withSuccessHandler(r=>{
+      _liabDone();
       document.querySelectorAll('#liab-detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
       if(r&&r.success===false){
         // Keep modal open so error is visible in footer
@@ -4079,6 +4092,7 @@ function saveLiabilityDetails(keepOpen){
       }
     })
     .withFailureHandler(e=>{
+      _liabDone();
       document.querySelectorAll('#liab-detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
       _showSaveError('liab-save-status', 'Save FAILED — data not saved. ' + e.message);
       toast('Save failed: '+e.message,'error');
@@ -4324,6 +4338,9 @@ document.addEventListener('click',e=>{
 
 // -- Auto-save (debounced) -------------------------------------------------
 var _assetAutoSave=null, _liabAutoSave=null, _loadingDetail=false;
+// In-flight guards: prevent stacking auto-save calls while one is running.
+var _autoSaveInFlight=false, _autoSavePending=false;
+var _liabAutoSaveInFlight=false, _liabAutoSavePending=false;
 function scheduleAssetAutoSave(){
   if(_loadingDetail) return;
   clearTimeout(_assetAutoSave);
