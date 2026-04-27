@@ -2997,11 +2997,13 @@ function saveAsset(){
     .withSuccessHandler(function(r){
       if(r&&r.success===false){toast(r.error||'Add failed','error');return;}
       // Add to local state immediately so detail modal can open without waiting for full reload
+      var _now = new Date().toISOString();
       var newAsset = {
         ID: r.id, Name: data.name, Category: data.category,
         Entity: data.entity, Currency: data.currency,
         'My Share %': 100, 'Local Value': 0, 'USD Value': 0, 'My Share USD': 0,
-        'Cost Basis': 0, Details: '{}', Notes: ''
+        'Cost Basis': 0, Details: '{}', Notes: '',
+        'Date Added': _now, 'Last Updated': _now
       };
       state.assets.push(newAsset);
       renderAssetsTable();
@@ -3409,6 +3411,7 @@ function saveAssetDetails(keepOpen){
     if (_autoAsset) {
       if (_autoName) _autoAsset.Name = _autoName;
       _autoAsset.Details = JSON.stringify(details);
+      _autoAsset['Last Updated'] = new Date().toISOString();
     }
     google.script.run
       .withSuccessHandler(function(r){
@@ -3478,9 +3481,12 @@ function saveAssetDetails(keepOpen){
         _showSaveError('detail-save-status', r.error);
         loadData();
       } else {
-        if (_stateAsset && r && r.myShareUsd != null) {
-          _stateAsset['My Share USD'] = r.myShareUsd;
-          _stateAsset['Local Value']  = r.localValue;
+        if (_stateAsset) {
+          if (r && r.myShareUsd != null) {
+            _stateAsset['My Share USD'] = r.myShareUsd;
+            _stateAsset['Local Value']  = r.localValue;
+          }
+          _stateAsset['Last Updated'] = new Date().toISOString();
         }
         _showAutoSaved('detail-save-status');
         if (_shouldClose) { closeModal('detail-modal'); toast('Saved'); }
