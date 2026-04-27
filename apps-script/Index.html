@@ -95,6 +95,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .mnw-section-hdr{padding:10px 14px;font-size:13px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
 .mnw-section-hdr.assets{background:#0d2137;color:#fff}
 .mnw-section-hdr.liabs{background:#7f1d1d;color:#fff}
+.mnw-section-hdr-updated{text-align:right;font-weight:600;font-size:11px;opacity:.85;letter-spacing:.4px}
 .mnw-section-hdr-total{text-align:right}
 .mnw-cat-hdr{padding:7px 14px;font-size:12px;font-weight:700;letter-spacing:.3px;text-transform:uppercase}
 .mnw-cat-hdr.assets{background:#1a3a5c;color:#fff}
@@ -176,7 +177,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
         <div class="mnw-section-hdr mnw-grid assets">
           <span>Assets</span>
-          <span></span>
+          <span class="mnw-section-hdr-updated">Updated</span>
           <span class="mnw-section-hdr-total" id="mnw-assets-total">$0</span>
         </div>
         <div class="mnw-col" id="mnw-assets-list"></div>
@@ -185,7 +186,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div style="background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.1);overflow:hidden">
         <div class="mnw-section-hdr mnw-grid liabs">
           <span>Liabilities</span>
-          <span></span>
+          <span class="mnw-section-hdr-updated">Updated</span>
           <span class="mnw-section-hdr-total" id="mnw-liab-total">$0</span>
         </div>
         <div class="mnw-col" id="mnw-liab-list"></div>
@@ -2267,9 +2268,18 @@ function renderMNWList(){
     aHtml='<div class="no-data" style="padding:32px">No assets yet</div>';
   }else{
     aSorted.forEach(([cat,items,total])=>{
+      // Latest update across all items in this category (mirrors spreadsheet behavior)
+      let _catLatest=null;
+      items.forEach(function(it){
+        const d=it['Last Updated']||it['Date Added'];
+        if(!d)return;
+        const dt=new Date(d);
+        if(!isNaN(dt)&&(!_catLatest||dt>_catLatest))_catLatest=dt;
+      });
+      const _catAge=_catLatest?daysSince(_catLatest):'';
       aHtml+=`<div class="mnw-cat-hdr mnw-grid assets">
         <span>${esc(cat)}</span>
-        <span class="mnw-cat-hdr-updated">Updated</span>
+        <span class="mnw-cat-hdr-updated">${_catAge}</span>
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       _instSort(items,cat).forEach(a=>{
@@ -2359,9 +2369,18 @@ function renderMNWList(){
     lHtml='<div class="no-data" style="padding:32px">No liabilities recorded</div>';
   }else{
     lSorted.forEach(([type,items,total])=>{
+      // Latest update across all liabilities of this type (mirrors spreadsheet behavior)
+      let _typeLatest=null;
+      items.forEach(function(it){
+        const d=it['Last Updated']||it['Date Added'];
+        if(!d)return;
+        const dt=new Date(d);
+        if(!isNaN(dt)&&(!_typeLatest||dt>_typeLatest))_typeLatest=dt;
+      });
+      const _typeAge=_typeLatest?daysSince(_typeLatest):'';
       lHtml+=`<div class="mnw-cat-hdr mnw-grid liabs">
         <span>${esc(type)}</span>
-        <span class="mnw-cat-hdr-updated">Updated</span>
+        <span class="mnw-cat-hdr-updated">${_typeAge}</span>
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
