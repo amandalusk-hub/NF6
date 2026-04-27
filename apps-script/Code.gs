@@ -3177,7 +3177,7 @@ function generateNetWorthHistorySheet() {
       gridlines: { color: 'transparent' }
     })
     .setOption('backgroundColor', { fill: '#f8fafd' })
-    .setOption('chartArea', { left: 75, top: 15, right: 130, bottom: 35 })
+    .setOption('chartArea', { left: 75, top: 15, width: Math.max(100, chartWidthPx - 205), height: Math.max(50, chartHeightPx - 50) })
     .setOption('height', chartHeightPx)
     .setOption('width', chartWidthPx)
     .build();
