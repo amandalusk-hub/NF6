@@ -51,7 +51,7 @@ var SUPPORTED_CURRENCIES = {
 
 var COL = {
   ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
@@ -955,6 +955,63 @@ function deleteAsset(id) {
     if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
   }
   return { success: false, error: 'Not found' };
+}
+
+// Move an asset row to the Liabilities sheet. Useful for credit cards that
+// were synced from Plaid as assets (current default) and need to live on the
+// liabilities side instead. Carries over the Plaid Account ID so future
+// syncs route the balance to the liability row directly (no duplicates).
+function convertAssetToLiability(assetId, liabilityType) {
+  ensureSheets_();
+  var aSheet = getSheet_('ASSETS');
+  var aRows  = aSheet.getDataRange().getValues();
+  var aHdr   = aRows[0];
+  function ai(name) { return aHdr.indexOf(name); }
+
+  for (var i = 1; i < aRows.length; i++) {
+    if (String(aRows[i][0]) !== String(assetId)) continue;
+
+    var name      = String(aRows[i][ai('Name')] || '');
+    var currency  = String(aRows[i][ai('Currency')] || 'USD') || 'USD';
+    var localVal  = Number(aRows[i][ai('Local Value')]) || 0;
+    var usdVal    = Number(aRows[i][ai('USD Value')]) || (localVal * getFxRate_(currency));
+    var notes     = String(aRows[i][ai('Notes')] || '');
+    var plaidId   = ai('Plaid Account ID') >= 0 ? String(aRows[i][ai('Plaid Account ID')] || '') : '';
+
+    // Build new liability row using header-name mapping so it works regardless
+    // of column order / future schema changes.
+    var lSheet = getSheet_('LIABILITIES');
+    var lHdr   = lSheet.getRange(1, 1, 1, lSheet.getLastColumn()).getValues()[0];
+    var newId  = Utilities.getUuid();
+    var now    = new Date();
+    var lRow   = lHdr.map(function(h) {
+      switch (h) {
+        case 'ID':                return newId;
+        case 'Name':              return name;
+        case 'Type':              return liabilityType || 'Credit Card';
+        case 'Currency':          return currency;
+        case 'Amount':            return localVal;
+        case 'USD Value':         return usdVal;
+        case 'Date Added':        return now;
+        case 'Last Updated':      return now;
+        case 'Notes':             return notes;
+        case 'Location':          return '';
+        case 'Details':           return '';
+        case 'Plaid Account ID':  return plaidId;
+        default:                  return '';
+      }
+    });
+    lSheet.appendRow(lRow);
+
+    // Remove the original asset row
+    aSheet.deleteRow(i + 1);
+    SpreadsheetApp.flush();
+
+    logHistory_(name, usdVal, -usdVal, currency, 'Converted from asset to liability (' + (liabilityType || 'Credit Card') + ')');
+
+    return { success: true, newLiabilityId: newId };
+  }
+  return { success: false, error: 'Asset not found: ' + assetId };
 }
 
 // ── Entities CRUD ─────────────────────────────────────────────────────────────
@@ -1865,13 +1922,37 @@ function syncPlaidAccounts() {
     if (plaidCol >= 0 && rows[i][plaidCol]) byPlaidId[rows[i][plaidCol]] = i;
   }
 
+  // Also read LIABILITIES — accounts the user previously moved to liabilities
+  // (e.g. credit cards) live there now and need balance updates routed to them.
+  var lSheet  = getSheet_('LIABILITIES');
+  var lRows   = lSheet.getDataRange().getValues();
+  var lHdr    = lRows[0] || [];
+  function lhci(name) { return lHdr.indexOf(name); }
+  var lPlaidCol = lhci('Plaid Account ID');
+  var byLiabPlaidId = {};
+  if (lPlaidCol >= 0) {
+    for (var li = 1; li < lRows.length; li++) {
+      if (lRows[li][lPlaidCol]) byLiabPlaidId[lRows[li][lPlaidCol]] = li;
+    }
+  }
+
   // ── Step 3: match and collect updates ─────────────────────────────────────
-  var updates   = [];   // {rowIdx, acctName, balance, acctId, oldUsd}
-  var newAccts  = [];   // accounts with no matching row
+  var updates     = [];   // asset row updates: {rowIdx, acctName, balance, acctId, oldUsd}
+  var liabUpdates = [];   // liability row updates: same shape
+  var newAccts    = [];   // accounts with no matching row in either sheet
 
   allAccounts.forEach(function(acct) {
-    var matchRow = byPlaidId[acct.acctId];
+    // Liability match wins — that means the user explicitly moved this account
+    // to the liabilities side and we should keep updating it there.
+    if (byLiabPlaidId[acct.acctId] !== undefined) {
+      var lIdx   = byLiabPlaidId[acct.acctId];
+      var oldUsd = lhci('USD Value') >= 0 ? (Number(lRows[lIdx][lhci('USD Value')]) || 0) : 0;
+      liabUpdates.push({ rowIdx: lIdx, acctName: acct.name, balance: acct.balance,
+                         acctId: acct.acctId, oldUsd: oldUsd });
+      return;
+    }
 
+    var matchRow = byPlaidId[acct.acctId];
     if (matchRow === undefined) {
       // Name+category match
       for (var i = 1; i < rows.length; i++) {
@@ -1884,15 +1965,15 @@ function syncPlaidAccounts() {
     }
 
     if (matchRow !== undefined) {
-      var oldUsd = usdValIdx >= 0 ? (Number(rows[matchRow][usdValIdx]) || 0) : 0;
+      var oldUsdA = usdValIdx >= 0 ? (Number(rows[matchRow][usdValIdx]) || 0) : 0;
       updates.push({ rowIdx: matchRow, acctName: acct.name, balance: acct.balance,
-                     acctId: acct.acctId, oldUsd: oldUsd });
+                     acctId: acct.acctId, oldUsd: oldUsdA });
     } else {
       newAccts.push(acct);
     }
   });
 
-  // ── Step 4: apply all updates using header-based column positions ──────────
+  // ── Step 4a: apply asset updates ──────────────────────────────────────────
   updates.forEach(function(u) {
     var r = u.rowIdx + 1;   // 1-based sheet row
     // Name intentionally not overwritten — preserves user-edited names (e.g. Chase → JP Morgan)
@@ -1905,17 +1986,25 @@ function syncPlaidAccounts() {
     if (Math.abs(u.balance - u.oldUsd) > 0.01) logHistory_(u.acctName, u.oldUsd, u.balance, 'USD', 'Plaid sync');
   });
 
-  // ── Step 5: add new accounts (append rows) ────────────────────────────────
+  // ── Step 4b: apply liability updates ──────────────────────────────────────
+  liabUpdates.forEach(function(u) {
+    var r = u.rowIdx + 1;
+    if (lhci('Amount')        >= 0) lSheet.getRange(r, lhci('Amount')        + 1).setValue(u.balance);
+    if (lhci('USD Value')     >= 0) lSheet.getRange(r, lhci('USD Value')     + 1).setValue(u.balance);
+    if (lhci('Last Updated')  >= 0) lSheet.getRange(r, lhci('Last Updated')  + 1).setValue(now);
+    if (Math.abs(u.balance - u.oldUsd) > 0.01) logHistory_(u.acctName, u.oldUsd, u.balance, 'USD', 'Plaid sync (liability)');
+  });
+
+  // ── Step 5: add new accounts (default to assets) ──────────────────────────
   newAccts.forEach(function(acct) {
-    // addAsset now uses header-based mapping, so Plaid ID is passed as a no-op field;
-    // we tag the newly appended row after the fact.
+    // addAsset uses header-based mapping; we tag the new row's Plaid ID after.
     addAsset({ name: acct.name, category: 'Cash - Personal', currency: 'USD',
                localValue: acct.balance, mySharePct: 100, notes: 'Plaid: ' + acct.acctId });
     var newRowCount = sheet.getLastRow();
     if (phci('Plaid Account ID') >= 0) sheet.getRange(newRowCount, phci('Plaid Account ID') + 1).setValue(acct.acctId);
   });
 
-  return { success: true, synced: updates.length + newAccts.length };
+  return { success: true, synced: updates.length + liabUpdates.length + newAccts.length };
 }
 
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
@@ -3161,12 +3250,14 @@ function setupDatabase() {
 
   // ── Liabilities sheet ───────────────────────────────────────────────────
   // Columns: ID(1) Name(2) Type(3) Currency(4) Amount(5) USD Value(6)
-  //   Date Added(7) Last Updated(8) Notes(9) Location(10) Details(11)
+  //   Date Added(7) Last Updated(8) Notes(9) Location(10) Details(11) Plaid Account ID(12)
   var liabs = ss.getSheetByName('Liabilities');
   if (liabs) {
     [[1,30],[2,220],[3,160],[4,70],[5,120],[6,120],[7,100],[8,110],[9,220],[10,160]]
       .forEach(function(w){ liabs.setColumnWidth(w[0], w[1]); });
     liabs.hideColumns(11); // Details JSON
+    var liabPlaidCol = liabs.getRange(1, 1, 1, liabs.getLastColumn()).getValues()[0].indexOf('Plaid Account ID') + 1;
+    if (liabPlaidCol > 0) liabs.hideColumns(liabPlaidCol);
     var liabTypes = ['Mortgage','Auto Loan','Personal Loan','Credit Card',
                      'Line of Credit','Business Loan','Student Loan','Other'];
     liabs.getRange(2, 3, 1000).setDataValidation(

@@ -1185,6 +1185,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     <div class="modal-footer" style="justify-content:space-between;align-items:center">
       <span id="detail-save-status" style="font-size:12px;color:#1e8e3e;display:flex;align-items:center;gap:5px"></span>
       <div style="display:flex;gap:10px">
+        <button class="btn btn-secondary" onclick="moveAssetToLiability()" title="Move this account from Assets to Liabilities — useful for credit cards synced via Plaid" style="background:#fde8e8;color:#7f1d1d;border:1px solid #f0c8c8">Move to Liabilities &rarr;</button>
         <button class="btn btn-secondary" onclick="saveAssetDetails(false)">Close</button>
         <button class="btn btn-primary" onclick="saveAssetDetails()">Save Details</button>
       </div>
@@ -3072,6 +3073,36 @@ function deleteAsset(id,name){
     .withSuccessHandler(()=>{toast('Asset deleted');loadData()})
     .withFailureHandler(e=>{showLoading(false);toast(e.message,'error')})
     .deleteAsset(id);
+}
+
+// Move the currently-open asset to the Liabilities sheet.
+// Used to reclassify Plaid-synced credit cards (which sync as assets by
+// default) into the Liabilities side. The Plaid Account ID transfers, so
+// future Plaid syncs route the balance to the liability row directly.
+function moveAssetToLiability(){
+  var id = (document.getElementById('detail-id')||{}).value;
+  if(!id) return;
+  var asset = (state.assets||[]).find(function(a){ return String(a.ID)===String(id); });
+  if(!asset){ toast('Asset not found','error'); return; }
+  if(!confirm(
+    'Move "' + (asset.Name||'') + '" from Assets to Liabilities (as Credit Card)?\n\n' +
+    'This deletes the asset row and creates a new liability with the same name,\n' +
+    'balance, and Plaid Account ID. You can change the type to Mortgage, Auto Loan,\n' +
+    'etc. from the Liabilities tab afterwards.\n\nContinue?'
+  )) return;
+  showLoading(true);
+  // Cancel any pending auto-save so we don't fight the move on the way through
+  clearTimeout(_assetAutoSave);
+  closeModal('detail-modal');
+  google.script.run
+    .withSuccessHandler(function(r){
+      showLoading(false);
+      if(r && r.success===false){ toast(r.error||'Move failed','error'); return; }
+      toast('Moved to Liabilities — open the Liabilities tab to set the type if needed');
+      loadData();
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast('Error: '+e.message,'error'); })
+    .convertAssetToLiability(id, 'Credit Card');
 }
 
 // -- Contact Rows (Who We Worked With) -------------------------------------
