@@ -2268,18 +2268,9 @@ function renderMNWList(){
     aHtml='<div class="no-data" style="padding:32px">No assets yet</div>';
   }else{
     aSorted.forEach(([cat,items,total])=>{
-      // Latest update across all items in this category (mirrors spreadsheet behavior)
-      let _catLatest=null;
-      items.forEach(function(it){
-        const d=it['Last Updated']||it['Date Added'];
-        if(!d)return;
-        const dt=new Date(d);
-        if(!isNaN(dt)&&(!_catLatest||dt>_catLatest))_catLatest=dt;
-      });
-      const _catAge=_catLatest?daysSince(_catLatest):'';
       aHtml+=`<div class="mnw-cat-hdr mnw-grid assets">
         <span>${esc(cat)}</span>
-        <span class="mnw-cat-hdr-updated">${_catAge}</span>
+        <span class="mnw-cat-hdr-updated">Updated</span>
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       _instSort(items,cat).forEach(a=>{
@@ -2369,18 +2360,9 @@ function renderMNWList(){
     lHtml='<div class="no-data" style="padding:32px">No liabilities recorded</div>';
   }else{
     lSorted.forEach(([type,items,total])=>{
-      // Latest update across all liabilities of this type (mirrors spreadsheet behavior)
-      let _typeLatest=null;
-      items.forEach(function(it){
-        const d=it['Last Updated']||it['Date Added'];
-        if(!d)return;
-        const dt=new Date(d);
-        if(!isNaN(dt)&&(!_typeLatest||dt>_typeLatest))_typeLatest=dt;
-      });
-      const _typeAge=_typeLatest?daysSince(_typeLatest):'';
       lHtml+=`<div class="mnw-cat-hdr mnw-grid liabs">
         <span>${esc(type)}</span>
-        <span class="mnw-cat-hdr-updated">${_typeAge}</span>
+        <span class="mnw-cat-hdr-updated">Updated</span>
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{

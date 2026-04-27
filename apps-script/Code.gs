@@ -2462,7 +2462,7 @@ function generateBalancesSheet() {
           .setValue(aRow.label)
           .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
           .setBackground('#2E6DA4').setHorizontalAlignment('left');
-        sheet.getRange(r, 4).setValue(aRow.updated || '')
+        sheet.getRange(r, 4).setValue('Updated')
           .setFontSize(8).setFontColor('#cce0f5')
           .setBackground('#2E6DA4').setHorizontalAlignment('right');
         sheet.getRange(r, 5).setBackground('#2E6DA4');
@@ -2512,7 +2512,7 @@ function generateBalancesSheet() {
           .setValue(lRow.label)
           .setFontSize(9).setFontWeight('bold').setFontColor('#ffffff')
           .setBackground('#A33030').setHorizontalAlignment('left');
-        sheet.getRange(r, 11).setValue(lRow.updated || '')
+        sheet.getRange(r, 11).setValue('Updated')
           .setFontSize(8).setFontColor('#f5cccc')
           .setBackground('#A33030').setHorizontalAlignment('right');
         sheet.getRange(r, 12).setBackground('#A33030');
