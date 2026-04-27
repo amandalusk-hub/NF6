@@ -2213,15 +2213,38 @@ function daysSince(dateVal){
   return n+' days ago';
 }
 
+// Extract a "family" key from an asset name so similar investments cluster
+// together. Examples:
+//   "Doc2Doc Business Investment"               -> "doc2doc"
+//   "Doc2Doc Bridge Loan (TLMND to NF6)"        -> "doc2doc"
+//   "Sweat 440 Growth -> Brickhouse Athletics"  -> "sweat440"
+//   "Sweat440 - NYC-FIT, LLC"                   -> "sweat440"
+//   "12.08% of ASC via 29% ASC ownership..."    -> "asc"
+function _peGroupKey(name){
+  if(!name)return'';
+  let s=String(name).toLowerCase().trim();
+  // Strip a leading "12.08% of " / "29% ownership of " noise
+  s=s.replace(/^\d+(\.\d+)?%\s*(of\s+)?/,'');
+  s=s.replace(/^\d+(\.\d+)?%\s*(ownership\s+of\s+)?/,'');
+  const parts=s.match(/[a-z0-9]+/g)||[];
+  if(!parts.length)return'';
+  // Brand + model number, e.g. "sweat 440" -> "sweat440"
+  if(parts.length>=2&&/^\d+$/.test(parts[1]))return parts[0]+parts[1];
+  return parts[0];
+}
+
 // Sort items within a category: group by institution (by combined total desc),
-// then within each institution group sort by value desc.
-// For Loans Receivable and Private Equity: group by Entity instead of institution.
+// then within each group sort by value desc.
+// - Loans Receivable: group by Entity
+// - Private Equity:   group by family/brand name (e.g. all Doc2Doc together)
+// - Other:            group by name prefix before " - " (e.g. all JP Morgan)
 function _instSort(items, cat){
-  const byEntity=cat==='Loans Receivable'||cat==='Private Equity';
   const groupMap={};
   items.forEach(a=>{
     let key;
-    if(byEntity){
+    if(cat==='Private Equity'){
+      key=_peGroupKey(a.Name||a['Name'])||(a.Entity||a['Entity']||'(No Entity)');
+    }else if(cat==='Loans Receivable'){
       key=a.Entity||a['Entity']||'(No Entity)';
     }else{
       const n=a.Name||a['Name']||'';

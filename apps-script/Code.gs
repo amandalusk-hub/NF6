@@ -2201,15 +2201,36 @@ function dailySync_() {
 
 // ── Balances Sheet (Tiller-style Net Worth view) ──────────────────────────────
 
+// Extract a "family" key from an asset name so similar investments cluster
+// together. Mirrors _peGroupKey() in Index.html. Examples:
+//   "Doc2Doc Business Investment"               -> "doc2doc"
+//   "Doc2Doc Bridge Loan (TLMND to NF6)"        -> "doc2doc"
+//   "Sweat 440 Growth -> Brickhouse Athletics"  -> "sweat440"
+//   "Sweat440 - NYC-FIT, LLC"                   -> "sweat440"
+//   "12.08% of ASC via 29% ASC ownership..."    -> "asc"
+function peGroupKey_(name) {
+  if (!name) return '';
+  var s = String(name).toLowerCase().trim();
+  s = s.replace(/^\d+(\.\d+)?%\s*(of\s+)?/, '');
+  s = s.replace(/^\d+(\.\d+)?%\s*(ownership\s+of\s+)?/, '');
+  var parts = s.match(/[a-z0-9]+/g) || [];
+  if (!parts.length) return '';
+  if (parts.length >= 2 && /^\d+$/.test(parts[1])) return parts[0] + parts[1];
+  return parts[0];
+}
+
 /// Sort items within a category: institution groups ordered by combined total desc,
-// within each group sorted by value desc. For Loans Receivable and Private Equity,
-// groups by Entity instead of institution name.
+// within each group sorted by value desc.
+// - Loans Receivable: group by Entity
+// - Private Equity:   group by family/brand name (e.g. all Doc2Doc together)
+// - Other:            group by name prefix before " - "
 function instSortBalances_(items, cat) {
-  var byEntity = (cat === 'Loans Receivable' || cat === 'Private Equity');
   var groupMap = {};
   items.forEach(function(a) {
     var key;
-    if (byEntity) {
+    if (cat === 'Private Equity') {
+      key = peGroupKey_(a['Name']) || (a['Entity'] || '(No Entity)');
+    } else if (cat === 'Loans Receivable') {
       key = a['Entity'] || '(No Entity)';
     } else {
       var n  = a['Name'] || '';
