@@ -173,6 +173,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Take Net Worth Snapshot (1st of month)', 'takeNWSnapshot')
     .addItem('Refresh Net Worth History Sheet', 'generateNetWorthHistorySheet')
+    .addItem('Reset Balance History (clear & retake)', 'resetBalanceHistoryFromMenu')
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
     .addItem('Reset Asset Details Schema', 'resetSchema')
@@ -2712,6 +2713,69 @@ function snapshotAndRefreshNWHistory() {
   var snap = takeNWSnapshot(true);  // force=true: delete existing month data and retake
   var gen  = generateNetWorthHistorySheet();
   return { snapshot: snap, sheet: gen };
+}
+
+// ── Reset Balance History ─────────────────────────────────────────────────────
+// Wipes all existing snapshots (NW Snapshots + Snapshots), takes a fresh
+// snapshot for the current month, and rebuilds the Net Worth History sheet.
+// Assets and Liabilities sheets are NOT touched. Useful after a big data
+// cleanup when the historical snapshots reflect incomplete data.
+//
+// Two entry points:
+//   resetBalanceHistory()         — called from the web app (no UI prompt)
+//   resetBalanceHistoryFromMenu() — called from the spreadsheet menu (confirms)
+
+function resetBalanceHistory() {
+  var ss = getSpreadsheet_();
+
+  // Clear NW Snapshots data rows (keep header)
+  var nwSheet = ss.getSheetByName('NW Snapshots');
+  if (nwSheet && nwSheet.getLastRow() > 1) {
+    nwSheet.getRange(2, 1, nwSheet.getLastRow() - 1, Math.max(nwSheet.getLastColumn(), 1)).clearContent();
+  }
+
+  // Clear Snapshots data rows (keep header) — used by the History tab trend chart
+  var snapSheet = ss.getSheetByName('Snapshots');
+  if (snapSheet && snapSheet.getLastRow() > 1) {
+    snapSheet.getRange(2, 1, snapSheet.getLastRow() - 1, Math.max(snapSheet.getLastColumn(), 1)).clearContent();
+  }
+
+  // Take fresh snapshots for the current month
+  var nw   = takeNWSnapshot(true);
+  var asnap = takeMonthlySnapshot();
+
+  // Regenerate the Net Worth History pivot sheet
+  var gen  = generateNetWorthHistorySheet();
+
+  return {
+    success:    true,
+    nwSnapshot: nw,
+    aSnapshot:  asnap,
+    history:    gen
+  };
+}
+
+function resetBalanceHistoryFromMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    'Reset Balance History',
+    'This will DELETE all rows in:\n' +
+    '   • NW Snapshots\n' +
+    '   • Snapshots\n\n' +
+    'Then take a fresh snapshot from your current Assets and Liabilities\n' +
+    'data and rebuild the Net Worth History sheet.\n\n' +
+    'Assets and Liabilities sheets are NOT touched.\n\nContinue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (resp !== ui.Button.YES) return;
+  var r = resetBalanceHistory();
+  var months = (r.history && r.history.months) || 1;
+  ui.alert(
+    'Balance History Reset',
+    'Done. Fresh snapshot recorded for the current month and the Net Worth\n' +
+    'History sheet has been rebuilt (' + months + ' month' + (months === 1 ? '' : 's') + ' shown).',
+    ui.ButtonSet.OK
+  );
 }
 
 // ── Net Worth History Sheet (Tiller-style pivot) ──────────────────────────────

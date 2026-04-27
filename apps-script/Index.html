@@ -336,9 +336,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-primary btn-sm" onclick="snapshotNWHistory()" style="white-space:nowrap;font-size:12px">
           Snapshot Net Worth to Spreadsheet
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="resetBalanceHistoryUI()" style="white-space:nowrap;font-size:12px;background:#fdf5f5;color:#7f1d1d;border:1px solid #f0c8c8">
+          Reset &amp; Restart
+        </button>
         <span style="font-size:11px;color:#666;line-height:1.4">
-          Saves all assets &amp; liabilities by category to the <b>NW Snapshots</b> sheet and rebuilds the Tiller-style <b>Net Worth History</b> spreadsheet tab.
-          Runs automatically on the <b>1st of each month</b>.
+          <b>Snapshot</b> records this month's values to the spreadsheet (runs automatically on the 1st of each month).
+          <b>Reset &amp; Restart</b> wipes all prior snapshots and takes a fresh one — use after a big data cleanup.
         </span>
       </div>
       <div id="bal-chart-wrap" style="overflow:hidden">
@@ -2545,6 +2548,28 @@ function takeSnapshot(){
     })
     .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
     .takeMonthlySnapshot();
+}
+
+function resetBalanceHistoryUI(){
+  if(!confirm(
+    'Reset Balance History?\n\n' +
+    'This will DELETE all existing snapshots and take a fresh one from your\n' +
+    'current Assets & Liabilities. The Assets and Liabilities sheets are NOT\n' +
+    'touched — only the snapshot history.\n\n' +
+    'Continue?'
+  )) return;
+  showLoading(true);
+  toast('Resetting balance history — this takes a few seconds...','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      showLoading(false);
+      if(r && r.success===false){ toast(r.error||'Reset failed','error'); return; }
+      var months = (r && r.history && r.history.months) || 1;
+      toast('Balance history reset — fresh snapshot taken (' + months + ' month' + (months===1?'':'s') + ' shown)', 'success');
+      renderBalanceHistory();
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast('Reset failed: '+e.message,'error'); })
+    .resetBalanceHistory();
 }
 
 function snapshotNWHistory(){
