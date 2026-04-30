@@ -2151,6 +2151,72 @@ function getPlaidConnections() {
   });
 }
 
+// ── REMOVE A SINGLE PLAID CONNECTION ──────────────────────────────────────────
+// Intentionally NOT exposed in the Tracker menu so a regular user can't
+// accidentally trigger it from the spreadsheet. To run it:
+//   1. Extensions → Apps Script
+//   2. Select  removeOnePlaidConnection  from the function dropdown
+//   3. Click Run.  A dialog in the Sheet shows the list of connections.
+//   4. Type the NUMBER of the connection to remove. Two confirmations follow.
+//
+// What this does:
+//   - Removes ONE entry from PLAID_TOKENS + its label from PLAID_INSTITUTIONS
+//   - Other connections are completely untouched
+//   - Spreadsheet rows are NOT deleted — they just stop updating from Plaid
+function removeOnePlaidConnection() {
+  var ui    = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) { ui.alert('No Plaid connections to remove.'); return; }
+
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var lines = tokens.map(function(t, i) {
+    var name = instMap[t] || '(unnamed)';
+    return (i + 1) + '. ' + name + '   (token ···' + t.slice(-4) + ')';
+  });
+
+  var resp = ui.prompt(
+    'Remove ONE Plaid Connection',
+    'Current connections:\n\n' + lines.join('\n') +
+    '\n\nEnter the NUMBER of the connection to remove (1-' + tokens.length + '):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= tokens.length) {
+    ui.alert('Invalid selection — no changes made.');
+    return;
+  }
+
+  var token   = tokens[idx];
+  var name    = instMap[token] || '(unnamed)';
+  var confirm = ui.alert(
+    'Confirm Removal',
+    'Remove connection #' + (idx + 1) + ': ' + name + ' ?\n\n' +
+    'Only this single Plaid link is affected.\n' +
+    'Other bank connections continue working.\n' +
+    'Spreadsheet rows are NOT deleted — they just stop updating from Plaid.',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  delete instMap[token];
+  tokens.splice(idx, 1);
+  props.setProperty('PLAID_TOKENS',       JSON.stringify(tokens));
+  props.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
+
+  ui.alert(
+    'Connection Removed',
+    tokens.length + ' connection(s) remain.\n\n' +
+    'Next steps:\n' +
+    '  1. Run Tracker → Sync Plaid Accounts\n' +
+    '  2. Manually delete the duplicate rows in Assets — they will\n' +
+    '     stay deleted now that the source token is gone.',
+    ui.ButtonSet.OK
+  );
+}
+
 function setPlaidInstitutionName(index, name) {
   var p       = PropertiesService.getScriptProperties();
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
