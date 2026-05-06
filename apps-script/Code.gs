@@ -161,7 +161,9 @@ function onOpen() {
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
-    .addItem('Remove Plaid Connection', 'removePlaidConnection')
+    .addItem('List Plaid Connections (Detailed)', 'listPlaidConnectionDetails')
+    .addItem('Remove ONE Plaid Connection…', 'removeOnePlaidConnection')
+    .addItem('Remove ALL Plaid Connections', 'removePlaidConnection')
     .addSeparator()
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
@@ -2151,13 +2153,63 @@ function getPlaidConnections() {
   });
 }
 
+// Show every token + the live accounts each one returns from Plaid. Useful for
+// diagnosing duplicate rows: if two tokens return the same physical account
+// under different account_ids, removing one token + the duplicate row resolves
+// it. If only one token exists but two rows have different Plaid Account IDs,
+// the bank likely re-issued account_ids during a silent re-auth.
+function listPlaidConnectionDetails() {
+  var ui      = SpreadsheetApp.getUi();
+  var cfg     = getPlaidConfig_();
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }
+
+  var out = [];
+  out.push('Total connections: ' + tokens.length);
+  out.push('');
+
+  tokens.forEach(function(token, i) {
+    var instName = instMap[token] || '(unnamed)';
+    out.push((i + 1) + '. ' + instName + '   (token ···' + token.slice(-4) + ')');
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get', {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var body = JSON.parse(resp.getContentText());
+      if (body.error_code) {
+        out.push('   ERROR: ' + body.error_code + ' — ' + (body.error_message || ''));
+      } else if (body.accounts && body.accounts.length) {
+        body.accounts.forEach(function(a) {
+          var last4    = a.mask || '????';
+          var acctId   = a.account_id || '';
+          var acctTail = acctId.length > 12 ? '···' + acctId.slice(-12) : acctId;
+          var bal      = (a.balances && a.balances.current != null) ? a.balances.current : '(no balance)';
+          out.push('     • ' + (a.name || '(no name)') + '  ···' + last4 + '   $' + bal);
+          out.push('       account_id: ' + acctTail);
+        });
+      } else {
+        out.push('   (no accounts returned)');
+      }
+    } catch (e) {
+      out.push('   FETCH ERROR: ' + e.message);
+    }
+    out.push('');
+  });
+
+  ui.alert('Plaid Connections (Detailed)', out.join('\n'), ui.ButtonSet.OK);
+}
+
 // ── REMOVE A SINGLE PLAID CONNECTION ──────────────────────────────────────────
-// Intentionally NOT exposed in the Tracker menu so a regular user can't
-// accidentally trigger it from the spreadsheet. To run it:
-//   1. Extensions → Apps Script
-//   2. Select  removeOnePlaidConnection  from the function dropdown
-//   3. Click Run.  A dialog in the Sheet shows the list of connections.
-//   4. Type the NUMBER of the connection to remove. Two confirmations follow.
+// Invoked from Tracker → Remove ONE Plaid Connection… (the menu provides the
+// UI context that SpreadsheetApp.getUi() requires; running from the editor's
+// Run button can hit a non-UI context and throw).
+//
+// Two confirmations protect against accidental clicks.
 //
 // What this does:
 //   - Removes ONE entry from PLAID_TOKENS + its label from PLAID_INSTITUTIONS
