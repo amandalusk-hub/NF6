@@ -158,6 +158,7 @@ function onOpen() {
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
+    .addItem('Update Plaid Connection (Re-auth / Add Accounts)', 'openPlaidUpdate')
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
@@ -1846,6 +1847,38 @@ function getPlaidLinkToken() {
   }
 }
 
+// Update-mode link token. Bound to an existing access_token, so the user can
+// re-authenticate (fixes ITEM_LOGIN_REQUIRED) or add/remove accounts on the
+// SAME Plaid Item. account_selection_enabled lets them toggle which accounts
+// the Item shares — adding new accounts here preserves the existing
+// account_ids and avoids creating a brand-new token (which would duplicate
+// every account already in this Item).
+function getPlaidUpdateLinkToken(accessToken) {
+  var cfg = getPlaidConfig_();
+  try {
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+      method: 'POST',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        client_id:     cfg.clientId,
+        secret:        cfg.secret,
+        client_name:   'MNW Family Office',
+        country_codes: ['US'],
+        language:      'en',
+        user:          { client_user_id: 'mnw-family-office' },
+        access_token:  accessToken,
+        update:        { account_selection_enabled: true }
+      }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+    return { success: false, error: data.error_message || JSON.stringify(data) };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
 function exchangePlaidToken(publicToken) {
   var cfg = getPlaidConfig_();
   try {
@@ -1956,11 +1989,14 @@ function syncPlaidAccounts() {
 
     var matchRow = byPlaidId[acct.acctId];
     if (matchRow === undefined) {
-      // Name+category match
+      // Name-only fallback. Plaid sometimes rotates account_id (silent re-auth,
+      // re-link, item update), and the user may have re-categorized the row
+      // from the default 'Cash - Personal' to something else (e.g. moved a
+      // brokerage row to 'Public Equity (Growth)'). Matching on name alone
+      // means we reuse the existing row instead of creating a duplicate.
       for (var i = 1; i < rows.length; i++) {
         var rName = nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1];
-        var rCat  = catColIdx  >= 0 ? rows[i][catColIdx]  : rows[i][2];
-        if (rName === acct.name && String(rCat).startsWith('Cash')) {
+        if (rName === acct.name) {
           matchRow = i; break;
         }
       }
@@ -2125,6 +2161,79 @@ function openPlaidLink() {
     .setTitle('Connect Bank Account')
     .setWidth(400);
   SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// Open Plaid Link in update mode for an existing connection. Use this to
+// re-authenticate a token that has gone into ITEM_LOGIN_REQUIRED, or to
+// add/remove accounts on an existing Item without creating a new token (which
+// would duplicate every account that's already on this Item).
+function openPlaidUpdate() {
+  var ui    = SpreadsheetApp.getUi();
+  var cfg   = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    ui.alert('Plaid credentials are not set. Configure them first.');
+    return;
+  }
+  var props  = PropertiesService.getScriptProperties();
+  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) { ui.alert('No Plaid connections to update.'); return; }
+
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var lines = tokens.map(function(t, i) {
+    var name = instMap[t] || '(unnamed)';
+    return (i + 1) + '. ' + name + '   (token ···' + t.slice(-4) + ')';
+  });
+
+  var resp = ui.prompt(
+    'Update Plaid Connection',
+    'Pick the connection to update (re-auth or add/remove accounts):\n\n' +
+    lines.join('\n') +
+    '\n\nEnter the NUMBER (1-' + tokens.length + '):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= tokens.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  // Stash the chosen access_token in the user cache so the sidebar can fetch
+  // it via google.script.run without exposing it in the rendered HTML. Cleared
+  // immediately after the link_token call.
+  var key = 'plaid_update_token_' + Utilities.getUuid();
+  CacheService.getUserCache().put(key, tokens[idx], 300);
+
+  var template = HtmlService.createTemplateFromFile('PlaidLinkUpdate');
+  template.cacheKey = key;
+  var html = template.evaluate()
+    .setTitle('Update Plaid Connection')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// Sidebar-only: pulls the access_token from the one-shot cache slot, requests
+// an update-mode link_token, and clears the slot.
+function getPlaidUpdateLinkTokenByKey(cacheKey) {
+  var cache  = CacheService.getUserCache();
+  var token  = cache.get(cacheKey);
+  if (!token) return { success: false, error: 'Update session expired. Re-open Update Plaid Connection.' };
+  cache.remove(cacheKey);
+  return getPlaidUpdateLinkToken(token);
+}
+
+// In update mode Plaid Link does NOT issue a new public_token to exchange —
+// the original access_token still works and now has whatever new accounts the
+// user toggled on. Just sync to pull them.
+function handlePlaidUpdateSuccess() {
+  try {
+    var syncResult = syncPlaidAccounts();
+    var count = syncResult.synced || 0;
+    return { success: true, message: 'Connection updated. ' + count + ' account(s) synced.' };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
 }
 
 function handlePlaidSuccess(publicToken, institutionName) {

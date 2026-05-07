@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa;
+      color: #202124;
+      padding: 24px 16px;
+    }
+    .header { text-align: center; margin-bottom: 24px; }
+    .header h2 { font-size: 18px; font-weight: 600; color: #1a1a2e; margin-bottom: 8px; }
+    .header p  { font-size: 13px; color: #5f6368; line-height: 1.4; }
+    .connect-btn {
+      display: block; width: 100%; padding: 14px 24px;
+      background: #1a1a2e; color: white; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .connect-btn:hover    { background: #0f3460; }
+    .connect-btn:disabled { background: #dadce0; cursor: not-allowed; }
+    .status {
+      margin-top: 16px; padding: 12px; border-radius: 8px;
+      font-size: 13px; text-align: center;
+    }
+    .status.success { background: #e6f4ea; color: #137333; }
+    .status.error   { background: #fce8e6; color: #a50e0e; }
+    .status.loading { background: #e8f0fe; color: #1967d2; }
+    .info {
+      margin-top: 24px; padding: 12px;
+      background: #fff; border: 1px solid #dadce0; border-radius: 8px;
+      font-size: 12px; color: #5f6368; line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Update Bank Connection</h2>
+    <p>Re-authenticate or add/remove accounts on an existing Plaid connection. Existing accounts keep their IDs — no duplicates.</p>
+  </div>
+
+  <button id="connectBtn" class="connect-btn" disabled>Loading...</button>
+  <div id="status" class="status loading">Preparing update session...</div>
+
+  <div class="info">
+    <strong>What this does:</strong><br>
+    1. Click "Update Connection" to open Plaid<br>
+    2. Re-enter credentials (if needed) and toggle accounts<br>
+    3. New balances sync to the Assets tab<br><br>
+    Existing account_ids are preserved, so re-categorized rows stay put.
+  </div>
+
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script>
+    var CACHE_KEY = '<?= cacheKey ?>';
+    var plaidHandler = null;
+
+    window.addEventListener('load', function() {
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (!result || !result.success) {
+            showStatus('error', 'Could not create update token: ' + (result ? result.error : 'No response'));
+            return;
+          }
+          initPlaid(result.linkToken);
+        })
+        .withFailureHandler(function(err) {
+          showStatus('error', 'Server error: ' + (err.message || err));
+        })
+        .getPlaidUpdateLinkTokenByKey(CACHE_KEY);
+    });
+
+    function initPlaid(linkToken) {
+      plaidHandler = Plaid.create({
+        token: linkToken,
+        onSuccess: function() {
+          showStatus('loading', 'Syncing accounts...');
+          setBtn(false, 'Syncing...');
+          google.script.run
+            .withSuccessHandler(function(result) {
+              if (result && result.success) {
+                showStatus('success', result.message);
+                setBtn(true, 'Done');
+              } else {
+                showStatus('error', result ? result.message : 'Sync failed');
+                setBtn(true, 'Try Again');
+              }
+            })
+            .withFailureHandler(function(err) {
+              showStatus('error', 'Error: ' + (err.message || err));
+              setBtn(true, 'Try Again');
+            })
+            .handlePlaidUpdateSuccess();
+        },
+        onExit: function(err) {
+          setBtn(true, 'Update Connection');
+          if (err) showStatus('error', err.display_message || err.error_message || 'Cancelled');
+          else hideStatus();
+        },
+        onEvent: function(eventName) { console.log('Plaid event:', eventName); }
+      });
+
+      setBtn(true, 'Update Connection');
+      hideStatus();
+    }
+
+    function openPlaid() { if (plaidHandler) plaidHandler.open(); }
+
+    function setBtn(enabled, label) {
+      var btn = document.getElementById('connectBtn');
+      btn.disabled = !enabled;
+      btn.textContent = label;
+      btn.onclick = enabled ? openPlaid : null;
+    }
+    function showStatus(type, msg) {
+      var el = document.getElementById('status');
+      el.className = 'status ' + type;
+      el.textContent = msg;
+      el.style.display = 'block';
+    }
+    function hideStatus() {
+      document.getElementById('status').style.display = 'none';
+    }
+  </script>
+</body>
+</html>
