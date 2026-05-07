@@ -2267,6 +2267,21 @@ function _instSort(items, cat){
 }
 
 function renderMNWList(){
+  // Shared helper: takes an ISO date string ("YYYY-MM-DD") or anything Date can
+  // parse. Returns a styled "Due Apr 30, 2034" / "Overdue 12d" / "Due today"
+  // span (gray normally, orange <30d out, red overdue), or '' if no/invalid date.
+  function renderDueDate(dueRaw){
+    if(!dueRaw) return '';
+    const [y,m,d]=String(dueRaw).split('-').map(Number);
+    const due=(y&&m&&d)?new Date(y,m-1,d):new Date(dueRaw);
+    if(isNaN(due)) return '';
+    const daysLeft=Math.ceil((due-Date.now())/86400000);
+    const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const color=daysLeft<0?'#c5221f':daysLeft<30?'#e07b30':'#666';
+    const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
+    return `<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`;
+  }
+
   const assets=state.assets||[];
   const liabs=state.liabilities||[];
 
@@ -2338,17 +2353,8 @@ function renderMNWList(){
           const dueRaw = (a.Category==='Loans Receivable' ? det.loanDue : '')
                       || (a.Category==='Private Equity'   ? det.peMaturity : '')
                       || det['Due Date'] || '';
-          if(dueRaw){
-            const [y,m,d]=dueRaw.split('-').map(Number);
-            const due=(y&&m&&d)?new Date(y,m-1,d):new Date(dueRaw);
-            if(!isNaN(due)){
-              const daysLeft=Math.ceil((due-Date.now())/86400000);
-              const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-              const color=daysLeft<0?'#c5221f':daysLeft<30?'#e07b30':'#666';
-              const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
-              parts.push(`<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`);
-            }
-          }
+          const dueHtml = renderDueDate(dueRaw);
+          if(dueHtml) parts.push(dueHtml);
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
         const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
@@ -2393,9 +2399,41 @@ function renderMNWList(){
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
+        let det={};
+        try{det=JSON.parse(l.Details||'{}');}catch(e){}
+
+        // Build sub-tag: rate | $X principal | $Y interest | Due [date with color]
+        // Mirrors the Loans Receivable presentation. Only shown if det has any
+        // of these structured fields; mortgages without structured details just
+        // continue to use the Location subtitle below the name.
+        let loanTag='';
+        try{
+          const parts=[];
+          const rate = det.loanRate || det.interestRate;
+          if(rate) parts.push(esc(rate));
+          if(det.loanPayments && det.loanPayments.length){
+            const totalPrincipal=det.loanPayments.reduce((s,p)=>s+(p.principal||p.amount||0),0);
+            const totalInterest =det.loanPayments.reduce((s,p)=>s+(p.interest||0),0);
+            if(totalPrincipal>0) parts.push(fmtUSD(totalPrincipal)+' principal');
+            if(totalInterest>0)  parts.push(fmtUSD(totalInterest)+' interest');
+          }
+          const dueHtml = renderDueDate(det.loanDue || det.dueDate || det['Due Date'] || '');
+          if(dueHtml) parts.push(dueHtml);
+          if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
+        }catch(e){}
+
+        // Counterparty (lender) -- shown like Entity in the asset rows
+        const lenderDisplay = det.lender ? esc(det.lender) : '';
+
+        // Address fallback (kept for mortgages so the property location stays visible);
+        // hidden when a loanTag is present to avoid double sub-lines for promissory notes.
+        const locationDisplay = (!loanTag && l.Location) ? `<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>` : '';
+
         lHtml+=`<div class="mnw-row mnw-grid" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
           <div class="mnw-row-name-cell">
-            <span class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${l.Location?`<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>`:''}</span>
+            <div class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${locationDisplay}</div>
+            ${lenderDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${lenderDisplay}</div>`:''}
+            ${loanTag}
           </div>
           <span class="mnw-row-age">${daysSince(l['Last Updated']||l['Date Added'])}</span>
           <div class="mnw-row-val-cell">
