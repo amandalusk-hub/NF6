@@ -2199,27 +2199,24 @@ function openPlaidUpdate() {
     return;
   }
 
-  // Stash the chosen access_token in the user cache so the sidebar can fetch
-  // it via google.script.run without exposing it in the rendered HTML. Cleared
-  // immediately after the link_token call.
-  var key = 'plaid_update_token_' + Utilities.getUuid();
-  CacheService.getUserCache().put(key, tokens[idx], 300);
+  // Stash the chosen access_token in script properties under a single fixed
+  // key. The sidebar fetches it via a server call (no template injection),
+  // and the server clears it on first read.
+  PropertiesService.getScriptProperties().setProperty('PLAID_PENDING_UPDATE_TOKEN', tokens[idx]);
 
-  var template = HtmlService.createTemplateFromFile('PlaidLinkUpdate');
-  template.cacheKey = key;
-  var html = template.evaluate()
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkUpdate')
     .setTitle('Update Plaid Connection')
     .setWidth(400);
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
-// Sidebar-only: pulls the access_token from the one-shot cache slot, requests
-// an update-mode link_token, and clears the slot.
-function getPlaidUpdateLinkTokenByKey(cacheKey) {
-  var cache  = CacheService.getUserCache();
-  var token  = cache.get(cacheKey);
+// Sidebar-only: pulls the access_token from the one-shot property slot,
+// requests an update-mode link_token, and clears the slot.
+function getPlaidUpdateLinkTokenForSidebar() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('PLAID_PENDING_UPDATE_TOKEN');
   if (!token) return { success: false, error: 'Update session expired. Re-open Update Plaid Connection.' };
-  cache.remove(cacheKey);
+  props.deleteProperty('PLAID_PENDING_UPDATE_TOKEN');
   return getPlaidUpdateLinkToken(token);
 }
 

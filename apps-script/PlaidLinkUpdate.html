@@ -53,7 +53,6 @@
 
   <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
   <script>
-    var CACHE_KEY = '<?= cacheKey ?>';
     var plaidHandler = null;
 
     window.addEventListener('load', function() {
@@ -68,7 +67,7 @@
         .withFailureHandler(function(err) {
           showStatus('error', 'Server error: ' + (err.message || err));
         })
-        .getPlaidUpdateLinkTokenByKey(CACHE_KEY);
+        .getPlaidUpdateLinkTokenForSidebar();
     });
 
     function initPlaid(linkToken) {
