@@ -1604,6 +1604,8 @@ function onDataLoaded(d){
   state.categories  = d.categories  || [];
   state.currencies  = d.currencies  || [];
   console.log('[Tracker] Loaded: assets='+state.assets.length+' entities='+state.entities.length+' fxRates='+state.fxRates.length);
+  console.log('[Tracker] liabilityDetails keys:', Object.keys(state.liabilityDetails||{}));
+  console.log('[Tracker] liabilities IDs:', state.liabilities.map(function(l){return l.ID+' '+(l.Name||'');}));
   if(state.assets.length>0) console.log('[Tracker] First asset:', JSON.stringify(state.assets[0]));
   // Show warning if raw rows exist but values are all 0 (likely header mismatch)
   const warn=document.getElementById('data-warning');
