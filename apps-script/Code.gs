@@ -367,6 +367,35 @@ function getSheet_(key) {
   return getSpreadsheet_().getSheetByName(sheetName_(key));
 }
 
+// Read the Liability Details sheet (structured columns) and return a map keyed
+// by Liability ID, with values shaped for the dashboard renderer (camelCase
+// keys per LIAB_DET_MAP). Used by getFullData() so the dashboard can show
+// lender / rate / maturity / payment for each liability without the user
+// having to paste JSON into the Details column of the Liabilities sheet.
+function getLiabilityDetailsMap_() {
+  var sheet = getSheet_('LIABILITY_DETAILS');
+  var data  = sheet.getDataRange().getValues();
+  if (data.length < 2) return {};
+  var headers = data[0];
+  var idIdx   = headers.indexOf('Liability ID');
+  if (idIdx === -1) return {};
+  var map = {};
+  data.slice(1).forEach(function(row) {
+    var id = row[idIdx];
+    if (!id) return;
+    var det = {};
+    LIAB_DET_MAP.forEach(function(pair) {
+      var col = headers.indexOf(pair[1]);
+      if (col < 0) return;
+      var v = row[col];
+      if (v instanceof Date) v = v.toISOString();
+      det[pair[0]] = v;
+    });
+    map[id] = det;
+  });
+  return map;
+}
+
 function sheetToObjects_(key) {
   var sheet = getSheet_(key);
   var data  = sheet.getDataRange().getValues();
@@ -427,6 +456,7 @@ function getFullData() {
   return {
     assets:      assets,
     liabilities: clean(sheetToObjects_('LIABILITIES')),
+    liabilityDetails: getLiabilityDetailsMap_(),
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
     // history omitted — fetched on demand via getAssetHistory() when detail panel opens

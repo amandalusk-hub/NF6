@@ -2399,31 +2399,37 @@ function renderMNWList(){
         <span class="mnw-cat-hdr-total">${fmtUSD(total)}</span>
       </div>`;
       [...items].sort((a,b)=>num(b['USD Value'])-num(a['USD Value'])).forEach(l=>{
-        let det={};
-        try{det=JSON.parse(l.Details||'{}');}catch(e){}
+        // Pull structured loan info from the "Liability Details" sheet (sent
+        // by the server as state.liabilityDetails, keyed by Liability ID).
+        const det = (state.liabilityDetails && state.liabilityDetails[l.ID]) || {};
 
-        // Build sub-tag: rate | $X principal | $Y interest | Due [date with color]
+        // Build sub-tag: rate | monthly payment | Due [maturity with color].
         // Mirrors the Loans Receivable presentation. Only shown if det has any
-        // of these structured fields; mortgages without structured details just
-        // continue to use the Location subtitle below the name.
+        // of these fields; mortgages without structured details just continue
+        // to use the Location subtitle below the name.
         let loanTag='';
         try{
           const parts=[];
-          const rate = det.loanRate || det.interestRate;
-          if(rate) parts.push(esc(rate));
-          if(det.loanPayments && det.loanPayments.length){
-            const totalPrincipal=det.loanPayments.reduce((s,p)=>s+(p.principal||p.amount||0),0);
-            const totalInterest =det.loanPayments.reduce((s,p)=>s+(p.interest||0),0);
-            if(totalPrincipal>0) parts.push(fmtUSD(totalPrincipal)+' principal');
-            if(totalInterest>0)  parts.push(fmtUSD(totalInterest)+' interest');
+          const rate = det.rate;
+          if(rate!==undefined && rate!==null && rate!==''){
+            // Numbers stored as 0.05 → "5%"; strings like "5.88%" pass through.
+            const rateStr = (typeof rate==='number') ? (rate<1 ? (rate*100).toFixed(2).replace(/\.?0+$/,'')+'%' : rate+'%') : String(rate);
+            parts.push(esc(rateStr));
           }
-          const dueHtml = renderDueDate(det.loanDue || det.dueDate || det['Due Date'] || '');
+          // Prefer principal+interest split if both present; else show monthly payment.
+          if(num(det.principal)>0 || num(det.interestPmt)>0){
+            if(num(det.principal)>0)   parts.push(fmtUSD(num(det.principal))+' principal');
+            if(num(det.interestPmt)>0) parts.push(fmtUSD(num(det.interestPmt))+' interest');
+          } else if(num(det.payment)>0){
+            parts.push(fmtUSD(num(det.payment))+'/mo');
+          }
+          const dueHtml = renderDueDate(det.maturity || '');
           if(dueHtml) parts.push(dueHtml);
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
 
         // Counterparty (lender) -- shown like Entity in the asset rows
-        const lenderDisplay = det.lender ? esc(det.lender) : '';
+        const lenderDisplay = det.bank ? esc(det.bank) : '';
 
         // Address fallback (kept for mortgages so the property location stays visible);
         // hidden when a loanTag is present to avoid double sub-lines for promissory notes.
