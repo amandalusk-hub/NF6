@@ -1597,6 +1597,7 @@ function onDataLoaded(d){
   if(!d){toast('Server returned no data -- check console','error');showLoading(false);return;}
   state.assets      = d.assets      || [];
   state.liabilities = d.liabilities || [];
+  state.liabilityDetails = d.liabilityDetails || {};
   state.entities    = d.entities    || [];
   state.fxRates     = d.fxRates     || [];
   state.history     = d.history     || []; // kept for History tab
