@@ -2047,6 +2047,32 @@ function syncPlaidAccounts() {
         }
       }
     }
+    // Final fallback: same institution prefix + same ···mask suffix. Catches
+    // the rename case where a bank returns slightly different account labels
+    // across re-links (e.g. 'MBJ DR' vs 'MBJ DR INC' for the same physical
+    // account at Chase, both ending in ···7133). Only auto-matches when
+    // there's exactly one candidate, to avoid false positives if two accounts
+    // at the same bank coincidentally share the same last-4 mask.
+    if (matchRow === undefined) {
+      var maskMatch = String(acct.name || '').match(/···(\S+)$/);
+      var instIdx   = String(acct.name || '').indexOf(' - ');
+      var newMask   = maskMatch ? maskMatch[1] : '';
+      var newInst   = instIdx > 0 ? String(acct.name).substring(0, instIdx).trim() : '';
+      if (newMask && newInst) {
+        var hits = [];
+        for (var i = 1; i < rows.length; i++) {
+          var rName    = String(nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1] || '');
+          var rMaskM   = rName.match(/···(\S+)$/);
+          var rInstIdx = rName.indexOf(' - ');
+          if (rMaskM && rInstIdx > 0
+              && rMaskM[1] === newMask
+              && rName.substring(0, rInstIdx).trim() === newInst) {
+            hits.push(i);
+          }
+        }
+        if (hits.length === 1) matchRow = hits[0];
+      }
+    }
 
     if (matchRow !== undefined) {
       var oldUsdA = usdValIdx >= 0 ? (Number(rows[matchRow][usdValIdx]) || 0) : 0;
