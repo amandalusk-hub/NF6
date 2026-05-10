@@ -1955,33 +1955,32 @@ function exchangePlaidToken(publicToken) {
 // asset rows) while syncPlaidStatements picks them up.
 function getPlaidStatementsLinkToken() {
   var cfg = getPlaidConfig_();
-  // Plaid requires a statements config when 'statements' is in products. The
-  // date range bounds which statements the user authorizes us to access — we
-  // ask for the last 24 months on link, and statements_list returns whatever
-  // is actually available within that window.
   var endDate   = new Date();
   var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
   function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+  var payload = {
+    client_id:     cfg.clientId,
+    secret:        cfg.secret,
+    client_name:   'MNW Family Office (Statements)',
+    country_codes: ['US'],
+    language:      'en',
+    user:          { client_user_id: 'mnw-family-office' },
+    products:      ['statements'],
+    statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
+  };
+  Logger.log('getPlaidStatementsLinkToken request: ' + JSON.stringify(payload));
   try {
     var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
-      method: 'POST',
-      contentType: 'application/json',
-      payload: JSON.stringify({
-        client_id:     cfg.clientId,
-        secret:        cfg.secret,
-        client_name:   'MNW Family Office (Statements)',
-        country_codes: ['US'],
-        language:      'en',
-        user:          { client_user_id: 'mnw-family-office' },
-        products:      ['statements'],
-        statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
-      }),
-      muteHttpExceptions: true
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify(payload), muteHttpExceptions: true
     });
-    var data = JSON.parse(resp.getContentText());
+    var body = resp.getContentText();
+    Logger.log('getPlaidStatementsLinkToken response (' + resp.getResponseCode() + '): ' + body);
+    var data = JSON.parse(body);
     if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
     return { success: false, error: data.error_message || JSON.stringify(data) };
   } catch(e) {
+    Logger.log('getPlaidStatementsLinkToken exception: ' + e.message);
     return { success: false, error: e.message };
   }
 }
