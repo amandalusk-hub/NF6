@@ -155,6 +155,7 @@ function onOpen() {
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
     .addItem('Sync Bank Statements (Plaid)', 'syncPlaidStatementsMenu')
+    .addItem('Reorganize Existing Statements', 'reorganizePlaidStatements')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
@@ -2235,6 +2236,29 @@ function syncPlaidStatements() {
     var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
     var bankFolder = getOrCreateSubfolder_(root, instName);
 
+    // Plaid's /statements/list response often omits account name + mask
+    // (especially for statements-only Items), which collapses every
+    // account's statements into a single 'Account ···' folder. Call
+    // /accounts/get first to build account_id → {name, mask}, then use that
+    // when bucketing into folders.
+    var acctInfo = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accBody = JSON.parse(accResp.getContentText());
+      if (accBody && accBody.accounts) {
+        accBody.accounts.forEach(function(a) {
+          acctInfo[a.account_id] = { name: a.name || '', mask: a.mask || '' };
+        });
+      }
+    } catch (e) {
+      // statements-only Items may not have /accounts/get scope — fall through;
+      // we'll use whatever /statements/list provides (often nothing).
+    }
+
     var listResp;
     try {
       listResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
@@ -2257,7 +2281,12 @@ function syncPlaidStatements() {
     if (!listData.accounts) return;
 
     listData.accounts.forEach(function(acct) {
-      var acctName   = sanitizeName_((acct.name || 'Account') + ' ···' + (acct.mask || ''));
+      // Prefer enriched name/mask from /accounts/get; fall back to whatever
+      // /statements/list returned (often empty for statements-only Items).
+      var enriched = acctInfo[acct.account_id] || {};
+      var acctName = sanitizeName_(
+        (enriched.name || acct.name || 'Account') + ' ···' + (enriched.mask || acct.mask || acct.account_id.slice(-4))
+      );
       var acctFolder = getOrCreateSubfolder_(bankFolder, acctName);
 
       (acct.statements || []).forEach(function(stmt) {
@@ -2281,8 +2310,10 @@ function syncPlaidStatements() {
           var blob  = dlResp.getBlob();
           var year  = stmt.year  || new Date().getFullYear();
           var month = stmt.month || (new Date().getMonth() + 1);
+          // Year subfolder for chronological organization
+          var yearFolder = getOrCreateSubfolder_(acctFolder, String(year));
           blob.setName(String(year) + '-' + ('0' + month).slice(-2) + '.pdf');
-          var file = acctFolder.createFile(blob);
+          var file = yearFolder.createFile(blob);
           downloaded[sid] = file.getId();
           newCount++;
         } catch (e) {
@@ -2320,6 +2351,100 @@ function syncPlaidStatementsMenu() {
 
 // Trigger handler for the monthly auto-fetch (5th of each month at 6am).
 function _monthlyStatementSync() { syncPlaidStatements(); }
+
+// Re-organize statements already downloaded into /Bank Statements: walks the
+// PLAID_STATEMENTS_DOWNLOADED map (statement_id → file_id), looks up each
+// statement's account on Plaid via /statements/list, and MOVES the existing
+// Drive file into the correct /Bank/Account/Year/ folder. No re-downloads
+// (avoids Plaid per-statement charges). Useful after upgrading to the
+// account-aware folder structure when statements are already in catchall
+// folders like 'Account ···'.
+function reorganizePlaidStatements() {
+  var ui = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+  var props      = PropertiesService.getScriptProperties();
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+  if (!Object.keys(downloaded).length) { ui.alert('No tracked statements to reorganize.'); return; }
+
+  var root  = getStatementsRoot_();
+  var moved = 0, missing = 0, errors = 0;
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    var acctInfo = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accBody = JSON.parse(accResp.getContentText());
+      if (accBody && accBody.accounts) {
+        accBody.accounts.forEach(function(a) {
+          acctInfo[a.account_id] = { name: a.name || '', mask: a.mask || '' };
+        });
+      }
+    } catch (e) {}
+
+    try {
+      var listResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var listData = JSON.parse(listResp.getContentText());
+      if (!listData.accounts) return;
+
+      listData.accounts.forEach(function(acct) {
+        var enriched = acctInfo[acct.account_id] || {};
+        var acctName = sanitizeName_(
+          (enriched.name || acct.name || 'Account') + ' ···' + (enriched.mask || acct.mask || acct.account_id.slice(-4))
+        );
+        var acctFolder = getOrCreateSubfolder_(bankFolder, acctName);
+
+        (acct.statements || []).forEach(function(stmt) {
+          var sid    = stmt.statement_id;
+          var fileId = downloaded[sid];
+          if (!fileId) return;
+
+          try {
+            var file = DriveApp.getFileById(fileId);
+            var year = stmt.year || new Date().getFullYear();
+            var yearFolder = getOrCreateSubfolder_(acctFolder, String(year));
+
+            // Skip if already in the right folder.
+            var currentParents = file.getParents();
+            var alreadyHere = false;
+            while (currentParents.hasNext()) {
+              if (currentParents.next().getId() === yearFolder.getId()) { alreadyHere = true; break; }
+            }
+            if (alreadyHere) return;
+
+            file.moveTo(yearFolder);
+            moved++;
+          } catch (e) {
+            errors++;
+            missing++;
+          }
+        });
+      });
+    } catch (e) {
+      errors++;
+    }
+  });
+
+  ui.alert(
+    'Reorganize Complete',
+    'Moved: ' + moved + ' file(s)\nMissing/errors: ' + errors + '\n\nFolder: ' + root.getUrl(),
+    ui.ButtonSet.OK
+  );
+}
 
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
 
