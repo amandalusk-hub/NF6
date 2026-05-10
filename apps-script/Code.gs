@@ -1903,7 +1903,12 @@ function getPlaidUpdateLinkToken(accessToken) {
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
         access_token:  accessToken,
-        update:        { account_selection_enabled: true }
+        update:        { account_selection_enabled: true },
+        // Offer Statements as additional consent on the existing Item so the
+        // user can grant the new scope during re-auth without creating a new
+        // token. Banks that don't support Statements via update mode will
+        // silently ignore this.
+        additional_consented_products: ['statements']
       }),
       muteHttpExceptions: true
     });
