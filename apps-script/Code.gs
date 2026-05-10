@@ -154,6 +154,7 @@ function onOpen() {
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addItem('Sync Bank Statements (Plaid)', 'syncPlaidStatementsMenu')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
@@ -1865,7 +1866,12 @@ function getPlaidLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions']
+        products:      ['transactions'],
+        // Statements is offered as optional consent so the user can grant it
+        // during the OAuth screen (and we can fetch monthly PDFs via
+        // /statements/list + /statements/download). additional_consented_products
+        // doesn't block the link if the institution doesn't support it.
+        additional_consented_products: ['statements']
       }),
       muteHttpExceptions: true
     });
@@ -2074,6 +2080,132 @@ function syncPlaidAccounts() {
 
   return { success: true, synced: updates.length + liabUpdates.length + newAccts.length };
 }
+
+// ── Plaid Statements ──────────────────────────────────────────────────────────
+// Pulls monthly bank statement PDFs from /statements/list + /statements/download
+// and organizes them into /Bank Statements/[Bank]/[Account ···last4]/YYYY-MM.pdf
+// in the user's Google Drive. Tracks downloaded statement_ids in a script
+// property so subsequent runs only fetch new statements (Plaid charges per
+// download in production).
+
+var STATEMENTS_ROOT_NAME = 'Bank Statements';
+
+function getStatementsRoot_() {
+  var iter = DriveApp.getRootFolder().getFoldersByName(STATEMENTS_ROOT_NAME);
+  return iter.hasNext() ? iter.next() : DriveApp.createFolder(STATEMENTS_ROOT_NAME);
+}
+
+function getOrCreateSubfolder_(parent, name) {
+  var iter = parent.getFoldersByName(name);
+  return iter.hasNext() ? iter.next() : parent.createFolder(name);
+}
+
+function sanitizeName_(s) {
+  return String(s || '').replace(/[\/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Untitled';
+}
+
+function syncPlaidStatements() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props      = PropertiesService.getScriptProperties();
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+
+  var root      = getStatementsRoot_();
+  var newCount  = 0, skippedCount = 0, errorCount = 0;
+  var errors    = [];
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    var listResp;
+    try {
+      listResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {
+      errors.push(instName + ' (list): ' + e.message); errorCount++; return;
+    }
+
+    var listData;
+    try { listData = JSON.parse(listResp.getContentText()); }
+    catch (e) { errors.push(instName + ' (list parse): ' + e.message); errorCount++; return; }
+
+    if (listData.error_code) {
+      errors.push(instName + ': ' + listData.error_code + ' — ' + (listData.error_message || ''));
+      errorCount++; return;
+    }
+    if (!listData.accounts) return;
+
+    listData.accounts.forEach(function(acct) {
+      var acctName   = sanitizeName_((acct.name || 'Account') + ' ···' + (acct.mask || ''));
+      var acctFolder = getOrCreateSubfolder_(bankFolder, acctName);
+
+      (acct.statements || []).forEach(function(stmt) {
+        var sid = stmt.statement_id;
+        if (!sid) return;
+        if (downloaded[sid]) { skippedCount++; return; }
+
+        try {
+          var dlResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/download', {
+            method: 'POST', contentType: 'application/json',
+            payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token, statement_id: sid }),
+            muteHttpExceptions: true
+          });
+          // Plaid returns PDF bytes on success, JSON on error.
+          var headers = dlResp.getHeaders() || {};
+          var ct      = headers['Content-Type'] || headers['content-type'] || '';
+          if (String(ct).indexOf('application/json') >= 0) {
+            var errBody = JSON.parse(dlResp.getContentText());
+            throw new Error((errBody.error_code || 'error') + ': ' + (errBody.error_message || ''));
+          }
+          var blob  = dlResp.getBlob();
+          var year  = stmt.year  || new Date().getFullYear();
+          var month = stmt.month || (new Date().getMonth() + 1);
+          blob.setName(String(year) + '-' + ('0' + month).slice(-2) + '.pdf');
+          var file = acctFolder.createFile(blob);
+          downloaded[sid] = file.getId();
+          newCount++;
+        } catch (e) {
+          errors.push(instName + ' / ' + acctName + ' / ' + sid + ': ' + e.message);
+          errorCount++;
+        }
+      });
+    });
+  });
+
+  props.setProperty('PLAID_STATEMENTS_DOWNLOADED', JSON.stringify(downloaded));
+  return {
+    success: errorCount === 0,
+    new: newCount, skipped: skippedCount, errors: errorCount,
+    errorDetails: errors,
+    rootFolderUrl: root.getUrl()
+  };
+}
+
+// Menu wrapper — runs the sync and shows results in a dialog.
+function syncPlaidStatementsMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r  = syncPlaidStatements();
+  if (r.success === false && r.error) { ui.alert('Statements Sync Failed', r.error, ui.ButtonSet.OK); return; }
+  var msg = 'New downloaded: ' + (r.new || 0) +
+            '\nAlready saved (skipped): ' + (r.skipped || 0) +
+            '\nErrors: ' + (r.errors || 0);
+  if (r.errors > 0 && r.errorDetails && r.errorDetails.length) {
+    msg += '\n\nFirst error(s):\n  • ' + r.errorDetails.slice(0, 5).join('\n  • ');
+    if (r.errorDetails.length > 5) msg += '\n  … and ' + (r.errorDetails.length - 5) + ' more';
+  }
+  if (r.rootFolderUrl) msg += '\n\nDrive folder: ' + r.rootFolderUrl;
+  ui.alert('Statements Sync', msg, ui.ButtonSet.OK);
+}
+
+// Trigger handler for the monthly auto-fetch (5th of each month at 6am).
+function _monthlyStatementSync() { syncPlaidStatements(); }
 
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
 
@@ -2456,11 +2588,12 @@ function debugSheetHeaders() {
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
-    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail') ScriptApp.deleteTrigger(t);
+    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail' || fn === '_monthlyStatementSync') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('dailySync_').timeBased().everyDays(1).atHour(7).create();
   ScriptApp.newTrigger('weeklyPDFEmail').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
-  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync at 7AM + weekly PDF email on Mondays at 8AM', 'Triggers Installed', 5);
+  ScriptApp.newTrigger('_monthlyStatementSync').timeBased().onMonthDay(5).atHour(6).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync 7AM, weekly PDF Mondays 8AM, monthly statements on the 5th at 6AM', 'Triggers Installed', 6);
   return { success: true };
 }
 
