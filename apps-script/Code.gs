@@ -1866,12 +1866,12 @@ function getPlaidLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions'],
-        // Statements is offered as optional consent so the user can grant it
-        // during the OAuth screen (and we can fetch monthly PDFs via
-        // /statements/list + /statements/download). additional_consented_products
-        // doesn't block the link if the institution doesn't support it.
-        additional_consented_products: ['statements']
+        products:      ['transactions']
+        // Note on Statements consent: Plaid's /link/token/create rejects
+        // 'statements' in additional_consented_products (the field has a fixed
+        // allowlist that excludes statements). To grant Statements scope on
+        // an Item, use Update Mode (additional_consented_products is permitted
+        // there for OAuth banks that support adding the scope post-link).
       }),
       muteHttpExceptions: true
     });
