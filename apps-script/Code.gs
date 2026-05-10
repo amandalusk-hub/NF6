@@ -1955,6 +1955,13 @@ function exchangePlaidToken(publicToken) {
 // asset rows) while syncPlaidStatements picks them up.
 function getPlaidStatementsLinkToken() {
   var cfg = getPlaidConfig_();
+  // Plaid requires a statements config when 'statements' is in products. The
+  // date range bounds which statements the user authorizes us to access — we
+  // ask for the last 24 months on link, and statements_list returns whatever
+  // is actually available within that window.
+  var endDate   = new Date();
+  var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
+  function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
   try {
     var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
       method: 'POST',
@@ -1966,7 +1973,8 @@ function getPlaidStatementsLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['statements']
+        products:      ['statements'],
+        statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
       }),
       muteHttpExceptions: true
     });
