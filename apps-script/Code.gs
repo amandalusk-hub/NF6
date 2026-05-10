@@ -1987,7 +1987,10 @@ function getPlaidStatementsLinkToken() {
 
 // Exchange the public_token from a Statements-only Plaid Link flow, store the
 // access_token in PLAID_STATEMENTS_TOKENS, label it under PLAID_INSTITUTIONS,
-// and immediately pull any available statements to Drive.
+// and return. We deliberately DON'T auto-run syncPlaidStatements here because
+// fetching every historical statement across all tokens can take 1-3 minutes
+// and risks timing out the sidebar. The user runs Tracker → Sync Bank
+// Statements manually after linking.
 function handlePlaidStatementsSuccess(publicToken, institutionName) {
   try {
     var cfg = getPlaidConfig_();
@@ -2010,8 +2013,7 @@ function handlePlaidStatementsSuccess(publicToken, institutionName) {
       p.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
     }
 
-    var syncResult = syncPlaidStatements();
-    return { success: true, message: 'Statements link added. Downloaded ' + (syncResult.new || 0) + ' new statement(s).' };
+    return { success: true, message: 'Statements link saved. Run Tracker → Sync Bank Statements (Plaid) to download PDFs.' };
   } catch(e) {
     return { success: false, message: 'Error: ' + e.message };
   }
