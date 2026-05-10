@@ -1891,33 +1891,38 @@ function getPlaidLinkToken() {
 // every account already in this Item).
 function getPlaidUpdateLinkToken(accessToken) {
   var cfg = getPlaidConfig_();
-  try {
-    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
-      method: 'POST',
-      contentType: 'application/json',
-      payload: JSON.stringify({
-        client_id:     cfg.clientId,
-        secret:        cfg.secret,
-        client_name:   'MNW Family Office',
-        country_codes: ['US'],
-        language:      'en',
-        user:          { client_user_id: 'mnw-family-office' },
-        access_token:  accessToken,
-        update:        { account_selection_enabled: true },
-        // Offer Statements as additional consent on the existing Item so the
-        // user can grant the new scope during re-auth without creating a new
-        // token. Banks that don't support Statements via update mode will
-        // silently ignore this.
-        additional_consented_products: ['statements']
-      }),
-      muteHttpExceptions: true
-    });
-    var data = JSON.parse(resp.getContentText());
-    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
-    return { success: false, error: data.error_message || JSON.stringify(data) };
-  } catch(e) {
-    return { success: false, error: e.message };
+  function callLinkToken(includeStatements) {
+    var payload = {
+      client_id:     cfg.clientId,
+      secret:        cfg.secret,
+      client_name:   'MNW Family Office',
+      country_codes: ['US'],
+      language:      'en',
+      user:          { client_user_id: 'mnw-family-office' },
+      access_token:  accessToken,
+      update:        { account_selection_enabled: true }
+    };
+    if (includeStatements) payload.additional_consented_products = ['statements'];
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      return JSON.parse(resp.getContentText());
+    } catch (e) { return { error_message: e.message }; }
   }
+
+  // Try update with Statements consent first (so banks that support it grant
+  // the new scope on this re-auth). If the institution rejects it, retry
+  // without — keeps account-selection re-auth working for banks like Oriental
+  // that don't expose Statements via update mode.
+  var data = callLinkToken(true);
+  if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+  if (data.error_message && /statements not supported/i.test(data.error_message)) {
+    data = callLinkToken(false);
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env, statementsSkipped: true };
+  }
+  return { success: false, error: data.error_message || JSON.stringify(data) };
 }
 
 function exchangePlaidToken(publicToken) {
