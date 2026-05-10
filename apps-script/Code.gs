@@ -159,6 +159,7 @@ function onOpen() {
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
+    .addItem('Connect Bank for Statements (Plaid)', 'openPlaidStatementsLink')
     .addItem('Update Plaid Connection (Re-auth / Add Accounts)', 'openPlaidUpdate')
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
@@ -1946,6 +1947,69 @@ function exchangePlaidToken(publicToken) {
   }
 }
 
+// Statements-only Plaid Item. products=['statements'] means the resulting Item
+// only has access to /statements/list + /statements/download — not balances or
+// transactions. Use this when a bank won't grant Statements scope on the
+// transactions Item (e.g. Chase, Oriental). Tokens go into a separate
+// PLAID_STATEMENTS_TOKENS list so syncPlaidAccounts ignores them (no duplicate
+// asset rows) while syncPlaidStatements picks them up.
+function getPlaidStatementsLinkToken() {
+  var cfg = getPlaidConfig_();
+  try {
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+      method: 'POST',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        client_id:     cfg.clientId,
+        secret:        cfg.secret,
+        client_name:   'MNW Family Office (Statements)',
+        country_codes: ['US'],
+        language:      'en',
+        user:          { client_user_id: 'mnw-family-office' },
+        products:      ['statements']
+      }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+    return { success: false, error: data.error_message || JSON.stringify(data) };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// Exchange the public_token from a Statements-only Plaid Link flow, store the
+// access_token in PLAID_STATEMENTS_TOKENS, label it under PLAID_INSTITUTIONS,
+// and immediately pull any available statements to Drive.
+function handlePlaidStatementsSuccess(publicToken, institutionName) {
+  try {
+    var cfg = getPlaidConfig_();
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/public_token/exchange', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, public_token: publicToken }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (!data.access_token) return { success: false, message: data.error_message || 'No access_token returned' };
+
+    var p      = PropertiesService.getScriptProperties();
+    var tokens = JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+    if (tokens.indexOf(data.access_token) === -1) tokens.push(data.access_token);
+    p.setProperty('PLAID_STATEMENTS_TOKENS', JSON.stringify(tokens));
+
+    if (institutionName) {
+      var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+      instMap[data.access_token] = String(institutionName) + ' (Statements)';
+      p.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
+    }
+
+    var syncResult = syncPlaidStatements();
+    return { success: true, message: 'Statements link added. Downloaded ' + (syncResult.new || 0) + ' new statement(s).' };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
 function syncPlaidAccounts() {
   var cfg     = getPlaidConfig_();
   var p       = PropertiesService.getScriptProperties();
@@ -2144,7 +2208,12 @@ function syncPlaidStatements() {
   var cfg = getPlaidConfig_();
   if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
   var props      = PropertiesService.getScriptProperties();
-  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  // Combine transactions tokens + statements-only tokens. Some banks (Chase,
+  // Oriental) don't grant statements scope on the transactions Item, so
+  // openPlaidStatementsLink creates a parallel Item with products=['statements']
+  // stored under PLAID_STATEMENTS_TOKENS.
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
   if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
   var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
   var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
@@ -2361,6 +2430,23 @@ function openPlaidLink() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+// Open Plaid Link to create a statements-only Item. The resulting access_token
+// is stored separately in PLAID_STATEMENTS_TOKENS so syncPlaidAccounts ignores
+// it (no duplicate asset rows) while syncPlaidStatements picks it up.
+function openPlaidStatementsLink() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    var ui   = SpreadsheetApp.getUi();
+    var resp = ui.alert('Plaid Not Configured', 'Plaid credentials are not set. Would you like to set them now?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.YES) setPlaidCredentials();
+    return;
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkStatements')
+    .setTitle('Connect Bank for Statements')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 // Open Plaid Link in update mode for an existing connection. Use this to
 // re-authenticate a token that has gone into ITEM_LOGIN_REQUIRED, or to
 // add/remove accounts on an existing Item without creating a new token (which
@@ -2466,7 +2552,8 @@ function listPlaidConnectionDetails() {
   var ui      = SpreadsheetApp.getUi();
   var cfg     = getPlaidConfig_();
   var p       = PropertiesService.getScriptProperties();
-  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]')
+        .concat(JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
   var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
   if (!tokens.length) { ui.alert('No Plaid connections.'); return; }
 
@@ -2520,13 +2607,15 @@ function listPlaidConnectionDetails() {
 //   - Other connections are completely untouched
 //   - Spreadsheet rows are NOT deleted — they just stop updating from Plaid
 function removeOnePlaidConnection() {
-  var ui    = SpreadsheetApp.getUi();
-  var props = PropertiesService.getScriptProperties();
-  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
-  if (!tokens.length) { ui.alert('No Plaid connections to remove.'); return; }
+  var ui     = SpreadsheetApp.getUi();
+  var props  = PropertiesService.getScriptProperties();
+  var txList = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var stList = JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var combined = txList.concat(stList);  // tx tokens first, then statements-only
+  if (!combined.length) { ui.alert('No Plaid connections to remove.'); return; }
 
   var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
-  var lines = tokens.map(function(t, i) {
+  var lines = combined.map(function(t, i) {
     var name = instMap[t] || '(unnamed)';
     return (i + 1) + '. ' + name + '   (token ···' + t.slice(-4) + ')';
   });
@@ -2534,18 +2623,18 @@ function removeOnePlaidConnection() {
   var resp = ui.prompt(
     'Remove ONE Plaid Connection',
     'Current connections:\n\n' + lines.join('\n') +
-    '\n\nEnter the NUMBER of the connection to remove (1-' + tokens.length + '):',
+    '\n\nEnter the NUMBER of the connection to remove (1-' + combined.length + '):',
     ui.ButtonSet.OK_CANCEL
   );
   if (resp.getSelectedButton() !== ui.Button.OK) return;
 
   var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= tokens.length) {
+  if (isNaN(idx) || idx < 0 || idx >= combined.length) {
     ui.alert('Invalid selection — no changes made.');
     return;
   }
 
-  var token   = tokens[idx];
+  var token   = combined[idx];
   var name    = instMap[token] || '(unnamed)';
   var confirm = ui.alert(
     'Confirm Removal',
@@ -2557,17 +2646,28 @@ function removeOnePlaidConnection() {
   );
   if (confirm !== ui.Button.YES) return;
 
+  // Remove from whichever list contains it.
+  var txIdx = txList.indexOf(token);
+  if (txIdx >= 0) {
+    txList.splice(txIdx, 1);
+    props.setProperty('PLAID_TOKENS', JSON.stringify(txList));
+  } else {
+    var stIdx = stList.indexOf(token);
+    if (stIdx >= 0) {
+      stList.splice(stIdx, 1);
+      props.setProperty('PLAID_STATEMENTS_TOKENS', JSON.stringify(stList));
+    }
+  }
   delete instMap[token];
-  tokens.splice(idx, 1);
-  props.setProperty('PLAID_TOKENS',       JSON.stringify(tokens));
   props.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
 
+  var remaining = txList.length + stList.length;
   ui.alert(
     'Connection Removed',
-    tokens.length + ' connection(s) remain.\n\n' +
+    remaining + ' connection(s) remain.\n\n' +
     'Next steps:\n' +
     '  1. Run Tracker → Sync Plaid Accounts\n' +
-    '  2. Manually delete the duplicate rows in Assets — they will\n' +
+    '  2. Manually delete any orphan rows in Assets — they will\n' +
     '     stay deleted now that the source token is gone.',
     ui.ButtonSet.OK
   );
