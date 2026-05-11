@@ -1322,6 +1322,16 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <div class="form-row"><label>Term</label><input type="text" id="ld-term" placeholder="e.g. 30 years, 15 years, 5/1 ARM"></div>
             <div class="form-row"><label>Remaining Term</label><input type="text" id="ld-remaining" placeholder="e.g. 22 years 4 months"></div>
           </div>
+          <div class="form-two">
+            <div class="form-row"><label>Payment Frequency</label>
+              <select id="ld-payment-freq">
+                <option value="">--</option>
+                <option>Monthly</option><option>Quarterly</option>
+                <option>Semi-Annual</option><option>Annual</option><option>One-time</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Next Payment Date</label><input type="date" id="ld-next-payment"></div>
+          </div>
         </div>
       </div>
 
@@ -4147,6 +4157,8 @@ function openLiabDetail(id){
   sv('ld-maturity',    det.maturity||'');
   sv('ld-term',        det.term||'');
   sv('ld-remaining',   det.remaining||'');
+  sv('ld-payment-freq',det.paymentFreq||'');
+  sv('ld-next-payment',(det.nextPayment||'').split('T')[0]);
   sv('ld-payment',     det.payment     ? fmtAcct(det.payment)     : '');
   sv('ld-principal',   det.principal   ? fmtAcct(det.principal)   : '');
   sv('ld-interest-pmt',det.interestPmt ? fmtAcct(det.interestPmt) : '');
@@ -4184,6 +4196,8 @@ function saveLiabilityDetails(keepOpen){
     maturity:    gv('ld-maturity'),
     term:        gv('ld-term'),
     remaining:   gv('ld-remaining'),
+    paymentFreq: gv('ld-payment-freq'),
+    nextPayment: gv('ld-next-payment'),
     payment:     gv('ld-payment'),
     principal:   gv('ld-principal'),
     interestPmt: gv('ld-interest-pmt'),
