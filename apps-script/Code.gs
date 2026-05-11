@@ -87,7 +87,7 @@ var COL = {
     'Insurance Provider','Insurance Policy','Insurance Start','Insurance End','Insurance Renewal',
     'Auto Drive Folder'
   ],
-  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
+  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Payment Frequency','Next Payment Date','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
   ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
 };
 
@@ -136,7 +136,8 @@ var LIAB_DET_MAP = [
   ['bank','Bank / Lender'],['account','Account Number'],['rate','Interest Rate'],
   ['loanType','Loan Type'],['original','Original Amount'],['balance','Current Balance'],
   ['startDate','Start Date'],['maturity','Maturity Date'],['term','Loan Term'],
-  ['remaining','Months Remaining'],['payment','Monthly Payment'],['principal','Principal'],
+  ['remaining','Months Remaining'],['paymentFreq','Payment Frequency'],
+  ['nextPayment','Next Payment Date'],['payment','Monthly Payment'],['principal','Principal'],
   ['interestPmt','Interest Payment'],['escrow','Escrow'],['tax','Property Tax'],
   ['insurance','Insurance'],['hoa','HOA'],['officer','Loan Officer'],
   ['attorney','Attorney / Title'],['insAgent','Insurance Agent'],

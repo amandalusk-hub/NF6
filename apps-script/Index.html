@@ -2274,7 +2274,8 @@ function renderMNWList(){
   // Shared helper: takes an ISO date string ("YYYY-MM-DD") or anything Date can
   // parse. Returns a styled "Due Apr 30, 2034" / "Overdue 12d" / "Due today"
   // span (gray normally, orange <30d out, red overdue), or '' if no/invalid date.
-  function renderDueDate(dueRaw){
+  // Optional verb argument changes the prefix (e.g. 'Next' instead of 'Due').
+  function renderDueDate(dueRaw, verb){
     if(!dueRaw) return '';
     const [y,m,d]=String(dueRaw).split('-').map(Number);
     const due=(y&&m&&d)?new Date(y,m-1,d):new Date(dueRaw);
@@ -2282,7 +2283,8 @@ function renderMNWList(){
     const daysLeft=Math.ceil((due-Date.now())/86400000);
     const dueFmt=due.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
     const color=daysLeft<0?'#c5221f':daysLeft<30?'#e07b30':'#666';
-    const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?'Due today':`Due ${dueFmt}`;
+    const useVerb = verb || 'Due';
+    const label=daysLeft<0?`Overdue ${Math.abs(daysLeft)}d`:daysLeft===0?`${useVerb} today`:`${useVerb} ${dueFmt}`;
     return `<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`;
   }
 
@@ -2407,28 +2409,48 @@ function renderMNWList(){
         // by the server as state.liabilityDetails, keyed by Liability ID).
         const det = (state.liabilityDetails && state.liabilityDetails[l.ID]) || {};
 
-        // Build sub-tag: rate | monthly payment | Due [maturity with color].
-        // Mirrors the Loans Receivable presentation. Only shown if det has any
-        // of these fields; mortgages without structured details just continue
-        // to use the Location subtitle below the name.
+        // Build sub-tag: rate | payment + frequency | Next [next payment, colored] | Matures [maturity, gray].
         let loanTag='';
         try{
           const parts=[];
           const rate = det.rate;
           if(rate!==undefined && rate!==null && rate!==''){
-            // Numbers stored as 0.05 → "5%"; strings like "5.88%" pass through.
             const rateStr = (typeof rate==='number') ? (rate<1 ? (rate*100).toFixed(2).replace(/\.?0+$/,'')+'%' : rate+'%') : String(rate);
             parts.push(esc(rateStr));
           }
-          // Prefer principal+interest split if both present; else show monthly payment.
+          // Payment frequency suffix: drives both the unit (/mo, /yr) and how
+          // we label the interest line ('yearly interest' vs default).
+          const freqMap = {
+            'Monthly':'/mo','Quarterly':'/qtr','Semi-Annual':'/6mo','Semi-Annually':'/6mo',
+            'Annual':'/yr','Annually':'/yr','Yearly':'/yr','One-time':'','One Time':''
+          };
+          const freqRaw    = String(det.paymentFreq || '').trim();
+          const freqSuffix = freqMap[freqRaw] !== undefined ? freqMap[freqRaw] : '/mo';
+          const freqWord   = freqSuffix === '/yr' ? 'yearly'
+                          : freqSuffix === '/qtr' ? 'quarterly'
+                          : freqSuffix === '/6mo' ? 'semi-annual'
+                          : '';
+          // Prefer principal+interest split if both present; else show payment amount.
           if(num(det.principal)>0 || num(det.interestPmt)>0){
             if(num(det.principal)>0)   parts.push(fmtUSD(num(det.principal))+' principal');
-            if(num(det.interestPmt)>0) parts.push(fmtUSD(num(det.interestPmt))+' interest');
+            if(num(det.interestPmt)>0) parts.push(fmtUSD(num(det.interestPmt))+' interest'+(freqWord?' '+freqWord:''));
           } else if(num(det.payment)>0){
-            parts.push(fmtUSD(num(det.payment))+'/mo');
+            parts.push(fmtUSD(num(det.payment)) + freqSuffix);
           }
-          const dueHtml = renderDueDate(det.maturity || '');
-          if(dueHtml) parts.push(dueHtml);
+          // Primary upcoming date: nextPayment if set (labeled "Next"); else maturity (labeled "Due").
+          const primaryHtml = det.nextPayment
+            ? renderDueDate(det.nextPayment, 'Next')
+            : renderDueDate(det.maturity || '');
+          if(primaryHtml) parts.push(primaryHtml);
+          // If BOTH nextPayment and maturity exist, show maturity as gray "Matures ..." secondary info.
+          if(det.nextPayment && det.maturity){
+            const [my,mm,md] = String(det.maturity).split('-').map(Number);
+            const matDate = (my&&mm&&md) ? new Date(my, mm-1, md) : new Date(det.maturity);
+            if(!isNaN(matDate)){
+              const matFmt = matDate.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+              parts.push(`<span style="color:#999">Matures ${matFmt}</span>`);
+            }
+          }
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
 
