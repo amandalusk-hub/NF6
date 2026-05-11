@@ -1338,7 +1338,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <!-- Monthly Payment Breakdown (open by default) -->
       <div class="pe-block">
         <div class="pe-block-hdr" onclick="toggleBlock('ld-payment-body')">
-          <span>Monthly Payment Breakdown</span>
+          <span>Payment Breakdown</span>
           <div style="display:flex;align-items:center;gap:10px">
             <span id="ld-payment-summary" style="font-size:12px;color:#8ab;font-weight:400"></span>
             <span class="pe-block-chevron">-</span>
@@ -1346,7 +1346,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="pe-block-body" id="ld-payment-body">
           <div class="form-two">
-            <div class="form-row"><label>Total Monthly Payment</label><input type="text" id="ld-payment" placeholder="$0" onblur="onAcctBlur(this,recalcLiab)" onfocus="onAcctFocus(this)"></div>
+            <div class="form-row"><label>Scheduled Payment Amount</label><input type="text" id="ld-payment" placeholder="$0" onblur="onAcctBlur(this,recalcLiab)" onfocus="onAcctFocus(this)"></div>
             <div class="form-row"><label>Principal Portion</label><input type="text" id="ld-principal" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           </div>
           <div class="form-two">
@@ -1358,6 +1358,18 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <div class="form-row"><label>Insurance / Year</label><input type="text" id="ld-insurance" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           </div>
           <div class="form-row"><label>HOA / Month</label><input type="text" id="ld-hoa" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+
+          <div style="margin-top:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px">Payment Log</span>
+              <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="addLiabPaymentRow()">+ Add Payment</button>
+            </div>
+            <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px">
+              <span>Date</span><span>Principal</span><span>Interest</span><span>Notes</span><span></span>
+            </div>
+            <div id="ld-payment-log-list"></div>
+            <div id="ld-payment-log-summary" style="font-size:11px;color:#8ab;margin-top:6px;text-align:right"></div>
+          </div>
         </div>
       </div>
 
@@ -2462,6 +2474,14 @@ function renderMNWList(){
             if(num(det.interestPmt)>0) parts.push(fmtUSD(num(det.interestPmt))+' interest'+(freqWord?' '+freqWord:''));
           } else if(num(det.payment)>0){
             parts.push(fmtUSD(num(det.payment)) + freqSuffix);
+          }
+          // Total paid (sum of payment log) — gives an at-a-glance view of how
+          // much of the loan has been serviced. Shown gray as secondary info.
+          if(Array.isArray(det.paymentLog) && det.paymentLog.length){
+            var paidPrincipal = det.paymentLog.reduce(function(s,p){return s+num(p.principal);},0);
+            var paidInterest  = det.paymentLog.reduce(function(s,p){return s+num(p.interest);},0);
+            var paidTotal     = paidPrincipal + paidInterest;
+            if(paidTotal > 0) parts.push(`<span style="color:#999">${fmtUSD(paidTotal)} paid</span>`);
           }
           // Primary upcoming date: nextPayment if set (labeled "Next"); else maturity (labeled "Due").
           const primaryHtml = det.nextPayment
@@ -3951,6 +3971,47 @@ function addLoanPaymentRow(date, principal, interest, notes) {
   if (notes)     row.querySelector('.loan-pmt-notes').value = notes;
 }
 
+// -- Liability Payment Log ------------------------------------------------
+function addLiabPaymentRow(date, principal, interest, notes) {
+  var list = document.getElementById('ld-payment-log-list');
+  if (!list) return;
+  var row  = document.createElement('div');
+  row.className = 'liab-pmt-row';
+  row.style.cssText = 'display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px;margin-bottom:4px;align-items:center';
+  row.innerHTML =
+    '<input type="date" class="liab-pmt-date" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
+    '<input type="text" class="liab-pmt-principal" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
+    '<input type="text" class="liab-pmt-interest" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
+    '<input type="text" class="liab-pmt-notes" placeholder="Notes" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
+    '<button type="button" onclick="this.closest(\'.liab-pmt-row\').remove();recalcLiabPayments()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
+  list.appendChild(row);
+  var prinEl = row.querySelector('.liab-pmt-principal');
+  var intEl  = row.querySelector('.liab-pmt-interest');
+  prinEl.addEventListener('blur',  function(){ onAcctBlur(this, recalcLiabPayments); });
+  prinEl.addEventListener('focus', function(){ onAcctFocus(this); });
+  intEl.addEventListener('blur',   function(){ onAcctBlur(this, recalcLiabPayments); });
+  intEl.addEventListener('focus',  function(){ onAcctFocus(this); });
+  if (date)      row.querySelector('.liab-pmt-date').value  = date;
+  if (principal) prinEl.value = fmtAcct(principal);
+  if (interest)  intEl.value  = fmtAcct(interest);
+  if (notes)     row.querySelector('.liab-pmt-notes').value = notes;
+  recalcLiabPayments();
+}
+
+function recalcLiabPayments() {
+  var totalPrincipal = Array.from(document.querySelectorAll('#ld-payment-log-list .liab-pmt-principal'))
+                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var totalInterest  = Array.from(document.querySelectorAll('#ld-payment-log-list .liab-pmt-interest'))
+                       .reduce(function(s, el){ return s + parseAcct(el.value); }, 0);
+  var sumEl = document.getElementById('ld-payment-log-summary');
+  if (sumEl) {
+    var parts = [];
+    if (totalPrincipal > 0) parts.push('$' + totalPrincipal.toLocaleString() + ' principal paid');
+    if (totalInterest  > 0) parts.push('$' + totalInterest.toLocaleString() + ' interest paid');
+    sumEl.textContent = parts.length ? parts.join(' • ') : '';
+  }
+}
+
 function recalcLoan() {
   var original         = parseAcct((document.getElementById('d-loan-original')||{value:''}).value);
   var interestAccrued  = parseAcct((document.getElementById('d-loan-interest-accrued')||{value:''}).value);
@@ -4196,6 +4257,16 @@ function openLiabDetail(id){
   sv('ld-drive-folder', det.driveFolder||'');
   updateDriveLink('ld-drive-folder', 'ld-drive-folder-link');
   sv('ld-notes',      det.notes||'');
+
+  // Rebuild payment log rows
+  var listEl = document.getElementById('ld-payment-log-list');
+  if (listEl) {
+    listEl.innerHTML = '';
+    (Array.isArray(det.paymentLog) ? det.paymentLog : []).forEach(function(p){
+      addLiabPaymentRow((p.date||'').split('T')[0], p.principal, p.interest, p.notes);
+    });
+    recalcLiabPayments();
+  }
   recalcLiab();
   _loadingDetail=true;
   _clearSaveStatus('liab-save-status');
@@ -4235,6 +4306,14 @@ function saveLiabilityDetails(keepOpen){
     insAgent:    gv('ld-ins-agent'),
     contacts:    gv('ld-contacts'),
     driveFolder: gv('ld-drive-folder'),
+    paymentLog: Array.from(document.querySelectorAll('#ld-payment-log-list .liab-pmt-row')).map(function(row){
+      return {
+        date:      (row.querySelector('.liab-pmt-date')||{}).value || '',
+        principal: parseAcct((row.querySelector('.liab-pmt-principal')||{}).value),
+        interest:  parseAcct((row.querySelector('.liab-pmt-interest')||{}).value),
+        notes:     (row.querySelector('.liab-pmt-notes')||{}).value || ''
+      };
+    }).filter(function(p){ return p.date || p.principal || p.interest || p.notes; }),
     notes:       gv('ld-notes')
   };
   var _shouldCloseLiab = !keepOpen;

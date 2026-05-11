@@ -87,7 +87,7 @@ var COL = {
     'Insurance Provider','Insurance Policy','Insurance Start','Insurance End','Insurance Renewal',
     'Auto Drive Folder'
   ],
-  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Payment Frequency','Next Payment Date','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Drive Folder','Notes'],
+  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Payment Frequency','Next Payment Date','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Payment Log','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Drive Folder','Notes'],
   ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
 };
 
@@ -139,7 +139,8 @@ var LIAB_DET_MAP = [
   ['remaining','Months Remaining'],['paymentFreq','Payment Frequency'],
   ['nextPayment','Next Payment Date'],['payment','Monthly Payment'],['principal','Principal'],
   ['interestPmt','Interest Payment'],['escrow','Escrow'],['tax','Property Tax'],
-  ['insurance','Insurance'],['hoa','HOA'],['officer','Loan Officer'],
+  ['insurance','Insurance'],['hoa','HOA'],['paymentLog','Payment Log'],
+  ['officer','Loan Officer'],
   ['attorney','Attorney / Title'],['insAgent','Insurance Agent'],
   ['contacts','Other Contacts'],['driveFolder','Drive Folder'],['notes','Notes']
 ];
@@ -393,6 +394,12 @@ function getLiabilityDetailsMap_() {
       if (col < 0) return;
       var v = row[col];
       if (v instanceof Date) v = v.toISOString();
+      // Payment Log is stored as JSON in a single cell; parse to array for the
+      // dashboard. Bad JSON falls back to empty array so one corrupt cell can't
+      // break the whole render.
+      if (pair[0] === 'paymentLog' && typeof v === 'string' && v.trim()) {
+        try { v = JSON.parse(v); } catch (e) { v = []; }
+      }
       det[pair[0]] = v;
     });
     map[id] = det;
@@ -1211,7 +1218,12 @@ function saveLiabilityDetails(id, detailsJson) {
     var detHeaders = detData[0] || [];
     if (detHeaders.length > 0 && detHeaders[0] !== '') {
       var colLookup  = { 'Liability ID': id, 'Liability Name': liabName };
-      LIAB_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+      LIAB_DET_MAP.forEach(function(m) {
+        var v = det[m[0]];
+        // Serialize Payment Log array → JSON string for the cell.
+        if (m[0] === 'paymentLog' && Array.isArray(v)) v = JSON.stringify(v);
+        colLookup[m[1]] = (v === undefined || v === null) ? '' : v;
+      });
       var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
       var existingRow = -1;
       for (var j = 1; j < detData.length; j++) {
