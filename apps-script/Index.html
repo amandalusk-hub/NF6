@@ -1379,6 +1379,22 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
       </div>
 
+      <!-- Documents (collapsed) -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-documents-body')">
+          <span>Documents</span>
+          <span class="pe-block-chevron">+</span>
+        </div>
+        <div class="pe-block-body" id="ld-documents-body" style="display:none">
+          <div class="form-row"><label>Google Drive Folder</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="text" id="ld-drive-folder" placeholder="Paste Drive link here" style="flex:1" oninput="updateDriveLink('ld-drive-folder','ld-drive-folder-link')">
+              <a id="ld-drive-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Notes (collapsed) -->
       <div class="pe-block">
         <div class="pe-block-hdr" onclick="toggleBlock('ld-notes-body')">
@@ -2467,13 +2483,20 @@ function renderMNWList(){
         // Counterparty (lender) -- shown like Entity in the asset rows
         const lenderDisplay = det.bank ? esc(det.bank) : '';
 
+        // Drive folder quick-open link, if a Drive URL is configured.
+        // Uses event.stopPropagation() so clicking Open doesn't also open the
+        // detail panel underneath.
+        const driveLinkHtml = (det.driveFolder && /^https?:/.test(String(det.driveFolder).trim()))
+          ? `<a href="${esc(String(det.driveFolder).trim())}" target="_blank" onclick="event.stopPropagation()" style="margin-left:8px;font-size:10px;color:#2E6DA4;text-decoration:none;border:1px solid #2E6DA4;border-radius:3px;padding:1px 5px">Open</a>`
+          : '';
+
         // Address fallback (kept for mortgages so the property location stays visible);
         // hidden when a loanTag is present to avoid double sub-lines for promissory notes.
         const locationDisplay = (!loanTag && l.Location) ? `<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>` : '';
 
         lHtml+=`<div class="mnw-row mnw-grid" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
           <div class="mnw-row-name-cell">
-            <div class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${locationDisplay}</div>
+            <div class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${locationDisplay}${driveLinkHtml}</div>
             ${lenderDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${lenderDisplay}</div>`:''}
             ${loanTag}
           </div>
@@ -4170,6 +4193,8 @@ function openLiabDetail(id){
   sv('ld-attorney',   det.attorney||'');
   sv('ld-ins-agent',  det.insAgent||'');
   sv('ld-contacts',   det.contacts||'');
+  sv('ld-drive-folder', det.driveFolder||'');
+  updateDriveLink('ld-drive-folder', 'ld-drive-folder-link');
   sv('ld-notes',      det.notes||'');
   recalcLiab();
   _loadingDetail=true;
@@ -4209,6 +4234,7 @@ function saveLiabilityDetails(keepOpen){
     attorney:    gv('ld-attorney'),
     insAgent:    gv('ld-ins-agent'),
     contacts:    gv('ld-contacts'),
+    driveFolder: gv('ld-drive-folder'),
     notes:       gv('ld-notes')
   };
   var _shouldCloseLiab = !keepOpen;
