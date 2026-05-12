@@ -1871,6 +1871,11 @@ function getPlaidBaseUrl_(env) {
 
 function getPlaidLinkToken() {
   var cfg = getPlaidConfig_();
+  // Statements config required when 'statements' is in any products array.
+  // 24-month window — Plaid returns whatever's actually available within it.
+  var endDate   = new Date();
+  var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
+  function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
   try {
     var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
       method: 'POST',
@@ -1882,12 +1887,14 @@ function getPlaidLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions']
-        // Note on Statements consent: Plaid's /link/token/create rejects
-        // 'statements' in additional_consented_products (the field has a fixed
-        // allowlist that excludes statements). To grant Statements scope on
-        // an Item, use Update Mode (additional_consented_products is permitted
-        // there for OAuth banks that support adding the scope post-link).
+        products:      ['transactions'],
+        // Ask Plaid to add Statements scope on this Item IF the institution
+        // supports it. Banks that don't expose Statements (Oriental, Schwab
+        // brokerages, etc.) still link cleanly without it. Banks that do
+        // (Chase Business, JPM trust accounts) get a token that can call
+        // /statements/list and /statements/download immediately.
+        required_if_supported_products: ['statements'],
+        statements: { start_date: fmt(startDate), end_date: fmt(endDate) }
       }),
       muteHttpExceptions: true
     });
