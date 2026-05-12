@@ -1882,8 +1882,7 @@ function getPlaidLinkToken() {
     language:      'en',
     user:          { client_user_id: 'mnw-family-office' },
     products:      ['transactions'],
-    required_if_supported_products: ['statements'],
-    statements: { start_date: fmt(startDate), end_date: fmt(endDate) }
+    required_if_supported_products: ['statements']
   };
   Logger.log('getPlaidLinkToken request: ' + JSON.stringify(payload));
   try {
