@@ -1871,37 +1871,35 @@ function getPlaidBaseUrl_(env) {
 
 function getPlaidLinkToken() {
   var cfg = getPlaidConfig_();
-  // Statements config required when 'statements' is in any products array.
-  // 24-month window — Plaid returns whatever's actually available within it.
   var endDate   = new Date();
   var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
   function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+  var payload = {
+    client_id:     cfg.clientId,
+    secret:        cfg.secret,
+    client_name:   'MNW Family Office',
+    country_codes: ['US'],
+    language:      'en',
+    user:          { client_user_id: 'mnw-family-office' },
+    products:      ['transactions'],
+    required_if_supported_products: ['statements'],
+    statements: { start_date: fmt(startDate), end_date: fmt(endDate) }
+  };
+  Logger.log('getPlaidLinkToken request: ' + JSON.stringify(payload));
   try {
     var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
       method: 'POST',
       contentType: 'application/json',
-      payload: JSON.stringify({
-        client_id:     cfg.clientId,
-        secret:        cfg.secret,
-        client_name:   'MNW Family Office',
-        country_codes: ['US'],
-        language:      'en',
-        user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions'],
-        // Ask Plaid to add Statements scope on this Item IF the institution
-        // supports it. Banks that don't expose Statements (Oriental, Schwab
-        // brokerages, etc.) still link cleanly without it. Banks that do
-        // (Chase Business, JPM trust accounts) get a token that can call
-        // /statements/list and /statements/download immediately.
-        required_if_supported_products: ['statements'],
-        statements: { start_date: fmt(startDate), end_date: fmt(endDate) }
-      }),
+      payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
-    var data = JSON.parse(resp.getContentText());
+    var body = resp.getContentText();
+    Logger.log('getPlaidLinkToken response (' + resp.getResponseCode() + '): ' + body);
+    var data = JSON.parse(body);
     if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
     return { success: false, error: data.error_message || JSON.stringify(data) };
   } catch(e) {
+    Logger.log('getPlaidLinkToken exception: ' + e.message);
     return { success: false, error: e.message };
   }
 }
