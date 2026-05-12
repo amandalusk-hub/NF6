@@ -168,6 +168,7 @@ function onOpen() {
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
     .addItem('List Plaid Connections (Detailed)', 'listPlaidConnectionDetails')
+    .addItem('Search Plaid Institutions (Statements support)', 'searchPlaidInstitutions')
     .addItem('Remove ONE Plaid Connection…', 'removeOnePlaidConnection')
     .addItem('Remove ALL Plaid Connections', 'removePlaidConnection')
     .addSeparator()
@@ -2695,6 +2696,63 @@ function getPlaidConnections() {
 // under different account_ids, removing one token + the duplicate row resolves
 // it. If only one token exists but two rows have different Plaid Account IDs,
 // the bank likely re-issued account_ids during a silent re-auth.
+
+// Diagnostic: search Plaid for institutions matching a query string and list
+// each variant with its supported products. Use this to definitively answer
+// 'does <bank> support Statements via Plaid' — if the institution lists
+// 'statements' in its products array, it does; if not, it doesn't and no
+// amount of OAuth wrangling will change that.
+function searchPlaidInstitutions() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+  var resp = ui.prompt(
+    'Search Plaid Institutions',
+    'Enter a bank name to search (e.g. "JP Morgan", "Chase", "Wells Fargo"):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var query = resp.getResponseText().trim();
+  if (!query) return;
+
+  try {
+    var apiResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/search', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({
+        client_id: cfg.clientId,
+        secret:    cfg.secret,
+        query:     query,
+        country_codes: ['US'],
+        // Required by Plaid; products acts as a coarse filter — passing the
+        // ones we actually use returns institutions that have AT LEAST those.
+        // Statements support is then visible in each result's products array.
+        products:  ['transactions']
+      }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(apiResp.getContentText());
+    if (data.error_message) {
+      ui.alert('Plaid error', data.error_code + ': ' + data.error_message, ui.ButtonSet.OK);
+      return;
+    }
+    var insts = data.institutions || [];
+    if (!insts.length) { ui.alert('No institutions matched "' + query + '".'); return; }
+
+    var out = ['Found ' + insts.length + ' institution(s) for "' + query + '":', ''];
+    insts.forEach(function(inst, i) {
+      var supportsStatements = (inst.products || []).indexOf('statements') >= 0;
+      out.push((i + 1) + '. ' + inst.name);
+      out.push('   institution_id: ' + inst.institution_id);
+      out.push('   Supports Statements? ' + (supportsStatements ? 'YES ✅' : 'NO ❌'));
+      out.push('   Products: ' + (inst.products || []).join(', '));
+      out.push('');
+    });
+    ui.alert('Plaid Institution Search', out.join('\n'), ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Search failed', e.message, ui.ButtonSet.OK);
+  }
+}
+
 function listPlaidConnectionDetails() {
   var ui      = SpreadsheetApp.getUi();
   var cfg     = getPlaidConfig_();
@@ -2702,9 +2760,7 @@ function listPlaidConnectionDetails() {
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]')
         .concat(JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
   var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
-  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }
-
-  var out = [];
+  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }  var out = [];
   out.push('Total connections: ' + tokens.length);
   out.push('');
 
