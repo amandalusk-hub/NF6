@@ -2105,6 +2105,13 @@ function syncPlaidAccounts() {
   var liabUpdates = [];   // liability row updates: same shape
   var newAccts    = [];   // accounts with no matching row in either sheet
 
+  // Active account_ids across all tokens — used by the smart fallback to skip
+  // rows that already have a live sync source (prevents an orphan-like
+  // mask+institution match from hijacking an actively-synced row that shares
+  // last 4 with a different physical account).
+  var activeAcctIds = {};
+  allAccounts.forEach(function(a) { if (a && a.acctId) activeAcctIds[a.acctId] = true; });
+
   allAccounts.forEach(function(acct) {
     // Liability match wins — that means the user explicitly moved this account
     // to the liabilities side and we should keep updating it there.
@@ -2134,8 +2141,12 @@ function syncPlaidAccounts() {
     // the rename case where a bank returns slightly different account labels
     // across re-links (e.g. 'MBJ DR' vs 'MBJ DR INC' for the same physical
     // account at Chase, both ending in ···7133). Only auto-matches when
-    // there's exactly one candidate, to avoid false positives if two accounts
-    // at the same bank coincidentally share the same last-4 mask.
+    // there's exactly one ORPHAN candidate — a row whose current Plaid Account
+    // ID is no longer in any active token's response. This avoids the
+    // catastrophic case where two truly different accounts at the same bank
+    // share a mask (e.g. 'Chase - TLMND ···2001' and 'Chase - 2019 MN FAMILY
+    // REVOCABLE TRUST ···2001'); without the orphan filter, the actively-
+    // synced TLMND row could be overwritten by the JPM 2019 trust's $0 data.
     if (matchRow === undefined) {
       var maskMatch = String(acct.name || '').match(/···(\S+)$/);
       var instIdx   = String(acct.name || '').indexOf(' - ');
@@ -2147,6 +2158,12 @@ function syncPlaidAccounts() {
           var rName    = String(nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1] || '');
           var rMaskM   = rName.match(/···(\S+)$/);
           var rInstIdx = rName.indexOf(' - ');
+          var rPlaidId = plaidCol >= 0 ? String(rows[i][plaidCol] || '') : '';
+          // Skip rows whose current Plaid Account ID is in an active token —
+          // those rows already have a correct sync source and shouldn't be
+          // hijacked by a different account that coincidentally shares the
+          // last-4 mask.
+          if (rPlaidId && activeAcctIds[rPlaidId]) continue;
           if (rMaskM && rInstIdx > 0
               && rMaskM[1] === newMask
               && rName.substring(0, rInstIdx).trim() === newInst) {
