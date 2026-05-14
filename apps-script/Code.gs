@@ -2142,11 +2142,13 @@ function syncPlaidAccounts() {
     // across re-links (e.g. 'MBJ DR' vs 'MBJ DR INC' for the same physical
     // account at Chase, both ending in ···7133). Only auto-matches when
     // there's exactly one ORPHAN candidate — a row whose current Plaid Account
-    // ID is no longer in any active token's response. This avoids the
+    // ID is no longer in any active token's response AND whose name doesn't
+    // exact-match some other account being synced this run. This avoids the
     // catastrophic case where two truly different accounts at the same bank
     // share a mask (e.g. 'Chase - TLMND ···2001' and 'Chase - 2019 MN FAMILY
-    // REVOCABLE TRUST ···2001'); without the orphan filter, the actively-
-    // synced TLMND row could be overwritten by the JPM 2019 trust's $0 data.
+    // REVOCABLE TRUST ···2001'); without these guards, the actively-synced
+    // TLMND row could be overwritten by the JPM 2019 trust's $0 data, even if
+    // the user manually cleared the row's Plaid Account ID.
     if (matchRow === undefined) {
       var maskMatch = String(acct.name || '').match(/···(\S+)$/);
       var instIdx   = String(acct.name || '').indexOf(' - ');
@@ -2159,11 +2161,17 @@ function syncPlaidAccounts() {
           var rMaskM   = rName.match(/···(\S+)$/);
           var rInstIdx = rName.indexOf(' - ');
           var rPlaidId = plaidCol >= 0 ? String(rows[i][plaidCol] || '') : '';
-          // Skip rows whose current Plaid Account ID is in an active token —
-          // those rows already have a correct sync source and shouldn't be
-          // hijacked by a different account that coincidentally shares the
-          // last-4 mask.
+          // Guard 1: skip rows whose current Plaid Account ID is in an active
+          // token — they already have a live sync source.
           if (rPlaidId && activeAcctIds[rPlaidId]) continue;
+          // Guard 2: skip rows whose name exact-matches some account being
+          // synced this run — they belong to that account via name fallback,
+          // even if their Plaid Account ID is currently blank.
+          var rNameIsClaimed = false;
+          for (var aj = 0; aj < allAccounts.length; aj++) {
+            if (allAccounts[aj] && allAccounts[aj].name === rName) { rNameIsClaimed = true; break; }
+          }
+          if (rNameIsClaimed) continue;
           if (rMaskM && rInstIdx > 0
               && rMaskM[1] === newMask
               && rName.substring(0, rInstIdx).trim() === newInst) {
