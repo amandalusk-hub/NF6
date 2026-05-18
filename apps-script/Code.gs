@@ -186,6 +186,7 @@ function onOpen() {
     .addItem('Reset Balance History (clear & retake)', 'resetBalanceHistoryFromMenu')
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
+    .addItem('Refresh Sheet Validations (Dropdowns)', 'refreshSheetValidations')
     .addItem('Reset Asset Details Schema', 'resetSchema')
     .addToUi();
 }
@@ -2919,6 +2920,56 @@ function removePlaidConnection() {
     props.deleteProperty('PLAID_TOKENS');
     ui.alert('All Plaid connections removed.');
   }
+}
+
+// Re-sync the Assets Category and Liabilities Type dropdown validations with
+// the current code (CATEGORIES list + the liability types list below). Use
+// after adding a new category in code — without this, the old dropdown lock
+// rejects new values like 'Promissory Notes' even though the code accepts them.
+function refreshSheetValidations() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var notes = [];
+
+  var assets = ss.getSheetByName('Assets');
+  if (assets) {
+    var N = Math.max(2000, assets.getLastRow());
+    assets.getRange(2, 3, N).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(CATEGORIES, true)
+        .setAllowInvalid(true)                // warn-only, don't block saves
+        .setHelpText('Pick a category from the list (or type your own)')
+        .build());
+    notes.push('Assets Category dropdown: ' + CATEGORIES.length + ' options');
+  }
+
+  var liabs = ss.getSheetByName('Liabilities');
+  if (liabs) {
+    var liabTypes = [
+      'Credit Card',
+      'Mortgage - United States','Mortgage - Puerto Rico','Mortgage - Colombia',
+      'Mortgage - Dominican Republic','Mortgage - Europe',
+      'Real Estate - Colombia (Liability)','Real Estate - Puerto Rico (Liability)',
+      'Real Estate - Dominican Republic (Liability)',
+      'Real Estate - United States (Liability)','Real Estate - Europe (Liability)',
+      'Promissory Note',
+      'Auto Loan','Business Loan','Personal Loan','Line of Credit',
+      'Student Loan','Other'
+    ];
+    var M = Math.max(1000, liabs.getLastRow());
+    liabs.getRange(2, 3, M).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(liabTypes, true)
+        .setAllowInvalid(true)
+        .build());
+    notes.push('Liabilities Type dropdown: ' + liabTypes.length + ' options');
+  }
+
+  SpreadsheetApp.getUi().alert(
+    'Dropdowns Refreshed',
+    notes.join('\n') + '\n\nDropdowns now allow custom values (won\'t block saves).',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+  return { success: true };
 }
 
 function fixSheetHeaders() {
