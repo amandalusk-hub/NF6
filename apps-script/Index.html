@@ -1312,7 +1312,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
                 <option>BRL</option><option>MXN</option><option>CAD</option><option>DOP</option>
               </select>
             </div>
-            <div class="form-row"><label>Amount Owed</label><input type="number" id="ld-core-amount" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="form-row"><label>Amount Owed</label><input type="text" id="ld-core-amount" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
           </div>
           <div class="form-row"><label>Location / Property Address</label><input type="text" id="ld-core-location" placeholder="e.g. 1405 Plantation Vlg, Dorado, PR 00646"></div>
         </div>
@@ -2341,7 +2341,7 @@ function _instSort(items, cat){
     let key;
     if(cat==='Private Equity'){
       key=_peGroupKey(a.Name||a['Name'])||(a.Entity||a['Entity']||'(No Entity)');
-    }else if(cat==='Loans Receivable'){
+    }else if(cat==='Loans Receivable' || cat==='Promissory Notes'){
       key=a.Entity||a['Entity']||'(No Entity)';
     }else{
       const n=a.Name||a['Name']||'';
@@ -2433,8 +2433,8 @@ function renderMNWList(){
         try{
           const parts=[];
           // Borrower + payment summary sub-label (loans only)
-          if(a.Category==='Loans Receivable' && det.borrower) parts.push(esc(det.borrower));
-          if(a.Category==='Loans Receivable' && det.loanPayments && det.loanPayments.length){
+          if((a.Category==='Loans Receivable' || a.Category==='Promissory Notes') && det.borrower) parts.push(esc(det.borrower));
+          if((a.Category==='Loans Receivable' || a.Category==='Promissory Notes') && det.loanPayments && det.loanPayments.length){
             const totalPrincipal=det.loanPayments.reduce(function(s,p){return s+(p.principal||p.amount||0);},0);
             const totalInterest=det.loanPayments.reduce(function(s,p){return s+(p.interest||0);},0);
             if(totalPrincipal>0) parts.push(fmtUSD(totalPrincipal)+' principal');
@@ -2445,14 +2445,14 @@ function renderMNWList(){
             if(det.peRate) parts.push(esc(det.peRate));
           }
           // Due date -- check both loan and PE maturity fields
-          const dueRaw = (a.Category==='Loans Receivable' ? det.loanDue : '')
+          const dueRaw = ((a.Category==='Loans Receivable' || a.Category==='Promissory Notes') ? det.loanDue : '')
                       || (a.Category==='Private Equity'   ? det.peMaturity : '')
                       || det['Due Date'] || '';
           const dueHtml = renderDueDate(dueRaw);
           if(dueHtml) parts.push(dueHtml);
           if(parts.length) loanTag=`<div style="font-size:11px;margin-top:2px;color:#888">${parts.join('  |  ')}</div>`;
         }catch(e){}
-        const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity;
+        const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable'||a.Category==='Promissory Notes')&&a.Entity;
         const entityDisplay=showEntity?(a.Entity==='Personal'?'MN':esc(a.Entity)):'';
         aHtml+=`<div class="mnw-row mnw-grid" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
           <div class="mnw-row-name-cell">
@@ -2609,7 +2609,7 @@ function renderAssetsTable(){
   tb.innerHTML=rows.map(a=>`
     <tr style="cursor:pointer" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
       <td>
-        ${(a.Category==='Private Equity'||a.Category==='Loans Receivable')&&a.Entity?`<span style="color:#888;font-size:11px;font-weight:600">${esc(a.Entity)}</span> `:''}<span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
+        ${(a.Category==='Private Equity'||a.Category==='Loans Receivable'||a.Category==='Promissory Notes')&&a.Entity?`<span style="color:#888;font-size:11px;font-weight:600">${esc(a.Entity)}</span> `:''}<span style="color:#1a73e8;font-weight:500">${esc(a.Name)}</span>
         ${a.Category==='Real Estate'&&a.Address?`<div style="font-size:11px;color:#888;margin-top:2px">${esc(a.Address)}</div>`:''}
       </td>
       <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
@@ -2797,7 +2797,7 @@ function renderSummary(){
     var cat      = a.Category||'';
     var isRE     = cat.startsWith('Real Estate');
     var isPE     = cat==='Private Equity';
-    var isLoan   = cat==='Loans Receivable';
+    var isLoan   = cat==='Loans Receivable' || cat==='Promissory Notes';
     var isCash   = cat.startsWith('Cash');
     var isEquity = cat.includes('Equity')&&!isPE;
     var isAuto   = cat==='Automobile';
@@ -3170,7 +3170,7 @@ function onDetailCategoryChange(){
   var asset = id ? (state.assets||[]).find(function(a){return a.ID==id;}) : null;
   var isRE   = cat.startsWith('Real Estate');
   var isCash = cat.startsWith('Cash');
-  var isLoan = cat === 'Loans Receivable';
+  var isLoan = cat === 'Loans Receivable' || cat === 'Promissory Notes';
   var isEquity = cat.includes('Equity') && !isPE;
   var isAuto = cat === 'Automobile';
   var el = function(i){return document.getElementById(i);};
@@ -3352,7 +3352,7 @@ function openAssetDetail(id){
 
   // Section visibility handled by onDetailCategoryChange() called above
   const cat      = asset.Category||'';
-  const isLoan   = cat === 'Loans Receivable';
+  const isLoan   = cat === 'Loans Receivable' || cat === 'Promissory Notes';
   const isRE     = cat.startsWith('Real Estate');
   const isPE     = cat === 'Private Equity';
   const isAuto   = cat === 'Automobile';
@@ -4281,7 +4281,7 @@ function openLiabDetail(id){
   (document.getElementById('ld-core-name')||{}).value     = liab.Name || '';
   (document.getElementById('ld-core-type')||{}).value     = liab.Type || '';
   (document.getElementById('ld-core-currency')||{}).value = liab.Currency || 'USD';
-  (document.getElementById('ld-core-amount')||{}).value   = num(liab.Amount) || '';
+  (document.getElementById('ld-core-amount')||{}).value   = num(liab.Amount) > 0 ? fmtAcct(num(liab.Amount)) : '';
   (document.getElementById('ld-core-location')||{}).value = liab.Location || '';
 
   let det={}; try{det=JSON.parse(liab.Details||'{}');}catch(e){det={}; }
@@ -4404,7 +4404,7 @@ function saveLiabilityDetails(keepOpen){
     name:     gv('ld-core-name'),
     type:     gv('ld-core-type'),
     currency: gv('ld-core-currency'),
-    amount:   parseFloat(gv('ld-core-amount')) || 0,
+    amount:   parseAcct(gv('ld-core-amount')) || 0,
     location: gv('ld-core-location'),
     notes:    _liab ? (_liab.Notes || '') : ''
   };
