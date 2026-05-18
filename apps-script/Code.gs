@@ -21,6 +21,7 @@ var CATEGORIES = [
   'Public Equity (Dividends)',
   'Public Equity (Growth)',
   'Loans Receivable',
+  'Promissory Notes',
   'Private Equity',
   'Real Estate - Colombia',
   'Real Estate - Dominican Republic',
