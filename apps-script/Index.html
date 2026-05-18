@@ -552,6 +552,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <option>Public Equity (Dividends)</option>
             <option>Public Equity (Growth)</option>
             <option>Loans Receivable</option>
+            <option>Promissory Notes</option>
             <option>Automobile</option>
             <option>Art/Jewelry/Other</option>
             <option>Crypto</option>
@@ -591,7 +592,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
             <option>Real Estate - Dominican Republic</option><option>Real Estate - Europe</option>
             <option>Cash - Personal</option><option>Cash - Business</option>
             <option>Public Equity (Dividends)</option><option>Public Equity (Growth)</option>
-            <option>Private Equity</option><option>Loans Receivable</option><option>Automobile</option><option>Art/Jewelry/Other</option>
+            <option>Private Equity</option><option>Loans Receivable</option><option>Promissory Notes</option><option>Automobile</option><option>Art/Jewelry/Other</option>
             <option>Crypto</option><option>VIP Medical Group</option><option>Insurance</option><option>Other</option>
           </select>
           <select id="da-entity" style="font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#c0d4e8;border-radius:4px;padding:3px 6px"><option value="">-- Entity --</option></select>
@@ -1264,12 +1265,58 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="detail-meta" id="liab-detail-meta"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-secondary btn-sm" id="liab-detail-edit-btn">Edit Core Fields</button>
         <button class="modal-close" onclick="saveLiabilityDetails(false)">x</button>
       </div>
     </div>
     <div class="modal-body" oninput="scheduleLiabAutoSave()" onchange="scheduleLiabAutoSave()">
       <input type="hidden" id="ld-id">
+
+      <!-- Core fields (Name, Type, Currency, Amount, Location) editable inline -->
+      <div class="pe-block">
+        <div class="pe-block-hdr" onclick="toggleBlock('ld-core-body')">
+          <span>Core Fields</span>
+          <span class="pe-block-chevron">-</span>
+        </div>
+        <div class="pe-block-body" id="ld-core-body">
+          <div class="form-row"><label>Type / Category</label>
+            <select id="ld-core-type">
+              <optgroup label="Credit Cards"><option>Credit Card</option></optgroup>
+              <optgroup label="Mortgages">
+                <option>Mortgage - United States</option>
+                <option>Mortgage - Puerto Rico</option>
+                <option>Mortgage - Colombia</option>
+                <option>Mortgage - Dominican Republic</option>
+                <option>Mortgage - Europe</option>
+              </optgroup>
+              <optgroup label="Real Estate Loans">
+                <option>Real Estate - Colombia (Liability)</option>
+                <option>Real Estate - Puerto Rico (Liability)</option>
+                <option>Real Estate - Dominican Republic (Liability)</option>
+                <option>Real Estate - United States (Liability)</option>
+                <option>Real Estate - Europe (Liability)</option>
+              </optgroup>
+              <optgroup label="Promissory Notes"><option>Promissory Note</option></optgroup>
+              <optgroup label="Other">
+                <option>Auto Loan</option>
+                <option>Business Loan</option>
+                <option>Student Loan</option>
+                <option>Other</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-row"><label>Name</label><input type="text" id="ld-core-name" placeholder="e.g. Chase Mortgage, AMEX Black Card"></div>
+          <div class="form-two">
+            <div class="form-row"><label>Currency</label>
+              <select id="ld-core-currency">
+                <option>USD</option><option>EUR</option><option>GBP</option><option>COP</option>
+                <option>BRL</option><option>MXN</option><option>CAD</option><option>DOP</option>
+              </select>
+            </div>
+            <div class="form-row"><label>Amount Owed</label><input type="number" id="ld-core-amount" placeholder="0.00" min="0" step="0.01"></div>
+          </div>
+          <div class="form-row"><label>Location / Property Address</label><input type="text" id="ld-core-location" placeholder="e.g. 1405 Plantation Vlg, Dorado, PR 00646"></div>
+        </div>
+      </div>
 
       <!-- Summary banner -->
       <div style="background:#0d2137;border:1px solid #2a4060;border-radius:8px;padding:12px 16px;margin-bottom:12px">
@@ -4230,7 +4277,12 @@ function openLiabDetail(id){
   document.getElementById('liab-detail-title').textContent=liab.Name;
   document.getElementById('liab-detail-meta').textContent=
     (liab.Type||'')+(liab.Location?'  |  '+liab.Location:'')+'  |  '+fmtUSD(num(liab['USD Value']));
-  document.getElementById('liab-detail-edit-btn').onclick=()=>openLiabModal(id);
+  // Populate inline core-field editors
+  (document.getElementById('ld-core-name')||{}).value     = liab.Name || '';
+  (document.getElementById('ld-core-type')||{}).value     = liab.Type || '';
+  (document.getElementById('ld-core-currency')||{}).value = liab.Currency || 'USD';
+  (document.getElementById('ld-core-amount')||{}).value   = num(liab.Amount) || '';
+  (document.getElementById('ld-core-location')||{}).value = liab.Location || '';
 
   let det={}; try{det=JSON.parse(liab.Details||'{}');}catch(e){det={}; }
 
@@ -4344,6 +4396,39 @@ function saveLiabilityDetails(keepOpen){
     _liabAutoSaveInFlight = false;
     if (_liabAutoSavePending) { _liabAutoSavePending = false; scheduleLiabAutoSave(); }
   };
+  // Persist core fields (Name/Type/Currency/Amount/Location) via updateLiability
+  // alongside the details JSON. Fire-and-forget — if it fails, the details
+  // save still proceeds and the user gets a toast.
+  const coreData = {
+    id:       id,
+    name:     gv('ld-core-name'),
+    type:     gv('ld-core-type'),
+    currency: gv('ld-core-currency'),
+    amount:   parseFloat(gv('ld-core-amount')) || 0,
+    location: gv('ld-core-location'),
+    notes:    _liab ? (_liab.Notes || '') : ''
+  };
+  if (coreData.name) {
+    google.script.run
+      .withSuccessHandler(function(){
+        if (_liab) {
+          _liab.Name = coreData.name;
+          _liab.Type = coreData.type;
+          _liab.Currency = coreData.currency;
+          _liab.Location = coreData.location;
+          if (coreData.amount > 0) {
+            _liab.Amount = coreData.amount;
+            _liab['USD Value'] = coreData.amount;
+          }
+          document.getElementById('liab-detail-title').textContent = coreData.name;
+          renderDashboard();
+          renderLiabilitiesTable();
+        }
+      })
+      .withFailureHandler(function(e){ console.error('updateLiability core fields failed:', e && e.message); })
+      .updateLiability(coreData);
+  }
+
   google.script.run
     .withSuccessHandler(r=>{
       _liabDone();
