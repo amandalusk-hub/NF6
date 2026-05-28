@@ -89,7 +89,7 @@ var COL = {
     'Auto Drive Folder'
   ],
   LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Payment Frequency','Next Payment Date','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Payment Log','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Drive Folder','Notes'],
-  ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
+  ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y','Drive Folder']
 };
 
 // Maps JS field names ↔ Asset Details sheet column names
@@ -1487,7 +1487,8 @@ function saveOrgNode(nodeJson) {
     'Notes':       node.notes || '',
     'Structure':   node.structure || 'both',
     'X':           node.x || 100,
-    'Y':           node.y || 100
+    'Y':           node.y || 100,
+    'Drive Folder':node.driveFolder || ''
   };
   var rowData = headers.map(function(h) { return rowMap[h] !== undefined ? rowMap[h] : ''; });
 

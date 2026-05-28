@@ -414,6 +414,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div style="display:flex;gap:8px">
         <button class="btn btn-secondary btn-sm" onclick="ocFitView()" style="font-size:12px">Fit View</button>
         <button class="btn btn-secondary btn-sm" onclick="ocAutoLayout()" style="font-size:12px">Auto Layout</button>
+        <button class="btn btn-secondary btn-sm" onclick="ocExportPNG()" style="font-size:12px">Export PNG</button>
         <button class="btn btn-primary" onclick="openOCNodeModal(null)" style="font-size:13px">+ Add Entity</button>
       </div>
     </div>
@@ -507,6 +508,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         </div>
         <div class="form-row"><label>Preview</label>
           <div id="ocn-color-preview" style="height:36px;border-radius:6px;background:#0e4d5c;border:1px solid #2a4060"></div>
+        </div>
+      </div>
+      <div class="form-row"><label>Google Drive Folder</label>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="text" id="ocn-drive-folder" placeholder="Paste Drive link here" style="flex:1" oninput="updateDriveLink('ocn-drive-folder','ocn-drive-folder-link')">
+          <a id="ocn-drive-folder-link" href="#" target="_blank" style="display:none;font-size:12px;color:#2E6DA4;white-space:nowrap;padding:3px 8px;border:1px solid #2E6DA4;border-radius:4px;text-decoration:none">Open</a>
         </div>
       </div>
       <div class="form-row"><label>Notes</label><textarea id="ocn-notes" rows="2" placeholder="Additional info..."></textarea></div>
@@ -1865,19 +1872,114 @@ function renderOrgChart() {
     textRows += '</text>';
 
     const id = escX(node['ID']);
+
+    // Shape variant by Node Type — visually distinguishes trusts, individuals,
+    // and entities at a glance. All shapes use the same width/height envelope
+    // so layout math stays unchanged.
+    var shapeSVG;
+    var nt = String(ntype).toLowerCase();
+    if (nt === 'individual') {
+      // ellipse — soft circular feel for people
+      shapeSVG = `<ellipse cx="${x + W/2}" cy="${y + H/2}" rx="${W/2}" ry="${H/2}"
+        fill="${escX(bg)}" stroke="rgba(255,255,255,0.22)" stroke-width="1.4"/>`;
+    } else if (nt.indexOf('trust') === 0) {
+      // rounded rect with deeper corners — trust looks distinct from LLC
+      shapeSVG = `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="22"
+        fill="${escX(bg)}" stroke="rgba(255,255,255,0.22)" stroke-width="1.4"/>`;
+    } else if (nt === 'corporation' || nt === 's-corporation') {
+      // rect with double border — formal corporate look
+      shapeSVG = `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="4"
+        fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+        <rect x="${x+3}" y="${y+3}" width="${W-6}" height="${H-6}" rx="2"
+        fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="0.7"/>`;
+    } else {
+      // default rectangle with left accent stripe (LLC, LP, Holding, etc.)
+      shapeSVG = `<rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8"
+        fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
+        <rect x="${x}" y="${y}" width="4" height="${H}" rx="2"
+        fill="rgba(255,255,255,0.3)"/>`;
+    }
+
+    // Drive folder icon in top-right corner if a URL is set
+    var driveUrl = String(node['Drive Folder'] || '').trim();
+    var folderIcon = '';
+    if (/^https?:/.test(driveUrl)) {
+      var fx = x + W - 22, fy = y + 8;
+      folderIcon = `<g class="oc-folder" onclick="event.stopPropagation();window.open('${escX(driveUrl)}','_blank')" style="cursor:pointer">
+        <rect x="${fx}" y="${fy}" width="16" height="13" rx="2" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+        <rect x="${fx}" y="${fy}" width="7" height="3" fill="rgba(255,255,255,0.35)"/>
+        <title>Open Drive folder</title>
+      </g>`;
+    }
+
     nodesSVG += `<g class="oc-node" data-id="${id}"
         onmousedown="ocNodeDown(event,'${id}')"
         onclick="ocNodeClick(event,'${id}')"
         oncontextmenu="ocNodeRightClick(event,'${id}');return false;"
         style="cursor:pointer">
-      <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8"
-        fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
-      <rect x="${x}" y="${y}" width="4" height="${H}" rx="2"
-        fill="rgba(255,255,255,0.3)"/>
+      ${shapeSVG}
       ${textRows}
+      ${folderIcon}
     </g>`;
   });
   document.getElementById('oc-nodes-layer').innerHTML = nodesSVG;
+}
+
+// Export the SVG canvas to a PNG file via an offscreen canvas.
+// Uses XMLSerializer + Image to convert SVG -> PNG client-side, no server roundtrip.
+function ocExportPNG() {
+  try {
+    const svg = document.getElementById('oc-svg');
+    if (!svg) return;
+    // Compute the bounding box of visible content so we crop tightly
+    const layer = document.getElementById('oc-viewport');
+    const bbox = layer.getBBox();
+    const pad = 40;
+    const w = Math.max(800, Math.ceil(bbox.width  + pad * 2));
+    const h = Math.max(600, Math.ceil(bbox.height + pad * 2));
+
+    // Clone, strip the viewport transform, set width/height + viewBox tight to content
+    const clone = svg.cloneNode(true);
+    const vp = clone.querySelector('#oc-viewport');
+    if (vp) vp.removeAttribute('transform');
+    clone.setAttribute('width',  w);
+    clone.setAttribute('height', h);
+    clone.setAttribute('viewBox', `${bbox.x - pad} ${bbox.y - pad} ${w} ${h}`);
+    // Set explicit background — SVG transparent backgrounds become black in some viewers
+    const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    bg.setAttribute('x', bbox.x - pad);
+    bg.setAttribute('y', bbox.y - pad);
+    bg.setAttribute('width',  w);
+    bg.setAttribute('height', h);
+    bg.setAttribute('fill', '#060f1a');
+    clone.insertBefore(bg, clone.firstChild.nextSibling);
+
+    const svgStr = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([svgStr], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob(function(pngBlob) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(pngBlob);
+        a.download = 'org-chart-' + new Date().toISOString().slice(0,10) + '.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }, 'image/png');
+    };
+    img.onerror = function(){ toast('PNG export failed','error'); URL.revokeObjectURL(url); };
+    img.src = url;
+  } catch(e) {
+    console.error('ocExportPNG failed:', e);
+    toast('Export failed: ' + e.message, 'error');
+  }
 }
 
 function setOCView(v) {
@@ -2088,6 +2190,8 @@ function openOCNodeModal(id) {
   document.getElementById('ocn-color').value = node ? (node['Color']||'#0e4d5c') : '#0e4d5c';
   document.getElementById('ocn-color-preview').style.background = node ? (node['Color']||'#0e4d5c') : '#0e4d5c';
   document.getElementById('ocn-notes').value = node ? (node['Notes']||'') : '';
+  document.getElementById('ocn-drive-folder').value = node ? (node['Drive Folder']||'') : '';
+  updateDriveLink('ocn-drive-folder','ocn-drive-folder-link');
   document.getElementById('ocn-delete-btn').style.display = node ? 'block' : 'none';
 
   // Populate parent select
@@ -2155,6 +2259,7 @@ function saveOCNode() {
     jurisdiction:document.getElementById('ocn-jurisdiction').value.trim(),
     dateCreated: document.getElementById('ocn-date-created').value.trim(),
     ownership:   document.getElementById('ocn-ownership').value.trim(),
+    driveFolder: document.getElementById('ocn-drive-folder').value.trim(),
     color:       document.getElementById('ocn-color').value,
     textColor:   '#ffffff',
     notes:       document.getElementById('ocn-notes').value.trim(),
