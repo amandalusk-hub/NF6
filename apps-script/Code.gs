@@ -3167,9 +3167,25 @@ function quickChartPie_(title, labels, values, colors) {
     + 'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
     + 'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
     + '}}}';
-  var url = 'https://quickchart.io/chart?v=3&w=750&h=360&devicePixelRatio=1&backgroundColor=white&c='
-            + encodeURIComponent(cfg);
-  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var url = 'https://quickchart.io/chart';
+  // POST the chart config in the body instead of as a URL query parameter so
+  // we don't hit Apps Script's UrlFetch URL length limit when the asset list
+  // grows large (~30+ accounts). GET request was failing with 'Limit
+  // Exceeded: URLFetch URL Length' and breaking weeklyPDFEmail.
+  var resp = UrlFetchApp.fetch(url, {
+    method:      'post',
+    contentType: 'application/json',
+    payload:     JSON.stringify({
+      chart:               cfg,
+      width:               750,
+      height:              360,
+      devicePixelRatio:    1,
+      backgroundColor:     'white',
+      format:              'png',
+      version:             '3'
+    }),
+    muteHttpExceptions: true
+  });
   return resp.getBlob().setName(title + '.png');
 }
 
