@@ -222,6 +222,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-secondary" onclick="refreshRates()">Refresh FX Rates</button>
         <button class="btn btn-secondary" onclick="recoverDetailsFromSheet()" style="background:#1a3d6e;color:#7eb8f7;border-color:#2a5080" title="Restore detail data (contacts, payments, etc.) from spreadsheet">Restore Data</button>
         <button class="btn btn-secondary" onclick="connectBank()">Connect Bank</button>
+        <button class="btn btn-secondary" onclick="connectBankForStatements()">Connect for Statements</button>
+        <button class="btn btn-secondary" onclick="updatePlaidConnectionUI()">Update Plaid Connection</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('SCHWAB')">Connect Schwab</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('FIDELITY')">Connect Fidelity</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
@@ -4815,6 +4817,95 @@ function connectBank() {
     })
     .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
     .getPlaidLinkToken();
+}
+
+// Statements-only Plaid link, launched directly from the dashboard (no Sheet
+// sidebar). Same flow as connectBank but uses getPlaidStatementsLinkToken and
+// handlePlaidStatementsSuccess server functions.
+function connectBankForStatements() {
+  toast('Preparing statements link...', 'success');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result || !result.success) {
+        toast('Could not create statements token: ' + (result ? result.error : 'No response'), 'error');
+        return;
+      }
+      _loadPlaidSdkThen(function() {
+        _plaidHandler = Plaid.create({
+          token: result.linkToken,
+          onSuccess: function(publicToken, metadata) {
+            var instName = (metadata && metadata.institution) ? metadata.institution.name : '';
+            toast('Saving statements connection...', 'success');
+            google.script.run
+              .withSuccessHandler(function(r) {
+                if (r && r.success) { toast(r.message, 'success'); loadData(); }
+                else { toast((r && r.message) || 'Save failed', 'error'); }
+              })
+              .withFailureHandler(function(e) { toast('Error: ' + e.message, 'error'); })
+              .handlePlaidStatementsSuccess(publicToken, instName);
+          },
+          onExit: function(err) {
+            if (err) toast(err.display_message || err.error_message || 'Cancelled', 'error');
+          }
+        });
+        _plaidHandler.open();
+      });
+    })
+    .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
+    .getPlaidStatementsLinkToken();
+}
+
+// Update mode for an existing Plaid token, launched from the dashboard.
+// Prompts the user to pick which token to update, then launches Plaid Link in
+// update mode for that access_token (re-auth + add/remove accounts on the
+// SAME Item, no new token created).
+function updatePlaidConnectionUI() {
+  google.script.run
+    .withSuccessHandler(function(connections) {
+      if (!connections || !connections.length) { toast('No Plaid connections to update.', 'error'); return; }
+      var lines = connections.map(function(c, i) {
+        return (i + 1) + '. ' + (c.name || '(unnamed)') + '   (token ' + c.tokenHint + ')';
+      }).join('\n');
+      var pick = prompt('Update which Plaid connection?\n\n' + lines + '\n\nEnter the NUMBER (1-' + connections.length + '):');
+      if (!pick) return;
+      var idx = parseInt(pick.trim(), 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= connections.length) { toast('Invalid selection', 'error'); return; }
+
+      toast('Preparing update session...', 'success');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (!result || !result.success) {
+            toast('Could not create update token: ' + (result ? result.error : 'No response'), 'error');
+            return;
+          }
+          _loadPlaidSdkThen(function() {
+            _plaidHandler = Plaid.create({
+              token: result.linkToken,
+              onSuccess: function() {
+                toast('Connection updated. Refreshing data...', 'success');
+                google.script.run.withSuccessHandler(loadData).syncPlaidAccounts();
+              },
+              onExit: function(err) {
+                if (err) toast(err.display_message || err.error_message || 'Cancelled', 'error');
+              }
+            });
+            _plaidHandler.open();
+          });
+        })
+        .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
+        .getPlaidUpdateLinkToken(connections[idx].accessToken);
+    })
+    .withFailureHandler(function(e) { toast('Server error: ' + e.message, 'error'); })
+    .getPlaidConnectionsForUI();
+}
+
+// Cached loader so we don't re-fetch the Plaid SDK script tag every click.
+function _loadPlaidSdkThen(cb) {
+  if (window.Plaid) return cb();
+  var script = document.createElement('script');
+  script.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+  script.onload = cb;
+  document.body.appendChild(script);
 }
 
 function manageBankNames() {

@@ -2783,6 +2783,27 @@ function getPlaidConnections() {
   });
 }
 
+// Combined list for the dashboard's update-mode picker — includes both
+// transactions tokens and statements-only tokens. Does NOT return access
+// tokens to the client; the client picks an index, then calls
+// stashConnectionForUpdate(index) to set the server-side pending token, then
+// calls getPlaidUpdateLinkTokenForSidebar to actually create the link token.
+function getPlaidConnectionsForUI() {
+  var p       = PropertiesService.getScriptProperties();
+  var tx      = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var st      = JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var all     = tx.concat(st);
+  return all.map(function(token, i) {
+    return {
+      index:        i,
+      name:         instMap[token] || '(unnamed)',
+      tokenHint:    '···' + token.slice(-4),
+      accessToken:  token   // dashboard receives this — same security boundary as existing flows
+    };
+  });
+}
+
 // Show every token + the live accounts each one returns from Plaid. Useful for
 // diagnosing duplicate rows: if two tokens return the same physical account
 // under different account_ids, removing one token + the duplicate row resolves
