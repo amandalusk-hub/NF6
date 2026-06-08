@@ -157,6 +157,7 @@ function onOpen() {
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addItem('Preview Statements Sync (free, no charges)', 'previewPlaidStatementsMenu')
     .addItem('Sync Bank Statements (Plaid)', 'syncPlaidStatementsMenu')
     .addItem('Reorganize Existing Statements', 'reorganizePlaidStatements')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
@@ -2387,6 +2388,75 @@ function syncPlaidStatementsMenu() {
 
 // Trigger handler for the monthly auto-fetch (5th of each month at 6am).
 function _monthlyStatementSync() { syncPlaidStatements(); }
+
+// Dry-run preview: enumerates what syncPlaidStatements WOULD download without
+// actually calling /statements/download (the paid endpoint). Only hits the
+// free /statements/list endpoint per token. Use this before the real sync to
+// confirm the count of NEW statements (and the rough Plaid cost) before
+// committing any charges. If the new-count looks unreasonable, hold off and
+// investigate before running the real sync.
+function previewPlaidStatements() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props      = PropertiesService.getScriptProperties();
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+
+  var report = [];
+  var totalNew = 0, totalSkip = 0;
+
+  tokens.forEach(function(token) {
+    var instName = instMap[token] || ('Unknown ···' + token.slice(-4));
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var data = JSON.parse(resp.getContentText());
+      if (data.error_code) {
+        report.push(instName + ': SKIP (' + data.error_code + ')');
+        return;
+      }
+      var newForToken = 0, skipForToken = 0;
+      (data.accounts || []).forEach(function(acct) {
+        (acct.statements || []).forEach(function(stmt) {
+          if (downloaded[stmt.statement_id]) skipForToken++;
+          else newForToken++;
+        });
+      });
+      totalNew  += newForToken;
+      totalSkip += skipForToken;
+      report.push(instName + ': ' + newForToken + ' new, ' + skipForToken + ' already saved');
+    } catch (e) {
+      report.push(instName + ': ERROR — ' + e.message);
+    }
+  });
+
+  return {
+    success: true,
+    totalNew: totalNew,
+    totalSkip: totalSkip,
+    estimatedCostUSD: totalNew * 0.30,   // rough Plaid pricing; verify against your contract
+    perTokenReport: report
+  };
+}
+
+// Menu wrapper for the dry-run preview.
+function previewPlaidStatementsMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r  = previewPlaidStatements();
+  if (r.success === false) { ui.alert('Preview Failed', r.error, ui.ButtonSet.OK); return; }
+  var msg = 'Total NEW (would download + charge): ' + r.totalNew + '\n' +
+            'Total skipped (already saved, no charge): ' + r.totalSkip + '\n' +
+            'Estimated cost: ~$' + r.estimatedCostUSD.toFixed(2) + ' (at ~$0.30/statement)\n\n' +
+            'Per token:\n  • ' + r.perTokenReport.join('\n  • ') +
+            '\n\nNo charges incurred from this preview. To actually download, run Sync Bank Statements.';
+  ui.alert('Statements Sync — Preview', msg, ui.ButtonSet.OK);
+}
 
 // Re-organize statements already downloaded into /Bank Statements: walks the
 // PLAID_STATEMENTS_DOWNLOADED map (statement_id → file_id), looks up each
