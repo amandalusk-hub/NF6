@@ -78,6 +78,28 @@ For higher request volume, add a free key from [exchangerate-api.com](https://ww
 4. Use **Tracker > Sync Plaid Accounts** to refresh balances on demand
    (also runs automatically in the daily 7 AM sync trigger)
 
+### Statements (PDF documents — e.g. JP Morgan / Chase)
+
+Plaid's **Statements** product pulls the actual monthly statement PDFs and files
+them into a Google Drive folder.
+
+1. (Optional) Run **Tracker > Set Statements Account Holder Name** and enter the
+   account owner's name (e.g. the JP Morgan account holder). Plaid passes this to
+   the institution when requesting statements.
+2. **Reconnect the institution** via **Tracker > Connect Bank Account (Plaid)**.
+   Statements are only available on connections linked *after* the `statements`
+   product was enabled, so any account linked earlier must be reconnected once.
+3. Run **Tracker > Download Statements (Plaid → Drive)**. New statement PDFs are
+   saved to a Drive folder named **"JP Morgan Statements (Plaid)"** and the menu
+   shows a link to it.
+4. This also runs automatically in the daily 7 AM trigger. Statements post
+   monthly, and already-downloaded statements are skipped, so only new PDFs are
+   fetched.
+
+> Note: the Statements product must be enabled for your Plaid account. If
+> `/statements/list` returns a product/permission error, request access to the
+> Statements product in the Plaid Dashboard.
+
 ---
 
 ## Supported Currencies

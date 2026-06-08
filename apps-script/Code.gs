@@ -154,6 +154,7 @@ function onOpen() {
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addItem('Download Statements (Plaid → Drive)', 'syncPlaidStatementsMenu')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
@@ -161,6 +162,7 @@ function onOpen() {
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
+    .addItem('Set Statements Account Holder Name', 'setPlaidStatementsEndUser')
     .addItem('Remove Plaid Connection', 'removePlaidConnection')
     .addSeparator()
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
@@ -1832,7 +1834,8 @@ function getPlaidLinkToken() {
         country_codes: ['US'],
         language:      'en',
         user:          { client_user_id: 'mnw-family-office' },
-        products:      ['transactions']
+        products:      ['transactions', 'statements'],
+        statements:    { end_user: { client_user_id: 'mnw-family-office', name: getPlaidStatementsEndUser_() } }
       }),
       muteHttpExceptions: true
     });
@@ -2005,6 +2008,137 @@ function syncPlaidAccounts() {
   });
 
   return { success: true, synced: updates.length + liabUpdates.length + newAccts.length };
+}
+
+// ── Plaid Statements (PDF documents) ───────────────────────────────────────────
+// Pulls actual monthly statement PDFs (e.g. JP Morgan / Chase) via Plaid's
+// Statements product and files them into a Google Drive folder. Requires that
+// the Item was linked AFTER the 'statements' product was enabled in
+// getPlaidLinkToken — reconnect the institution once if it was linked earlier.
+
+// Name shown to the institution as the statements end-user. Override by setting
+// the PLAID_STATEMENTS_END_USER script property.
+function getPlaidStatementsEndUser_() {
+  return PropertiesService.getScriptProperties().getProperty('PLAID_STATEMENTS_END_USER') || 'Account Holder';
+}
+
+// Get (or create) the Drive folder where statement PDFs are saved.
+function getPlaidStatementsFolder_() {
+  var p  = PropertiesService.getScriptProperties();
+  var id = p.getProperty('PLAID_STATEMENTS_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* folder deleted — recreate below */ }
+  }
+  var folder = DriveApp.createFolder('JP Morgan Statements (Plaid)');
+  p.setProperty('PLAID_STATEMENTS_FOLDER_ID', folder.getId());
+  return folder;
+}
+
+// List available statements across every connected Plaid item.
+// Returns: { success, items: [{ institution, accounts: [{ name, mask, statements:[{statement_id, month, year}] }] }] }
+function listPlaidStatements() {
+  var cfg    = getPlaidConfig_();
+  var tokens = JSON.parse(PropertiesService.getScriptProperties().getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) return { success: false, error: 'No Plaid accounts connected. Use Connect Bank first.' };
+
+  var requests = tokens.map(function(token) {
+    return {
+      url: getPlaidBaseUrl_(cfg.env) + '/statements/list',
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+      muteHttpExceptions: true
+    };
+  });
+  var responses = UrlFetchApp.fetchAll(requests);
+
+  var items = [];
+  tokens.forEach(function(token, idx) {
+    var data;
+    try { data = JSON.parse(responses[idx].getContentText()); } catch (e) { return; }
+    if (data.error_code) { items.push({ token: token, error: data.error_message || data.error_code }); return; }
+    var accounts = (data.accounts || []).map(function(a) {
+      return {
+        name:       a.account_name || 'Account',
+        mask:       a.account_mask || '',
+        statements: (a.statements || []).map(function(s) {
+          return { statement_id: s.statement_id, month: s.month, year: s.year };
+        })
+      };
+    });
+    items.push({ token: token, institution: data.institution_name || '', accounts: accounts });
+  });
+  return { success: true, items: items };
+}
+
+// Download every NOT-yet-downloaded statement PDF and save it to Drive.
+// Tracks downloaded statement_ids so re-running only fetches new statements.
+function syncPlaidStatements() {
+  var cfg     = getPlaidConfig_();
+  var p       = PropertiesService.getScriptProperties();
+  var listing = listPlaidStatements();
+  if (!listing.success) return listing;
+
+  var done      = JSON.parse(p.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '[]');
+  var doneSet   = {};
+  done.forEach(function(id) { doneSet[id] = true; });
+  var folder    = getPlaidStatementsFolder_();
+
+  // Build the list of (token, statement) pairs that still need downloading.
+  var pending = [];
+  listing.items.forEach(function(item) {
+    if (item.error || !item.accounts) return;
+    var inst = (item.institution || 'Bank').replace(/[^\w\- ]/g, '').trim();
+    item.accounts.forEach(function(acct) {
+      acct.statements.forEach(function(s) {
+        if (doneSet[s.statement_id]) return;
+        var mm   = ('0' + s.month).slice(-2);
+        var name = inst + '_' + (acct.mask || acct.name) + '_' + s.year + '-' + mm + '.pdf';
+        pending.push({ token: item.token, statementId: s.statement_id, fileName: name });
+      });
+    });
+  });
+
+  if (!pending.length) return { success: true, downloaded: 0, message: 'No new statements to download.' };
+
+  var requests = pending.map(function(pg) {
+    return {
+      url: getPlaidBaseUrl_(cfg.env) + '/statements/download',
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret,
+                                access_token: pg.token, statement_id: pg.statementId }),
+      muteHttpExceptions: true
+    };
+  });
+  var responses = UrlFetchApp.fetchAll(requests);
+
+  var downloaded = 0, errors = [];
+  responses.forEach(function(resp, i) {
+    var pg = pending[i];
+    var ct = (resp.getHeaders()['Plaid-Content-Type'] || resp.getHeaders()['Content-Type'] || '');
+    if (resp.getResponseCode() === 200 && ct.indexOf('application/pdf') !== -1) {
+      folder.createFile(resp.getBlob().setName(pg.fileName).setContentType('application/pdf'));
+      doneSet[pg.statementId] = true;
+      done.push(pg.statementId);
+      downloaded++;
+    } else {
+      var msg = pg.fileName;
+      try { msg += ': ' + (JSON.parse(resp.getContentText()).error_message || resp.getResponseCode()); }
+      catch (e) { msg += ': HTTP ' + resp.getResponseCode(); }
+      errors.push(msg);
+    }
+  });
+
+  p.setProperty('PLAID_STATEMENTS_DOWNLOADED', JSON.stringify(done));
+  return {
+    success:    errors.length === 0,
+    downloaded: downloaded,
+    folderUrl:  folder.getUrl(),
+    errors:     errors,
+    message:    'Downloaded ' + downloaded + ' new statement(s) to Drive folder "' + folder.getName() + '".' +
+                (errors.length ? ' ' + errors.length + ' failed.' : '')
+  };
 }
 
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
@@ -2347,6 +2481,8 @@ function dailySync_() {
   fetchExchangeRates();
   syncAllAccounts();
   refreshPropertyValues();
+  // Statements post monthly; this dedupes, so a daily check only fetches new ones.
+  try { syncPlaidStatements(); } catch (e) { console.error('Statements sync:', e.message); }
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
     takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet

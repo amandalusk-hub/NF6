@@ -54,6 +54,37 @@ function handlePlaidSuccess(publicToken) {
   }
 }
 
+// ===== STATEMENTS (PDF documents) =====
+
+// Menu wrapper: download new statement PDFs to Drive and report the result.
+function syncPlaidStatementsMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    ui.alert('Plaid is not configured. Run "Configure Plaid Credentials" first.');
+    return;
+  }
+  var res = syncPlaidStatements();
+  if (!res.success && res.error) { ui.alert('Statements', res.error, ui.ButtonSet.OK); return; }
+  var msg = res.message || '';
+  if (res.errors && res.errors.length) msg += '\n\nFailed:\n' + res.errors.join('\n');
+  if (res.folderUrl) msg += '\n\nFolder: ' + res.folderUrl;
+  ui.alert('Plaid Statements', msg, ui.ButtonSet.OK);
+}
+
+// Set the end-user name the institution sees for statement requests.
+function setPlaidStatementsEndUser() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Plaid Statements',
+    'Enter the account holder name for statement requests (e.g. the JP Morgan account owner):',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var name = resp.getResponseText().trim();
+  if (!name) { ui.alert('No name entered.'); return; }
+  PropertiesService.getScriptProperties().setProperty('PLAID_STATEMENTS_END_USER', name);
+  ui.alert('Saved. Reconnect the institution so statements are enabled on the connection.');
+}
+
 // ===== REMOVE CONNECTION =====
 
 function removePlaidConnection() {
