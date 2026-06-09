@@ -78,6 +78,19 @@ For higher request volume, add a free key from [exchangerate-api.com](https://ww
 4. Use **Tracker > Sync Plaid Accounts** to refresh balances on demand
    (also runs automatically in the daily 7 AM sync trigger)
 
+### Fixing "Login required" connections (ITEM_LOGIN_REQUIRED)
+
+When a bank changes a password, updates MFA, or requires a security prompt, Plaid
+marks that connection `ITEM_LOGIN_REQUIRED` and stops returning its balances
+(other connections keep working). To fix it:
+
+1. Run **Tracker > Fix Bank Connections (Login Errors)**.
+2. The sidebar lists every connection with a health badge. Click **Reconnect**
+   next to any marked *Login required* / error.
+3. Log in to the bank in the Plaid window (new password / MFA). The connection's
+   token is unchanged, so **no accounts are duplicated** — balances re-sync
+   automatically afterward.
+
 ### Statements (PDF documents — e.g. JP Morgan / Chase)
 
 Plaid's **Statements** product pulls the actual monthly statement PDFs and files

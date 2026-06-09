@@ -159,6 +159,7 @@ function onOpen() {
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
+    .addItem('Fix Bank Connections (Login Errors)', 'openPlaidReconnect')
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
@@ -2283,6 +2284,100 @@ function getPlaidConnections() {
   return tokens.map(function(token, i) {
     return { index: i, name: instMap[token] || '', tokenHint: '···' + token.slice(-4) };
   });
+}
+
+// ── REPAIR ITEM_LOGIN_REQUIRED (Plaid Link update mode) ───────────────────────
+// When a bank changes the password / MFA / requires a security prompt, Plaid
+// returns ITEM_LOGIN_REQUIRED on that Item and stops returning balances for it.
+// The only fix is to re-open Plaid Link in "update mode" for that specific
+// access_token so the user re-authenticates. The token is unchanged afterward,
+// so no new rows are created.
+
+// Check every connection's health by calling balance/get and inspecting errors.
+// Returns: { success, items: [{ index, label, tokenHint, status, errorCode, message }] }
+//   status: 'ok' | 'login_required' | 'error'
+function getPlaidItemsStatus() {
+  var cfg     = getPlaidConfig_();
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (!tokens.length) return { success: true, items: [] };
+
+  var requests = tokens.map(function(t) {
+    return {
+      url: getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get',
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: t }),
+      muteHttpExceptions: true
+    };
+  });
+  var responses = UrlFetchApp.fetchAll(requests);
+
+  var items = tokens.map(function(t, i) {
+    var status = 'ok', code = '', msg = '';
+    try {
+      var d = JSON.parse(responses[i].getContentText());
+      if (d.error_code) {
+        status = (d.error_code === 'ITEM_LOGIN_REQUIRED') ? 'login_required' : 'error';
+        code   = d.error_code;
+        msg    = d.error_message || '';
+      }
+    } catch (e) {
+      status = 'error';
+      msg    = e.message;
+    }
+    return {
+      index:     i,
+      label:     instMap[t] || '(unnamed)',
+      tokenHint: '···' + t.slice(-4),
+      status:    status,
+      errorCode: code,
+      message:   msg
+    };
+  });
+  return { success: true, items: items };
+}
+
+// Create a Link token in UPDATE MODE for one existing connection (by index).
+// Passing access_token (and omitting products) tells Plaid to re-authenticate
+// the existing Item rather than create a new one.
+function getPlaidUpdateLinkToken(index) {
+  var cfg    = getPlaidConfig_();
+  var tokens = JSON.parse(PropertiesService.getScriptProperties().getProperty('PLAID_TOKENS') || '[]');
+  if (index < 0 || index >= tokens.length) return { success: false, error: 'Invalid connection index' };
+  try {
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        client_id:     cfg.clientId,
+        secret:        cfg.secret,
+        client_name:   'MNW Family Office',
+        country_codes: ['US'],
+        language:      'en',
+        user:          { client_user_id: 'mnw-family-office' },
+        access_token:  tokens[index]    // <-- update mode
+      }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+    return { success: false, error: data.error_message || JSON.stringify(data) };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// After a successful update-mode re-auth the access_token is unchanged, so we
+// just re-sync balances. No public-token exchange is needed.
+function handlePlaidUpdateSuccess() {
+  try {
+    var r = syncPlaidAccounts();
+    return { success: true, message: 'Reconnected! ' + (r.synced || 0) + ' account(s) synced.' };
+  } catch (e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
 }
 
 // ── REMOVE A SINGLE PLAID CONNECTION ──────────────────────────────────────────

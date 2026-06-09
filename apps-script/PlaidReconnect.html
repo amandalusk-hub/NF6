@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f8f9fa; color: #202124; padding: 20px 16px;
+    }
+    .header { margin-bottom: 16px; }
+    .header h2 { font-size: 17px; font-weight: 600; color: #1a1a2e; margin-bottom: 6px; }
+    .header p { font-size: 12px; color: #5f6368; line-height: 1.45; }
+    .conn {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 12px; margin-bottom: 8px;
+      background: #fff; border: 1px solid #dadce0; border-radius: 8px;
+    }
+    .conn .meta { min-width: 0; }
+    .conn .name { font-size: 13px; font-weight: 600; }
+    .conn .sub  { font-size: 11px; color: #5f6368; margin-top: 2px; }
+    .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .badge.ok    { background: #e6f4ea; color: #137333; }
+    .badge.login { background: #fef7e0; color: #b06000; }
+    .badge.error { background: #fce8e6; color: #a50e0e; }
+    .fix-btn {
+      padding: 8px 14px; background: #1a1a2e; color: #fff; border: none;
+      border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    }
+    .fix-btn:hover { background: #0f3460; }
+    .fix-btn:disabled { background: #dadce0; cursor: not-allowed; }
+    .status { margin-top: 14px; padding: 11px; border-radius: 8px; font-size: 13px; text-align: center; }
+    .status.success { background: #e6f4ea; color: #137333; }
+    .status.error   { background: #fce8e6; color: #a50e0e; }
+    .status.loading { background: #e8f0fe; color: #1967d2; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h2>Fix Bank Connections</h2>
+    <p>Connections marked <strong>Login required</strong> need the account holder to
+       re-authenticate (new password, MFA, or a security prompt). Click Reconnect and
+       log in &mdash; no accounts are duplicated.</p>
+  </div>
+
+  <div id="list"></div>
+  <div id="status" class="status loading">Checking connections...</div>
+
+  <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+  <script>
+    window.addEventListener('load', loadStatus);
+
+    function loadStatus() {
+      showStatus('loading', 'Checking connections...');
+      google.script.run
+        .withSuccessHandler(render)
+        .withFailureHandler(function(err) { showStatus('error', 'Server error: ' + (err.message || err)); })
+        .getPlaidItemsStatus();
+    }
+
+    function render(result) {
+      var list = document.getElementById('list');
+      list.innerHTML = '';
+      if (!result || !result.success) {
+        showStatus('error', result ? (result.error || 'Could not load connections') : 'No response');
+        return;
+      }
+      if (!result.items.length) { showStatus('error', 'No Plaid connections found.'); return; }
+
+      var needFix = 0;
+      result.items.forEach(function(it) {
+        if (it.status !== 'ok') needFix++;
+        var row = document.createElement('div');
+        row.className = 'conn';
+
+        var meta = document.createElement('div');
+        meta.className = 'meta';
+        var badgeClass = it.status === 'ok' ? 'ok' : (it.status === 'login_required' ? 'login' : 'error');
+        var badgeText  = it.status === 'ok' ? 'OK' : (it.status === 'login_required' ? 'Login required' : (it.errorCode || 'Error'));
+        meta.innerHTML = '<div class="name">' + esc(it.label) + ' <span class="badge ' + badgeClass + '">' + esc(badgeText) + '</span></div>' +
+                         '<div class="sub">token ' + esc(it.tokenHint) + (it.message ? ' &middot; ' + esc(it.message) : '') + '</div>';
+        row.appendChild(meta);
+
+        if (it.status !== 'ok') {
+          var btn = document.createElement('button');
+          btn.className = 'fix-btn';
+          btn.textContent = 'Reconnect';
+          btn.onclick = function() { reconnect(it.index, btn); };
+          row.appendChild(btn);
+        }
+        list.appendChild(row);
+      });
+
+      if (needFix === 0) showStatus('success', 'All connections are healthy.');
+      else hideStatus();
+    }
+
+    function reconnect(index, btn) {
+      btn.disabled = true; btn.textContent = 'Opening...';
+      showStatus('loading', 'Preparing secure reconnect...');
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (!result || !result.success) {
+            showStatus('error', result ? result.error : 'Could not create update token');
+            btn.disabled = false; btn.textContent = 'Reconnect';
+            return;
+          }
+          openUpdateLink(result.linkToken, btn);
+        })
+        .withFailureHandler(function(err) {
+          showStatus('error', 'Server error: ' + (err.message || err));
+          btn.disabled = false; btn.textContent = 'Reconnect';
+        })
+        .getPlaidUpdateLinkToken(index);
+    }
+
+    function openUpdateLink(linkToken, btn) {
+      var handler = Plaid.create({
+        token: linkToken,
+        onSuccess: function() {
+          showStatus('loading', 'Re-syncing balances...');
+          google.script.run
+            .withSuccessHandler(function(r) {
+              if (r && r.success) { showStatus('success', r.message); loadStatus(); }
+              else { showStatus('error', r ? r.message : 'Sync failed'); btn.disabled = false; btn.textContent = 'Reconnect'; }
+            })
+            .withFailureHandler(function(err) {
+              showStatus('error', 'Error: ' + (err.message || err));
+              btn.disabled = false; btn.textContent = 'Reconnect';
+            })
+            .handlePlaidUpdateSuccess();
+        },
+        onExit: function(err) {
+          btn.disabled = false; btn.textContent = 'Reconnect';
+          if (err) showStatus('error', err.display_message || err.error_message || 'Cancelled');
+          else hideStatus();
+        }
+      });
+      handler.open();
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function showStatus(type, msg) {
+      var el = document.getElementById('status');
+      el.className = 'status ' + type; el.textContent = msg; el.style.display = 'block';
+    }
+    function hideStatus() { document.getElementById('status').style.display = 'none'; }
+  </script>
+</body>
+</html>

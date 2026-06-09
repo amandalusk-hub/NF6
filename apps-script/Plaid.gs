@@ -54,6 +54,20 @@ function handlePlaidSuccess(publicToken) {
   }
 }
 
+// ===== RECONNECT / FIX LOGIN ERRORS (update mode) =====
+
+function openPlaidReconnect() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    SpreadsheetApp.getUi().alert('Plaid is not configured. Run "Configure Plaid Credentials" first.');
+    return;
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PlaidReconnect')
+    .setTitle('Fix Bank Connections')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 // ===== STATEMENTS (PDF documents) =====
 
 // Menu wrapper: download new statement PDFs to Drive and report the result.
