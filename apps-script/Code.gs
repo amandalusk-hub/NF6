@@ -2000,7 +2000,7 @@ function getPlaidStatementsLinkToken() {
     // pre-flight check should pass.
     account_filters: {
       depository: {
-        account_subtypes: ['checking','savings','money market','business checking','business','cd','hsa']
+        account_subtypes: ['checking','savings']
       }
     }
   };
