@@ -1990,19 +1990,7 @@ function getPlaidStatementsLinkToken() {
     language:      'en',
     user:          { client_user_id: 'mnw-family-office' },
     products:      ['statements'],
-    statements:    { start_date: fmt(startDate), end_date: fmt(endDate) },
-    // Restrict the link to depository (checking / savings / money market /
-    // business checking) account subtypes. Goal: bypass Plaid's institution-
-    // wide Statements eligibility check that's failing because JPM Wealth
-    // accounts (brokerage/investment subtype, not Statements-eligible) are
-    // now visible in the same Chase Business login. By filtering to depository
-    // only, only Chase Business deposit accounts are selectable, and the
-    // pre-flight check should pass.
-    account_filters: {
-      depository: {
-        account_subtypes: ['checking','savings']
-      }
-    }
+    statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
   };
   Logger.log('getPlaidStatementsLinkToken request: ' + JSON.stringify(payload));
   try {
