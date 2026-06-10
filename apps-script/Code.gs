@@ -1905,6 +1905,14 @@ function getPlaidLinkToken() {
 // every account already in this Item).
 function getPlaidUpdateLinkToken(accessToken) {
   var cfg = getPlaidConfig_();
+  // Statements date range — required by Plaid when updating an Item that
+  // already has Statements scope (Plaid surfaces this as 'statements upgrade
+  // requires statements.start_date and statements.end_date on the link
+  // token'). 24-month window matches what we set at link creation time.
+  var endDate   = new Date();
+  var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
+  function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+
   function callLinkToken(includeStatements) {
     var payload = {
       client_id:     cfg.clientId,
@@ -1914,7 +1922,10 @@ function getPlaidUpdateLinkToken(accessToken) {
       language:      'en',
       user:          { client_user_id: 'mnw-family-office' },
       access_token:  accessToken,
-      update:        { account_selection_enabled: true }
+      update:        { account_selection_enabled: true },
+      // Always include the statements date range. Harmless if the Item
+      // doesn't have Statements scope; required if it does.
+      statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
     };
     if (includeStatements) payload.additional_consented_products = ['statements'];
     try {
