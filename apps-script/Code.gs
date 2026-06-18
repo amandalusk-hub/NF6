@@ -176,6 +176,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
+    .addItem('Set Daily PDF Email Recipient',  'setDailyPDFRecipient')
     .addSeparator()
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
@@ -3101,12 +3102,20 @@ function debugSheetHeaders() {
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
-    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail' || fn === '_monthlyStatementSync') ScriptApp.deleteTrigger(t);
+    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail' || fn === 'dailyPDFEmail' || fn === '_monthlyStatementSync') {
+      ScriptApp.deleteTrigger(t);
+    }
   });
   ScriptApp.newTrigger('dailySync_').timeBased().everyDays(1).atHour(7).create();
   ScriptApp.newTrigger('weeklyPDFEmail').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+  // Daily PDF runs Mon-Fri at 8am — one trigger per weekday (Apps Script
+  // doesn't have a built-in 'weekdays only' option, so we install five).
+  [ScriptApp.WeekDay.MONDAY, ScriptApp.WeekDay.TUESDAY, ScriptApp.WeekDay.WEDNESDAY,
+   ScriptApp.WeekDay.THURSDAY, ScriptApp.WeekDay.FRIDAY].forEach(function(day) {
+    ScriptApp.newTrigger('dailyPDFEmail').timeBased().onWeekDay(day).atHour(8).create();
+  });
   ScriptApp.newTrigger('_monthlyStatementSync').timeBased().onMonthDay(5).atHour(6).create();
-  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync 7AM, weekly PDF Mondays 8AM, monthly statements on the 5th at 6AM', 'Triggers Installed', 6);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync 7AM, daily PDF Mon-Fri 8AM, weekly PDF Mondays 8AM, monthly statements on the 5th at 6AM', 'Triggers Installed', 7);
   return { success: true };
 }
 
@@ -3120,54 +3129,78 @@ function setWeeklyPDFRecipient() {
   ui.alert('Weekly PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mondays at 8 AM.');
 }
 
-function weeklyPDFEmail() {
-  var props     = PropertiesService.getScriptProperties();
-  var recipient = props.getProperty('WEEKLY_PDF_RECIPIENT');
-  if (!recipient) {
-    Logger.log('weeklyPDFEmail: WEEKLY_PDF_RECIPIENT not set — skipping');
-    return { success: false, error: 'No recipient configured. Use Tracker → Set Weekly PDF Email Recipient.' };
-  }
+// Shared helper: regenerate the Balances sheet, export it as PDF, send to the
+// given recipient(s) with the given subject prefix. Both weeklyPDFEmail and
+// dailyPDFEmail are thin wrappers around this.
+function sendBalancesPDF_(recipient, subjectPrefix) {
+  if (!recipient) return { success: false, error: 'No recipient configured.' };
 
-  // Regenerate Balances sheet to ensure it is current
   generateBalancesSheet();
-
   var ss    = getSpreadsheet_();
   var sheet = ss.getSheetByName('Balances');
   if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
 
-  var ssId    = ss.getId();
-  var sheetId = sheet.getSheetId();
-  var url = 'https://docs.google.com/spreadsheets/d/' + ssId +
+  var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
             '/export?exportFormat=pdf&format=pdf' +
             '&size=letter&portrait=false&fitw=true&gridlines=false' +
             '&sheetnames=false&printtitle=false&pagenumbers=false' +
-            '&gid=' + sheetId;
+            '&gid=' + sheet.getSheetId();
 
-  var token    = ScriptApp.getOAuthToken();
   var response = UrlFetchApp.fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + token },
+    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
     muteHttpExceptions: true
   });
-
   if (response.getResponseCode() !== 200) {
     return { success: false, error: 'PDF export failed: HTTP ' + response.getResponseCode() };
   }
 
-  var dateStr = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var dateStr   = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
   var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
-  var pdfBlob = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
+  var pdfBlob   = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
 
   MailApp.sendEmail({
     to:          recipient,
-    subject:     'Weekly Net Worth Summary — ' + dateLabel,
-    body:        'Your weekly net worth summary is attached.',
+    subject:     subjectPrefix + ' — ' + dateLabel,
+    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.',
     name:        'Net Worth Tracker',
     attachments: [pdfBlob]
   });
-
-  Logger.log('weeklyPDFEmail: sent to ' + recipient);
+  Logger.log('sendBalancesPDF_: sent to ' + recipient);
   return { success: true };
 }
+
+function weeklyPDFEmail() {
+  var recipient = PropertiesService.getScriptProperties().getProperty('WEEKLY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('weeklyPDFEmail: WEEKLY_PDF_RECIPIENT not set — skipping');
+    return { success: false, error: 'No recipient configured. Use Tracker → Set Weekly PDF Email Recipient.' };
+  }
+  return sendBalancesPDF_(recipient, 'Weekly Net Worth Summary');
+}
+
+// Daily PDF — runs Mon-Fri at 8am via 5 weekday triggers. Uses a separate
+// DAILY_PDF_RECIPIENT property so the daily list can differ from the weekly
+// list (e.g. send daily only to internal team, weekly to broader stakeholders).
+function dailyPDFEmail() {
+  var recipient = PropertiesService.getScriptProperties().getProperty('DAILY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('dailyPDFEmail: DAILY_PDF_RECIPIENT not set — skipping');
+    return { success: false, error: 'No recipient configured. Use Tracker → Set Daily PDF Email Recipient.' };
+  }
+  return sendBalancesPDF_(recipient, 'Daily Net Worth Summary');
+}
+
+function setDailyPDFRecipient() {
+  var ui   = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Daily PDF Email', 'Enter email address(es) to receive the DAILY (Mon-Fri) Balances PDF.\nFor multiple recipients, separate with commas:\n e.g. alice@example.com, bob@example.com', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var email = resp.getResponseText().trim();
+  if (!email) { ui.alert('No email entered.'); return; }
+  PropertiesService.getScriptProperties().setProperty('DAILY_PDF_RECIPIENT', email);
+  ui.alert('Daily PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mon-Fri at 8 AM.');
+}
+
+
 
 function syncAllAccounts() {
   var synced = 0;
