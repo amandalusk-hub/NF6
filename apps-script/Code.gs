@@ -51,8 +51,8 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID','Archived'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID','Archived'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
@@ -371,6 +371,20 @@ function getSpreadsheet_() {
 }
 
 var _ss = null;
+
+// Returns true if the asset/liability row's Archived column is truthy.
+// Archived rows are preserved in the sheet for historical reference but
+// excluded from every net worth calculation: dashboard totals, Balances
+// sheet, NW Snapshots, NW History Sheet, monthly snapshots. Use everywhere
+// we sum across rows. Truthy values: 'Yes', 'yes', 'TRUE', true, 'Archived'.
+function isArchived_(row) {
+  if (!row) return false;
+  var v = row['Archived'];
+  if (v === true) return true;
+  var s = String(v || '').trim().toLowerCase();
+  return s === 'yes' || s === 'true' || s === 'archived' || s === 'y';
+}
+
 
 function getSheet_(key) {
   ensureSheets_();
@@ -1004,6 +1018,30 @@ function deleteAsset(id) {
     if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
   }
   return { success: false, error: 'Not found' };
+}
+
+// Toggle the Archived flag on an asset or liability row. Set archived=true to
+// archive (excludes from net worth), false to restore. Row data is preserved
+// either way — archiving never deletes.
+function setAssetArchived(id, archived) {
+  return _setRowArchived_('ASSETS', id, archived);
+}
+function setLiabilityArchived(id, archived) {
+  return _setRowArchived_('LIABILITIES', id, archived);
+}
+function _setRowArchived_(sheetKey, id, archived) {
+  var sheet   = getSheet_(sheetKey);
+  var data    = sheet.getDataRange().getValues();
+  var headers = data[0] || [];
+  var archCol = headers.indexOf('Archived');
+  if (archCol < 0) return { success: false, error: 'Archived column not found — run Tracker -> Refresh Sheet Validations.' };
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      sheet.getRange(i + 1, archCol + 1).setValue(archived ? 'Yes' : '');
+      return { success: true, archived: !!archived };
+    }
+  }
+  return { success: false, error: 'Row not found' };
 }
 
 // Move an asset row to the Liabilities sheet. Useful for credit cards that
@@ -1754,7 +1792,8 @@ function takeMonthlySnapshot() {
     }
   }
 
-  var assets = sheetToObjects_('ASSETS');
+  // Exclude archived from the monthly asset snapshot (in-app trend chart).
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
   if (!assets.length) return { success: false, alreadyDone: false, msg: 'No assets to snapshot' };
 
   var rows = assets.map(function(a) {
@@ -1840,8 +1879,10 @@ function getSnapshotMatrix() {
     return assetNames.reduce(function(s, n) { return s + (assetData[n][m] || 0); }, 0);
   });
 
-  // Liability totals: use NW_SNAPSHOTS per-month where available; current total otherwise
+  // Liability totals: use NW_SNAPSHOTS per-month where available; current total otherwise.
+  // Exclude archived from the current liability total.
   var currentLiabTotal = sheetToObjects_('LIABILITIES')
+    .filter(function(l){ return !isArchived_(l); })
     .reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
   var liabTotals     = months.map(function(m) { return liabByMonth[m] !== undefined ? liabByMonth[m] : currentLiabTotal; });
   var netWorthTotals = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
@@ -3340,8 +3381,10 @@ function generateBalancesSheet() {
   }
 
   // ── pull live data ─────────────────────────────────────────────────────────
-  var assets      = sheetToObjects_('ASSETS');
-  var liabilities = sheetToObjects_('LIABILITIES');
+  // Exclude archived rows — kept in the sheet for history, never count toward
+  // net worth or the Balances PDF totals.
+  var assets      = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabilities = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
 
   // Compute USD values
   assets.forEach(function(a) {
@@ -3724,8 +3767,12 @@ function takeNWSnapshot(force) {
   // Delete in reverse order so indices stay valid
   rowsToDelete.sort(function(a,b){return b-a;}).forEach(function(r){ snapSheet.deleteRow(r); });
 
-  var assets = sheetToObjects_('ASSETS');
-  var liabs  = sheetToObjects_('LIABILITIES');
+  // Exclude archived rows from the monthly NW snapshot — the snapshot is the
+  // historical record of net worth; once an asset/liability is archived it
+  // shouldn't contribute to current or future snapshots (its historical
+  // contribution stays in prior monthly rows).
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabs  = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
   var rows   = [];
 
   assets.forEach(function(a) {

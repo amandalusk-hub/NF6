@@ -171,6 +171,12 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="metric-card"><div class="metric-label">Liquid Cash</div><div class="metric-value" id="m-cash">$0</div></div>
       <div class="metric-card"><div class="metric-label">Asset Count</div><div class="metric-value" id="m-count">0</div></div>
     </div>
+    <div style="display:flex;justify-content:flex-end;margin:-6px 0 10px">
+      <label style="font-size:11px;color:#7a92b8;cursor:pointer;display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="dash-show-archived" onchange="state.showArchived=this.checked;renderMNWList();" style="margin:0">
+        Show archived rows in totals
+      </label>
+    </div>
     <!-- MNW4-style grouped two-column list -->
     <div class="two-col" style="margin-bottom:20px">
       <!-- Assets column -->
@@ -616,7 +622,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
           </div>
         </div>
       </div>
-      <button class="modal-close" onclick="saveAssetDetails(false)" style="margin-left:8px;flex-shrink:0">x</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
+        <button id="da-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleAssetArchived()" style="font-size:11px">Archive</button>
+        <button class="modal-close" onclick="saveAssetDetails(false)" style="margin-left:0">x</button>
+      </div>
     </div>
     <div class="modal-body" oninput="scheduleAssetAutoSave()" onchange="scheduleAssetAutoSave()">
       <input type="hidden" id="detail-id">
@@ -1267,6 +1276,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div class="detail-meta" id="liab-detail-meta"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        <button id="ld-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleLiabArchived()" style="font-size:11px">Archive</button>
         <button class="modal-close" onclick="saveLiabilityDetails(false)">x</button>
       </div>
     </div>
@@ -2379,8 +2389,19 @@ function renderMNWList(){
     return `<span style="color:${color};font-weight:${daysLeft<30?600:400}">${label}</span>`;
   }
 
-  const assets=state.assets||[];
-  const liabs=state.liabilities||[];
+  // Filter out archived rows from the dashboard list + totals. Archived
+  // assets/liabilities stay in state.assets / state.liabilities (other tabs
+  // can still show them), but the dashboard's net worth section never
+  // counts them.
+  function _isArchived(r){
+    var v = r && r.Archived;
+    if (v === true) return true;
+    var s = String(v || '').trim().toLowerCase();
+    return s === 'yes' || s === 'true' || s === 'archived' || s === 'y';
+  }
+  const _showArch = !!state.showArchived;
+  const assets=(state.assets||[]).filter(a => _showArch || !_isArchived(a));
+  const liabs=(state.liabilities||[]).filter(l => _showArch || !_isArchived(l));
 
   // -- Assets grouped by category --
   const aCats={};
@@ -3316,9 +3337,46 @@ function toggleContactDesc(sel) {
 }
 
 // -- Asset Detail View -----------------------------------------------------
+// Sync the Archive button label on the asset detail header to match current
+// archive state. Called from openAssetDetail and after toggleAssetArchived.
+function _refreshArchiveBtn(asset) {
+  var btn = document.getElementById('da-archive-btn');
+  if (!btn || !asset) return;
+  var archived = String(asset.Archived||'').toLowerCase();
+  var isArch = archived==='yes'||archived==='true'||archived==='archived'||archived==='y';
+  btn.textContent = isArch ? 'Unarchive' : 'Archive';
+  btn.style.background = isArch ? '#1e6e3b' : '';
+}
+
+function toggleAssetArchived() {
+  var id = (document.getElementById('detail-id')||{value:''}).value;
+  if (!id) return;
+  var asset = (state.assets||[]).find(a => String(a.ID)===String(id));
+  if (!asset) return;
+  var currently = String(asset.Archived||'').toLowerCase();
+  var isArch = currently==='yes'||currently==='true'||currently==='archived'||currently==='y';
+  var willArchive = !isArch;
+  if (willArchive && !confirm('Archive "'+(asset.Name||'')+'"?\n\nArchived assets are kept in the spreadsheet but excluded from net worth totals, the Balances PDF, and monthly snapshots. You can unarchive at any time.')) return;
+  google.script.run
+    .withSuccessHandler(function(r){
+      if (r && r.success) {
+        asset.Archived = willArchive ? 'Yes' : '';
+        _refreshArchiveBtn(asset);
+        renderDashboard();
+        renderAssetsTable && renderAssetsTable();
+        toast(willArchive ? 'Asset archived' : 'Asset unarchived', 'success');
+      } else {
+        toast((r && r.error) || 'Archive toggle failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .setAssetArchived(id, willArchive);
+}
+
 function openAssetDetail(id){
   const asset=state.assets.find(a=>a.ID==id);
   if(!asset)return;
+  _refreshArchiveBtn(asset);
   // Cancel any pending auto-save from a previously-open asset before we overwrite the form
   clearTimeout(_assetAutoSave);
   state._detailId=id;
@@ -4269,9 +4327,44 @@ function deleteLiab(id,name){
 }
 
 // -- Liability Detail View -------------------------------------------------
+function _refreshLiabArchiveBtn(liab) {
+  var btn = document.getElementById('ld-archive-btn');
+  if (!btn || !liab) return;
+  var archived = String(liab.Archived||'').toLowerCase();
+  var isArch = archived==='yes'||archived==='true'||archived==='archived'||archived==='y';
+  btn.textContent = isArch ? 'Unarchive' : 'Archive';
+  btn.style.background = isArch ? '#1e6e3b' : '';
+}
+
+function toggleLiabArchived() {
+  var id = (document.getElementById('ld-id')||{value:''}).value;
+  if (!id) return;
+  var liab = (state.liabilities||[]).find(l => String(l.ID)===String(id));
+  if (!liab) return;
+  var currently = String(liab.Archived||'').toLowerCase();
+  var isArch = currently==='yes'||currently==='true'||currently==='archived'||currently==='y';
+  var willArchive = !isArch;
+  if (willArchive && !confirm('Archive "'+(liab.Name||'')+'"?\n\nArchived liabilities are kept in the spreadsheet but excluded from net worth totals, the Balances PDF, and monthly snapshots. You can unarchive at any time.')) return;
+  google.script.run
+    .withSuccessHandler(function(r){
+      if (r && r.success) {
+        liab.Archived = willArchive ? 'Yes' : '';
+        _refreshLiabArchiveBtn(liab);
+        renderDashboard();
+        renderLiabilitiesTable && renderLiabilitiesTable();
+        toast(willArchive ? 'Liability archived' : 'Liability unarchived', 'success');
+      } else {
+        toast((r && r.error) || 'Archive toggle failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
+    .setLiabilityArchived(id, willArchive);
+}
+
 function openLiabDetail(id){
   const liab=(state.liabilities||[]).find(l=>l.ID==id);
   if(!liab)return;
+  _refreshLiabArchiveBtn(liab);
   // Cancel any pending auto-save from a previously-open liability before overwriting the form
   clearTimeout(_liabAutoSave);
   state._liabDetailId=id;
