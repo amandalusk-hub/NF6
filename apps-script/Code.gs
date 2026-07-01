@@ -189,6 +189,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
     .addItem('Refresh Sheet Validations (Dropdowns)', 'refreshSheetValidations')
+    .addItem('Style Archived Rows (gray/strikethrough)', 'styleArchivedRows')
     .addItem('Reset Asset Details Schema', 'resetSchema')
     .addToUi();
 }
@@ -3085,6 +3086,54 @@ function removePlaidConnection() {
 // the current code (CATEGORIES list + the liability types list below). Use
 // after adding a new category in code — without this, the old dropdown lock
 // rejects new values like 'Promissory Notes' even though the code accepts them.
+// Apply conditional formatting to the Assets + Liabilities sheets so rows
+// where Archived = 'Yes' are visually distinct (gray background, faded text,
+// strikethrough on the name). Idempotent — clears the old archive rule
+// first, then re-adds. Run once after adding the Archived column, or after
+// any change to the Archived column's position in the schema.
+function styleArchivedRows() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ['Assets', 'Liabilities'].forEach(function(name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var archCol = headers.indexOf('Archived') + 1; // 1-based
+    if (!archCol) return;
+    var archColLetter = _colLetter_(archCol);
+    var lastCol = sheet.getLastColumn();
+    var lastRow = Math.max(2000, sheet.getLastRow());
+    var range   = sheet.getRange(2, 1, lastRow - 1, lastCol);
+
+    // Preserve any non-archive rules the user added
+    var kept = (sheet.getConditionalFormatRules() || []).filter(function(r) {
+      var f = r.getBooleanCondition && r.getBooleanCondition();
+      if (!f) return true;
+      var v = f.getCriteriaValues && f.getCriteriaValues();
+      return !(v && v[0] && String(v[0]).indexOf('$' + archColLetter + '2') === 0);
+    });
+
+    var rule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + archColLetter + '2="Yes"')
+      .setBackground('#e8e8ec')
+      .setFontColor('#7a7a80')
+      .setStrikethrough(true)
+      .setRanges([range])
+      .build();
+    kept.push(rule);
+    sheet.setConditionalFormatRules(kept);
+  });
+  ui.alert('Archive Styling Applied', 'Archived rows on Assets + Liabilities are now gray with strikethrough. New archive/unarchive updates the styling automatically.', ui.ButtonSet.OK);
+  return { success: true };
+}
+
+// Convert 1-based column number to A1-style letter (1 -> 'A', 27 -> 'AA').
+function _colLetter_(n) {
+  var s = '';
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
+  return s;
+}
+
 function refreshSheetValidations() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var notes = [];
