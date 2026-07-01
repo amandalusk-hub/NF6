@@ -2234,8 +2234,14 @@ function deleteOCNode() {
 
 // -- Dashboard --------------------------------------------------------------
 function renderDashboard(){
-  const assets = state.assets      || [];
-  const liabs  = state.liabilities || [];
+  // Apply the same archived filter to the top metric cards as the dashboard
+  // list uses — otherwise Net Worth / Total Assets / Total Liabilities
+  // wouldn't reflect archiving. Respects the 'Show archived rows in totals'
+  // toggle so the two views stay consistent.
+  function _archD(r){ var v=r&&r.Archived; if(v===true) return true; var s=String(v||'').trim().toLowerCase(); return s==='yes'||s==='true'||s==='archived'||s==='y'; }
+  const _showArchDash = !!state.showArchived;
+  const assets = (state.assets      || []).filter(a => _showArchDash || !_archD(a));
+  const liabs  = (state.liabilities || []).filter(l => _showArchDash || !_archD(l));
   const totalUSD = assets.reduce((s,a)=>s+num(a['My Share USD']),0);
   const liabUSD  = liabs.reduce((s,l)=>s+num(l['USD Value']),0);
   const cashUSD  = assets.filter(a=>(a.Category||'').toLowerCase().startsWith('cash')).reduce((s,a)=>s+num(a['My Share USD']),0);
@@ -2504,9 +2510,14 @@ function renderMNWList(){
         }catch(e){}
         const showEntity=(a.Category==='Private Equity'||a.Category==='Loans Receivable'||a.Category==='Promissory Notes')&&a.Entity;
         const entityDisplay=showEntity?(a.Entity==='Personal'?'MN':esc(a.Entity)):'';
-        aHtml+=`<div class="mnw-row mnw-grid" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
+        // Archived row styling — grayed out + ARCHIVED badge so the user can
+        // immediately spot them when the "Show archived" toggle is on.
+        const _isA = _isArchived(a);
+        const _rowStyle = _isA ? 'opacity:0.55;background:#f5f5f7' : '';
+        const _archBadge = _isA ? `<span style="display:inline-block;font-size:9px;font-weight:700;background:#8b6914;color:#fff;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;letter-spacing:0.5px">ARCHIVED</span>` : '';
+        aHtml+=`<div class="mnw-row mnw-grid" style="${_rowStyle}" onclick='openAssetDetail(${JSON.stringify(a.ID)})'>
           <div class="mnw-row-name-cell">
-            <div class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}</div>
+            <div class="mnw-row-name" title="${esc(a.Name)}">${esc(a.Name)}${_archBadge}</div>
             ${entityDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${entityDisplay}</div>`:''}
             ${loanTag}
           </div>
@@ -2615,9 +2626,13 @@ function renderMNWList(){
         // hidden when a loanTag is present to avoid double sub-lines for promissory notes.
         const locationDisplay = (!loanTag && l.Location) ? `<span style="font-size:10px;color:#bbb;font-style:italic;margin-left:6px">${esc(l.Location)}</span>` : '';
 
-        lHtml+=`<div class="mnw-row mnw-grid" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
+        const _isLA = _isArchived(l);
+        const _lRowStyle = _isLA ? 'opacity:0.55;background:#f5f5f7' : '';
+        const _lArchBadge = _isLA ? `<span style="display:inline-block;font-size:9px;font-weight:700;background:#8b6914;color:#fff;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;letter-spacing:0.5px">ARCHIVED</span>` : '';
+
+        lHtml+=`<div class="mnw-row mnw-grid" style="${_lRowStyle}" onclick='openLiabDetail(${JSON.stringify(l.ID)})'>
           <div class="mnw-row-name-cell">
-            <div class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${locationDisplay}${driveLinkHtml}</div>
+            <div class="mnw-row-name" title="${esc(l.Name)}">${esc(l.Name)}${_lArchBadge}${locationDisplay}${driveLinkHtml}</div>
             ${lenderDisplay?`<div style="font-size:10px;color:#aaa;font-weight:700;margin-top:2px">${lenderDisplay}</div>`:''}
             ${loanTag}
           </div>
