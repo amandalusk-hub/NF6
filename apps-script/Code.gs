@@ -51,8 +51,8 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID','Archived'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID','Archived'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID','Archived','Archive Date','Closeout Amount','Closeout Notes'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID','Archived','Archive Date','Closeout Amount','Closeout Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
@@ -1021,23 +1021,38 @@ function deleteAsset(id) {
 }
 
 // Toggle the Archived flag on an asset or liability row. Set archived=true to
-// archive (excludes from net worth), false to restore. Row data is preserved
-// either way — archiving never deletes.
-function setAssetArchived(id, archived) {
-  return _setRowArchived_('ASSETS', id, archived);
+// archive (excludes from net worth), false to restore. Optional closeout
+// details capture what actually happened at close time — sale price, payoff
+// amount, or amount received back on a loan — plus a date and free-text
+// notes. Row data is preserved either way — archiving never deletes.
+function setAssetArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
+  return _setRowArchived_('ASSETS', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
-function setLiabilityArchived(id, archived) {
-  return _setRowArchived_('LIABILITIES', id, archived);
+function setLiabilityArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
+  return _setRowArchived_('LIABILITIES', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
-function _setRowArchived_(sheetKey, id, archived) {
+function _setRowArchived_(sheetKey, id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
   var sheet   = getSheet_(sheetKey);
   var data    = sheet.getDataRange().getValues();
   var headers = data[0] || [];
   var archCol = headers.indexOf('Archived');
-  if (archCol < 0) return { success: false, error: 'Archived column not found — run Tracker -> Refresh Sheet Validations.' };
+  if (archCol < 0) return { success: false, error: 'Archived column not found — run Tracker -> Refresh FX Rates to add it.' };
+  var dateCol  = headers.indexOf('Archive Date');
+  var amtCol   = headers.indexOf('Closeout Amount');
+  var notesCol = headers.indexOf('Closeout Notes');
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][0]) === String(id)) {
-      sheet.getRange(i + 1, archCol + 1).setValue(archived ? 'Yes' : '');
+      var r = i + 1;
+      sheet.getRange(r, archCol + 1).setValue(archived ? 'Yes' : '');
+      // Only write closeout fields on archive (not on unarchive) so the
+      // historical record survives if the user re-archives later. On explicit
+      // unarchive we leave the closeout data alone as history.
+      if (archived && dateCol  >= 0 && closeoutDate)   sheet.getRange(r, dateCol  + 1).setValue(closeoutDate);
+      if (archived && amtCol   >= 0 && closeoutAmount !== undefined && closeoutAmount !== null && closeoutAmount !== '') {
+        var n = Number(String(closeoutAmount).replace(/[$,\s]/g, ''));
+        if (!isNaN(n)) sheet.getRange(r, amtCol + 1).setValue(n);
+      }
+      if (archived && notesCol >= 0 && closeoutNotes) sheet.getRange(r, notesCol + 1).setValue(closeoutNotes);
       return { success: true, archived: !!archived };
     }
   }

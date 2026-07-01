@@ -588,6 +588,33 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
 </div>
 
+<!-- Archive Confirmation Modal (shared by asset + liability) -->
+<div class="modal-overlay" id="archive-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title" id="archive-modal-title">Archive Item</div>
+      <button class="modal-close" onclick="closeModal('archive-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;font-size:13px;color:#555;line-height:1.4">
+        Record what happened at close. All fields are optional but useful for future reference.
+        This item will be preserved in the spreadsheet but excluded from net worth totals.
+      </p>
+      <input type="hidden" id="arch-id">
+      <input type="hidden" id="arch-kind"><!-- 'asset' or 'liab' -->
+      <div class="form-two">
+        <div class="form-row"><label>Close Date</label><input type="date" id="arch-date"></div>
+        <div class="form-row"><label id="arch-amt-label">Sale / Payoff Amount</label><input type="text" id="arch-amt" placeholder="$0" onblur="onAcctBlur(this)" onfocus="onAcctFocus(this)"></div>
+      </div>
+      <div class="form-row"><label>Notes</label><textarea id="arch-notes" rows="3" placeholder="e.g. Sold to buyer, closing costs, wire details, reason for closure..."></textarea></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('archive-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmArchive()">Archive</button>
+    </div>
+  </div>
+</div>
+
 <!-- Asset Detail Modal -->
 <div class="modal-overlay" id="detail-modal">
   <div class="modal" style="max-width:780px">
@@ -3355,22 +3382,13 @@ function toggleAssetArchived() {
   if (!asset) return;
   var currently = String(asset.Archived||'').toLowerCase();
   var isArch = currently==='yes'||currently==='true'||currently==='archived'||currently==='y';
-  var willArchive = !isArch;
-  if (willArchive && !confirm('Archive "'+(asset.Name||'')+'"?\n\nArchived assets are kept in the spreadsheet but excluded from net worth totals, the Balances PDF, and monthly snapshots. You can unarchive at any time.')) return;
-  google.script.run
-    .withSuccessHandler(function(r){
-      if (r && r.success) {
-        asset.Archived = willArchive ? 'Yes' : '';
-        _refreshArchiveBtn(asset);
-        renderDashboard();
-        renderAssetsTable && renderAssetsTable();
-        toast(willArchive ? 'Asset archived' : 'Asset unarchived', 'success');
-      } else {
-        toast((r && r.error) || 'Archive toggle failed', 'error');
-      }
-    })
-    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
-    .setAssetArchived(id, willArchive);
+  if (isArch) {
+    // Unarchive path — no prompt, just flip the flag (closeout data preserved on the row for history).
+    _sendArchive('asset', id, false);
+    return;
+  }
+  // Archive path — open the modal to capture close date / amount / notes.
+  _openArchiveModal('asset', id, asset.Name || '');
 }
 
 function openAssetDetail(id){
@@ -4343,22 +4361,79 @@ function toggleLiabArchived() {
   if (!liab) return;
   var currently = String(liab.Archived||'').toLowerCase();
   var isArch = currently==='yes'||currently==='true'||currently==='archived'||currently==='y';
-  var willArchive = !isArch;
-  if (willArchive && !confirm('Archive "'+(liab.Name||'')+'"?\n\nArchived liabilities are kept in the spreadsheet but excluded from net worth totals, the Balances PDF, and monthly snapshots. You can unarchive at any time.')) return;
-  google.script.run
+  if (isArch) {
+    _sendArchive('liab', id, false);
+    return;
+  }
+  _openArchiveModal('liab', id, liab.Name || '');
+}
+
+// Open the shared archive modal, pre-fill defaults, tailor copy for asset vs liability.
+function _openArchiveModal(kind, id, name) {
+  document.getElementById('arch-id').value   = id;
+  document.getElementById('arch-kind').value = kind;
+  document.getElementById('archive-modal-title').textContent = 'Archive: ' + name;
+  document.getElementById('arch-amt-label').textContent = (kind==='liab') ? 'Final Payoff Amount' : 'Sale / Payoff / Received Amount';
+  // Default close date to today
+  var d = new Date();
+  var iso = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+  document.getElementById('arch-date').value  = iso;
+  document.getElementById('arch-amt').value   = '';
+  document.getElementById('arch-notes').value = '';
+  openModal('archive-modal');
+}
+
+// Called by the archive modal's Archive button.
+function confirmArchive() {
+  var id     = document.getElementById('arch-id').value;
+  var kind   = document.getElementById('arch-kind').value;
+  var date   = document.getElementById('arch-date').value;
+  var amount = document.getElementById('arch-amt').value;
+  var notes  = document.getElementById('arch-notes').value;
+  closeModal('archive-modal');
+  _sendArchive(kind, id, true, date, amount, notes);
+}
+
+// Shared server call for both archive and unarchive across asset/liability.
+function _sendArchive(kind, id, archived, date, amount, notes) {
+  var runner = google.script.run
     .withSuccessHandler(function(r){
       if (r && r.success) {
-        liab.Archived = willArchive ? 'Yes' : '';
-        _refreshLiabArchiveBtn(liab);
-        renderDashboard();
-        renderLiabilitiesTable && renderLiabilitiesTable();
-        toast(willArchive ? 'Liability archived' : 'Liability unarchived', 'success');
+        if (kind === 'liab') {
+          var liab = (state.liabilities||[]).find(l => String(l.ID)===String(id));
+          if (liab) {
+            liab.Archived = archived ? 'Yes' : '';
+            if (archived) {
+              liab['Archive Date']     = date   || liab['Archive Date'];
+              liab['Closeout Amount']  = amount || liab['Closeout Amount'];
+              liab['Closeout Notes']   = notes  || liab['Closeout Notes'];
+            }
+            _refreshLiabArchiveBtn(liab);
+          }
+          renderDashboard();
+          renderLiabilitiesTable && renderLiabilitiesTable();
+        } else {
+          var asset = (state.assets||[]).find(a => String(a.ID)===String(id));
+          if (asset) {
+            asset.Archived = archived ? 'Yes' : '';
+            if (archived) {
+              asset['Archive Date']    = date   || asset['Archive Date'];
+              asset['Closeout Amount'] = amount || asset['Closeout Amount'];
+              asset['Closeout Notes']  = notes  || asset['Closeout Notes'];
+            }
+            _refreshArchiveBtn(asset);
+          }
+          renderDashboard();
+          renderAssetsTable && renderAssetsTable();
+        }
+        toast(archived ? (kind==='liab'?'Liability archived':'Asset archived') : (kind==='liab'?'Liability unarchived':'Asset unarchived'), 'success');
       } else {
         toast((r && r.error) || 'Archive toggle failed', 'error');
       }
     })
-    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); })
-    .setLiabilityArchived(id, willArchive);
+    .withFailureHandler(function(e){ toast('Error: ' + e.message, 'error'); });
+  if (kind === 'liab') runner.setLiabilityArchived(id, archived, date || '', amount || '', notes || '');
+  else                 runner.setAssetArchived(id,     archived, date || '', amount || '', notes || '');
 }
 
 function openLiabDetail(id){
