@@ -660,7 +660,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <input type="hidden" id="detail-id">
       <!-- Archive banner — populated + shown by openAssetDetail when the row is archived -->
       <div id="da-archive-banner" style="display:none;background:#f7f0d8;border:1px solid #d4b662;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#5a4200">
-        <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Archived</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase">Archived</div>
+          <a href="#" onclick="event.preventDefault();editArchiveInfo('asset')" style="font-size:11px;color:#5a4200;text-decoration:underline">Edit closeout info</a>
+        </div>
         <div id="da-archive-banner-body"></div>
       </div>
 
@@ -1318,7 +1321,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <input type="hidden" id="ld-id">
       <!-- Archive banner — populated + shown by openLiabDetail when the row is archived -->
       <div id="ld-archive-banner" style="display:none;background:#f7f0d8;border:1px solid #d4b662;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#5a4200">
-        <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Archived</div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase">Archived</div>
+          <a href="#" onclick="event.preventDefault();editArchiveInfo('liab')" style="font-size:11px;color:#5a4200;text-decoration:underline">Edit closeout info</a>
+        </div>
         <div id="ld-archive-banner-body"></div>
       </div>
 
@@ -4436,6 +4442,35 @@ function toggleLiabArchived() {
     return;
   }
   _openArchiveModal('liab', id, liab.Name || '');
+}
+
+// Edit path: open the same archive modal on an already-archived row so the
+// user can update closeout date, amount, or notes without unarchiving first.
+// Pre-fills the form with the current stored values. On save, _sendArchive
+// runs with archived=true — server rewrites the same three fields, Archived
+// flag stays 'Yes'.
+function editArchiveInfo(kind) {
+  var id, row;
+  if (kind === 'liab') {
+    id = (document.getElementById('ld-id')||{value:''}).value;
+    row = id ? (state.liabilities||[]).find(l => String(l.ID)===String(id)) : null;
+  } else {
+    id = (document.getElementById('detail-id')||{value:''}).value;
+    row = id ? (state.assets||[]).find(a => String(a.ID)===String(id)) : null;
+  }
+  if (!row) return;
+  _openArchiveModal(kind, id, row.Name || '');
+  // Overwrite the modal defaults set by _openArchiveModal with the existing values
+  var d = String(row['Archive Date']||'').split('T')[0];
+  if (d) document.getElementById('arch-date').value = d;
+  var a = row['Closeout Amount'];
+  if (a !== undefined && a !== null && a !== '') {
+    var n = Number(String(a).replace(/[$,\s]/g,''));
+    document.getElementById('arch-amt').value = (!isNaN(n) && n !== 0) ? fmtAcct(n) : String(a);
+  }
+  if (row['Closeout Notes']) document.getElementById('arch-notes').value = row['Closeout Notes'];
+  // Update modal title to reflect edit vs archive intent
+  document.getElementById('archive-modal-title').textContent = 'Edit closeout: ' + (row.Name || '');
 }
 
 // Open the shared archive modal, pre-fill defaults, tailor copy for asset vs liability.
