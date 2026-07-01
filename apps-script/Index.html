@@ -589,7 +589,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 </div>
 
 <!-- Archive Confirmation Modal (shared by asset + liability) -->
-<div class="modal-overlay" id="archive-modal">
+<!-- z-index bumped above the base 200 so it stacks on top of the detail
+     modal that's still open behind it (otherwise this popup opens hidden). -->
+<div class="modal-overlay" id="archive-modal" style="z-index:400">
   <div class="modal" style="max-width:480px">
     <div class="modal-header">
       <div class="modal-title" id="archive-modal-title">Archive Item</div>
@@ -656,6 +658,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     </div>
     <div class="modal-body" oninput="scheduleAssetAutoSave()" onchange="scheduleAssetAutoSave()">
       <input type="hidden" id="detail-id">
+      <!-- Archive banner — populated + shown by openAssetDetail when the row is archived -->
+      <div id="da-archive-banner" style="display:none;background:#f7f0d8;border:1px solid #d4b662;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#5a4200">
+        <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Archived</div>
+        <div id="da-archive-banner-body"></div>
+      </div>
 
       <div class="detail-section">
         <div class="detail-section-title">Overview</div>
@@ -1309,6 +1316,11 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
     </div>
     <div class="modal-body" oninput="scheduleLiabAutoSave()" onchange="scheduleLiabAutoSave()">
       <input type="hidden" id="ld-id">
+      <!-- Archive banner — populated + shown by openLiabDetail when the row is archived -->
+      <div id="ld-archive-banner" style="display:none;background:#f7f0d8;border:1px solid #d4b662;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#5a4200">
+        <div style="font-weight:700;font-size:11px;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:4px">Archived</div>
+        <div id="ld-archive-banner-body"></div>
+      </div>
 
       <!-- Core fields (Name, Type, Currency, Amount, Location) editable inline -->
       <div class="pe-block">
@@ -3379,8 +3391,8 @@ function toggleContactDesc(sel) {
 }
 
 // -- Asset Detail View -----------------------------------------------------
-// Sync the Archive button label on the asset detail header to match current
-// archive state. Called from openAssetDetail and after toggleAssetArchived.
+// Sync the Archive button label on the asset detail header + the archive
+// info banner. Called from openAssetDetail and after toggleAssetArchived.
 function _refreshArchiveBtn(asset) {
   var btn = document.getElementById('da-archive-btn');
   if (!btn || !asset) return;
@@ -3388,6 +3400,39 @@ function _refreshArchiveBtn(asset) {
   var isArch = archived==='yes'||archived==='true'||archived==='archived'||archived==='y';
   btn.textContent = isArch ? 'Unarchive' : 'Archive';
   btn.style.background = isArch ? '#1e6e3b' : '';
+  var banner = document.getElementById('da-archive-banner');
+  var body   = document.getElementById('da-archive-banner-body');
+  if (banner && body) {
+    if (isArch) {
+      body.innerHTML = _archiveBannerHTML(asset);
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+}
+
+// Build the inner HTML for an archive info banner. Shows Close Date,
+// Closeout Amount, and Closeout Notes if any are set. Used by both asset
+// and liability detail panels.
+function _archiveBannerHTML(row) {
+  var d = (row['Archive Date'] || '').toString().split('T')[0];
+  var a = row['Closeout Amount'];
+  var n = row['Closeout Notes'] || '';
+  var parts = [];
+  if (d) {
+    var dt = new Date(d);
+    if (!isNaN(dt)) parts.push('<strong>Close date:</strong> ' + dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}));
+    else            parts.push('<strong>Close date:</strong> ' + esc(d));
+  }
+  if (a !== undefined && a !== null && a !== '') {
+    var num_ = Number(String(a).replace(/[$,\s]/g,''));
+    if (!isNaN(num_) && num_ !== 0) parts.push('<strong>Closeout amount:</strong> ' + fmtUSD(num_));
+  }
+  var html = parts.join('  &middot;  ');
+  if (n) html += (html ? '<div style="margin-top:6px">' : '') + '<strong>Notes:</strong> ' + esc(n) + (html ? '</div>' : '');
+  if (!html) html = '<em>No closeout details recorded.</em>';
+  return html;
 }
 
 function toggleAssetArchived() {
@@ -4367,6 +4412,16 @@ function _refreshLiabArchiveBtn(liab) {
   var isArch = archived==='yes'||archived==='true'||archived==='archived'||archived==='y';
   btn.textContent = isArch ? 'Unarchive' : 'Archive';
   btn.style.background = isArch ? '#1e6e3b' : '';
+  var banner = document.getElementById('ld-archive-banner');
+  var body   = document.getElementById('ld-archive-banner-body');
+  if (banner && body) {
+    if (isArch) {
+      body.innerHTML = _archiveBannerHTML(liab);
+      banner.style.display = 'block';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
 }
 
 function toggleLiabArchived() {
