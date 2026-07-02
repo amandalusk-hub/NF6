@@ -4250,11 +4250,14 @@ function generateNetWorthHistorySheet() {
 
   sheet.insertChart(chart);
 
-  // ── Freeze + gridlines AFTER chart insertion ─────────────────────────────
-  // Order matters: freezing before insertChart causes Google Sheets to push
-  // the chart below the frozen area (chart was rendering at row 19+ instead
-  // of row 2). Freezing after keeps the chart anchored to A2 as intended.
-  sheet.setFrozenRows(CHART_OFFSET + 1);
+  // ── Freeze column only, NOT rows ─────────────────────────────────────────
+  // Prior versions froze rows 1-18 to keep the month header visible while
+  // scrolling. But Google Sheets relocates embedded charts whose anchor row
+  // falls inside a frozen region — moving the chart below the data,
+  // overlapping the entries. Reordering the calls doesn't help; the freeze
+  // ALWAYS pushes the chart. So drop the row freeze entirely. Users scrolling
+  // past the chart lose the month header on screen — worth the tradeoff to
+  // get the chart rendering in its intended position.
   sheet.setFrozenColumns(1);
   sheet.setHiddenGridlines(true);
 
