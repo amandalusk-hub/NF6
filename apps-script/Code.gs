@@ -4112,8 +4112,11 @@ function generateNetWorthHistorySheet() {
   });
 
   // ── Chart area offset ────────────────────────────────────────────────────
-  // The top CHART_OFFSET rows are reserved for the line chart; data starts below.
-  var CHART_OFFSET = 17; // rows of blank space above the data table for the chart
+  // No embedded chart in the sheet anymore — Google Sheets kept relocating
+  // it below the data no matter how we ordered setFrozenRows/insertChart.
+  // The dashboard Balance History tab has its own chart. Sheet is now a
+  // clean data table starting right below the title row.
+  var CHART_OFFSET = 1; // just the title row above the data table
   var totalRows    = CHART_OFFSET + numRows;
 
   // Resize sheet to accommodate chart rows + data rows
@@ -4182,7 +4185,6 @@ function generateNetWorthHistorySheet() {
 
   // ── Row heights ───────────────────────────────────────────────────────────
   sheet.setRowHeight(1, 30); // title
-  for (var ci = 2; ci <= CHART_OFFSET; ci++) sheet.setRowHeight(ci, 18); // chart area rows
   sheet.setRowHeight(CHART_OFFSET + 1, 26); // month header
   sheet.setRowHeight(CHART_OFFSET + 2, 32); // NET WORTH
   sheet.setRowHeight(CHART_OFFSET + 3, 22); // % Change
@@ -4192,72 +4194,17 @@ function generateNetWorthHistorySheet() {
   sheet.setColumnWidth(1, 235);
   for (var ci2 = 0; ci2 < numMonths; ci2++) sheet.setColumnWidth(2 + ci2, 105);
 
-  // ── Line chart ────────────────────────────────────────────────────────────
-  // NOTE: chart is inserted BEFORE setFrozenRows below. Google Sheets pushes
-  // embedded charts below the frozen area if the anchor row falls inside a
-  // frozen region — which was causing the chart to render at row 19 instead
-  // of row 2. Insert first, then freeze.
-  // Write chart series data in truly off-screen columns (column AZ = 52) so
-  // it can't ever be visible next to the data. Then hide those columns so
-  // even if a user scrolls right, they don't see the raw series.
-  var chartDataCol = 52; // column AZ
-  // Make sure the sheet has enough columns before writing to col 52
-  if (sheet.getMaxColumns() < chartDataCol + numMonths + 2) {
-    sheet.insertColumnsAfter(sheet.getMaxColumns(), chartDataCol + numMonths + 2 - sheet.getMaxColumns());
-  }
-  var chartSeries  = [
-    [''].concat(months.map(fmtMK)),           // row 0: x-axis labels
-    ['Net Worth'].concat(months.map(nwTotal)), // row 1
-    ['Assets'].concat(months.map(assetTotal)), // row 2
-    ['Liabilities'].concat(months.map(liabTotal)) // row 3
-  ];
-  sheet.getRange(1, chartDataCol, 4, numMonths + 1).setValues(chartSeries);
-  // Hide the chart-data columns so users don't see them by scrolling right
-  sheet.hideColumns(chartDataCol, numMonths + 1);
-
-  // Remove any existing chart before inserting a new one
+  // ── Remove any lingering embedded charts from prior runs ──────────────────
+  // We used to render a line chart in reserved rows at the top of this sheet,
+  // but Google Sheets kept relocating it below the data no matter how we
+  // ordered setFrozenRows/insertChart. The dashboard already has a proper
+  // chart on the Balance History tab, so we drop the sheet chart entirely
+  // and just present a clean data table here.
   sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
 
-  var chartWidthPx  = Math.min(235 + numMonths * 105, 1100);
-  var chartHeightPx = (CHART_OFFSET - 1) * 18; // match reserved rows
-
-  var chart = sheet.newChart()
-    .setChartType(Charts.ChartType.LINE)
-    .addRange(sheet.getRange(1, chartDataCol, 4, numMonths + 1))
-    .setTransposeRowsAndColumns(true) // rows become series, first row = x-axis labels
-    .setPosition(2, 1, 0, 0)         // anchor top-left at row 2, col 1
-    .setOption('title', '')
-    .setOption('legend', { position: 'right' })
-    .setOption('series', {
-      0: { color: '#1e8e3e', lineWidth: 2 },  // Net Worth — green
-      1: { color: '#1a73e8', lineWidth: 2 },  // Assets — blue
-      2: { color: '#c5221f', lineWidth: 2 }   // Liabilities — red
-    })
-    .setOption('vAxis', {
-      format: '$#,##0,,"M"',
-      textStyle: { fontSize: 9, color: '#555555' },
-      gridlines: { color: '#e8eef4' }
-    })
-    .setOption('hAxis', {
-      textStyle: { fontSize: 9, color: '#555555' },
-      gridlines: { color: 'transparent' }
-    })
-    .setOption('backgroundColor', { fill: '#f8fafd' })
-    .setOption('chartArea', { left: 75, top: 15, width: Math.max(100, chartWidthPx - 205), height: Math.max(50, chartHeightPx - 50) })
-    .setOption('height', chartHeightPx)
-    .setOption('width', chartWidthPx)
-    .build();
-
-  sheet.insertChart(chart);
-
-  // ── Freeze column only, NOT rows ─────────────────────────────────────────
-  // Prior versions froze rows 1-18 to keep the month header visible while
-  // scrolling. But Google Sheets relocates embedded charts whose anchor row
-  // falls inside a frozen region — moving the chart below the data,
-  // overlapping the entries. Reordering the calls doesn't help; the freeze
-  // ALWAYS pushes the chart. So drop the row freeze entirely. Users scrolling
-  // past the chart lose the month header on screen — worth the tradeoff to
-  // get the chart rendering in its intended position.
+  // Freeze the header row (month labels) + label column so users can scroll
+  // both directions and keep context. Safe now that no chart is anchored.
+  sheet.setFrozenRows(CHART_OFFSET + 1);
   sheet.setFrozenColumns(1);
   sheet.setHiddenGridlines(true);
 
