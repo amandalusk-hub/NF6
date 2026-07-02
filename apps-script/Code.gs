@@ -4192,12 +4192,11 @@ function generateNetWorthHistorySheet() {
   sheet.setColumnWidth(1, 235);
   for (var ci2 = 0; ci2 < numMonths; ci2++) sheet.setColumnWidth(2 + ci2, 105);
 
-  // ── Freeze: lock the month header row + label column ────────────────────
-  sheet.setFrozenRows(CHART_OFFSET + 1);
-  sheet.setFrozenColumns(1);
-  sheet.setHiddenGridlines(true);
-
   // ── Line chart ────────────────────────────────────────────────────────────
+  // NOTE: chart is inserted BEFORE setFrozenRows below. Google Sheets pushes
+  // embedded charts below the frozen area if the anchor row falls inside a
+  // frozen region — which was causing the chart to render at row 19 instead
+  // of row 2. Insert first, then freeze.
   // Write chart series data in truly off-screen columns (column AZ = 52) so
   // it can't ever be visible next to the data. Then hide those columns so
   // even if a user scrolls right, they don't see the raw series.
@@ -4250,6 +4249,14 @@ function generateNetWorthHistorySheet() {
     .build();
 
   sheet.insertChart(chart);
+
+  // ── Freeze + gridlines AFTER chart insertion ─────────────────────────────
+  // Order matters: freezing before insertChart causes Google Sheets to push
+  // the chart below the frozen area (chart was rendering at row 19+ instead
+  // of row 2). Freezing after keeps the chart anchored to A2 as intended.
+  sheet.setFrozenRows(CHART_OFFSET + 1);
+  sheet.setFrozenColumns(1);
+  sheet.setHiddenGridlines(true);
 
   ss.toast('Net Worth History refreshed — ' + numMonths + ' months shown', 'Done', 4);
   return { success: true, months: numMonths, rows: numRows };
