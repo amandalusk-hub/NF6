@@ -4198,9 +4198,14 @@ function generateNetWorthHistorySheet() {
   sheet.setHiddenGridlines(true);
 
   // ── Line chart ────────────────────────────────────────────────────────────
-  // Write chart series data in off-screen columns (to the right of the visible data)
-  // so the chart has contiguous data to read from.
-  var chartDataCol = numCols + 3;
+  // Write chart series data in truly off-screen columns (column AZ = 52) so
+  // it can't ever be visible next to the data. Then hide those columns so
+  // even if a user scrolls right, they don't see the raw series.
+  var chartDataCol = 52; // column AZ
+  // Make sure the sheet has enough columns before writing to col 52
+  if (sheet.getMaxColumns() < chartDataCol + numMonths + 2) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), chartDataCol + numMonths + 2 - sheet.getMaxColumns());
+  }
   var chartSeries  = [
     [''].concat(months.map(fmtMK)),           // row 0: x-axis labels
     ['Net Worth'].concat(months.map(nwTotal)), // row 1
@@ -4208,6 +4213,8 @@ function generateNetWorthHistorySheet() {
     ['Liabilities'].concat(months.map(liabTotal)) // row 3
   ];
   sheet.getRange(1, chartDataCol, 4, numMonths + 1).setValues(chartSeries);
+  // Hide the chart-data columns so users don't see them by scrolling right
+  sheet.hideColumns(chartDataCol, numMonths + 1);
 
   // Remove any existing chart before inserting a new one
   sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
