@@ -173,6 +173,7 @@ function onOpen() {
     .addItem('Search Plaid Institutions (Statements support)', 'searchPlaidInstitutions')
     .addItem('Remove ONE Plaid Connection…', 'removeOnePlaidConnection')
     .addItem('Remove ALL Plaid Connections', 'removePlaidConnection')
+    .addItem('Fix Duplicate Plaid Rows', 'fixDuplicatePlaidRows')
     .addSeparator()
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
@@ -2139,6 +2140,20 @@ function syncPlaidAccounts() {
     }
   });
 
+  // Dedup by account_id \u2014 protects against the same physical account being
+  // returned by two different tokens (e.g. Chase OAuth after the JPM merger
+  // where the OLD Chase token and a NEW JPM-login token both include the same
+  // account). Without this, byPlaidId matches the row once for the first
+  // occurrence but the second occurrence falls into name-fallback / new-row
+  // creation, spawning a duplicate.
+  var _seenAcctIds = {};
+  allAccounts = allAccounts.filter(function(a) {
+    if (!a || !a.acctId) return false;
+    if (_seenAcctIds[a.acctId]) return false;
+    _seenAcctIds[a.acctId] = true;
+    return true;
+  });
+
   // ── Step 2: read sheet ONCE, build lookup maps ────────────────────────────
   var sheet   = getSheet_('ASSETS');
   var rows    = sheet.getDataRange().getValues();
@@ -2176,6 +2191,10 @@ function syncPlaidAccounts() {
   var updates     = [];   // asset row updates: {rowIdx, acctName, balance, acctId, oldUsd}
   var liabUpdates = [];   // liability row updates: same shape
   var newAccts    = [];   // accounts with no matching row in either sheet
+  var _pendingNames = {}; // names already queued as new rows THIS run — prevents
+                          // two accounts with different account_ids but the same
+                          // displayed name (institution+acct+mask) both spawning
+                          // new rows when name-fallback misses on the snapshot.
 
   // Active account_ids across all tokens — used by the smart fallback to skip
   // rows that already have a live sync source (prevents an orphan-like
@@ -2259,6 +2278,8 @@ function syncPlaidAccounts() {
       updates.push({ rowIdx: matchRow, acctName: acct.name, balance: acct.balance,
                      acctId: acct.acctId, oldUsd: oldUsdA });
     } else {
+      if (_pendingNames[acct.name]) return;   // dedup within run — same physical account across two tokens
+      _pendingNames[acct.name] = true;
       newAccts.push(acct);
     }
   });
@@ -2978,6 +2999,116 @@ function listPlaidConnectionDetails() {
   });
 
   ui.alert('Plaid Connections (Detailed)', out.join('\n'), ui.ButtonSet.OK);
+}
+
+// ── FIX DUPLICATE PLAID ROWS ──────────────────────────────────────────────────
+// Groups Assets rows by (institution prefix, ···mask suffix), which is the
+// physical-account key. When two rows share that key, one is a duplicate —
+// typically created because a re-linked token issued a NEW account_id for the
+// same physical account and name-fallback couldn't collapse it in time.
+//
+// Keeps: the row whose Plaid Account ID is currently active in a live token,
+// falling back to the oldest Date Added if both (or neither) are active.
+// Deletes the loser(s). Preserves the Plaid Account ID on the keeper so the
+// next sync updates it.
+function fixDuplicatePlaidRows() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+
+  // Fetch live account_ids across every active token, so we know which
+  // row's Plaid ID currently maps to a real Plaid account.
+  var activeAcctIds = {};
+  if (tokens.length) {
+    var requests = tokens.map(function(token) {
+      return {
+        url: getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get',
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      };
+    });
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(resp) {
+      try {
+        var data = JSON.parse(resp.getContentText());
+        if (data.accounts) data.accounts.forEach(function(a) {
+          if (a.account_id) activeAcctIds[a.account_id] = true;
+        });
+      } catch(e) {}
+    });
+  }
+
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  function ci(name) { return headers.indexOf(name); }
+  var nameCol      = ci('Name');
+  var plaidCol     = ci('Plaid Account ID');
+  var dateAddedCol = ci('Date Added');
+  if (nameCol < 0 || plaidCol < 0) { ui.alert('Assets sheet is missing Name or Plaid Account ID column.'); return; }
+
+  // Group by (institution + mask). Only consider rows that look like a
+  // Plaid-synced row (institution prefix + ···mask suffix).
+  var groups = {};
+  for (var i = 1; i < rows.length; i++) {
+    var name  = String(rows[i][nameCol] || '');
+    var mMatch = name.match(/···(\S+)$/);
+    var iIdx   = name.indexOf(' - ');
+    if (!mMatch || iIdx <= 0) continue;
+    var key = name.substring(0, iIdx).trim() + '|' + mMatch[1];
+    var plaidId = String(rows[i][plaidCol] || '');
+    var da      = dateAddedCol >= 0 && rows[i][dateAddedCol]
+                  ? new Date(rows[i][dateAddedCol]).getTime() : 0;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      sheetRow:  i + 1,          // 1-based row number for deletion
+      name:      name,
+      plaidId:   plaidId,
+      dateAdded: da,
+      active:    plaidId && activeAcctIds[plaidId] ? 1 : 0
+    });
+  }
+
+  // Build the delete list: for every group of 2+, keep the winner, mark the rest.
+  var toDelete = [];   // {sheetRow, name}
+  var kept     = [];   // {sheetRow, name, reason}
+  Object.keys(groups).forEach(function(key) {
+    var g = groups[key];
+    if (g.length < 2) return;
+    // Winner priority: active Plaid ID first, then oldest Date Added.
+    g.sort(function(a, b) {
+      if (a.active !== b.active) return b.active - a.active;
+      return a.dateAdded - b.dateAdded;
+    });
+    var winner = g[0];
+    kept.push({ sheetRow: winner.sheetRow, name: winner.name,
+                reason: winner.active ? 'active Plaid ID' : 'oldest row' });
+    for (var j = 1; j < g.length; j++) {
+      toDelete.push({ sheetRow: g[j].sheetRow, name: g[j].name });
+    }
+  });
+
+  if (!toDelete.length) { ui.alert('No duplicate Plaid rows found.'); return; }
+
+  // Confirmation dialog with preview.
+  var preview = ['KEEP:'];
+  kept.forEach(function(k) { preview.push('  row ' + k.sheetRow + ' — ' + k.name + '  (' + k.reason + ')'); });
+  preview.push('', 'DELETE:');
+  toDelete.forEach(function(d) { preview.push('  row ' + d.sheetRow + ' — ' + d.name); });
+  preview.push('', 'Delete ' + toDelete.length + ' duplicate row(s)?');
+
+  var resp = ui.alert('Fix Duplicate Plaid Rows', preview.join('\n'), ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  // Delete from bottom-up so row indices stay valid.
+  toDelete.sort(function(a, b) { return b.sheetRow - a.sheetRow; });
+  toDelete.forEach(function(d) { sheet.deleteRow(d.sheetRow); });
+
+  ui.alert('Deleted ' + toDelete.length + ' duplicate row(s). Run Sync Balances to refresh the keepers.');
 }
 
 // ── REMOVE A SINGLE PLAID CONNECTION ──────────────────────────────────────────
