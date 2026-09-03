@@ -159,6 +159,7 @@ function onOpen() {
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
     .addItem('Preview Statements Sync (free, no charges)', 'previewPlaidStatementsMenu')
     .addItem('Sync Bank Statements (Plaid)', 'syncPlaidStatementsMenu')
+    .addItem('Generate Monthly Transaction PDFs (works when Statements blocked)', 'syncPlaidTransactionsMonthlyMenu')
     .addItem('Reorganize Existing Statements', 'reorganizePlaidStatements')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
     .addItem('Sync All Accounts', 'syncAllAccounts')
@@ -2478,6 +2479,236 @@ function syncPlaidStatementsMenu() {
 
 // Trigger handler for the monthly auto-fetch (5th of each month at 6am).
 function _monthlyStatementSync() { syncPlaidStatements(); }
+
+// ============================================================================
+// TRANSACTION-DERIVED MONTHLY PDFs — outside-the-box alternative when Plaid
+// Statements is blocked at the institution level (e.g. Chase/JPM post-merger,
+// where Plaid refuses to certify the mixed-eligibility institution).
+//
+// The existing PLAID_TOKENS were created with products=['transactions'], which
+// Chase certifies for every account without a special approval track. We pull
+// the raw transactions via /transactions/get, group by (account, month), and
+// render our own PDF per month. Not a bank-issued statement, but the same
+// underlying data delivered from the same source.
+//
+// Output path mirrors syncPlaidStatements: /Bank Statements/[Bank]/[Account
+// ···mask]/YYYY-MM-tx.pdf — so both real statements and generated ones live
+// side-by-side per account.
+// ============================================================================
+function syncPlaidTransactionsMonthly(monthsBack) {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props   = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var generated = JSON.parse(props.getProperty('PLAID_TX_PDFS_GENERATED') || '{}');
+
+  var back = Number(monthsBack) || 24;
+  var end   = new Date();
+  var start = new Date(end.getFullYear(), end.getMonth() - (back - 1), 1);
+  function fmtDate(d) { return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+
+  var root = getStatementsRoot_();
+  var newCount = 0, skippedCount = 0, errorCount = 0, errors = [];
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    // Pull account name+mask so the monthly PDFs land in the right per-account folder.
+    var accts = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accData = JSON.parse(accResp.getContentText());
+      if (accData.error_code) {
+        errors.push(instName + ': ' + accData.error_code + ' — ' + (accData.error_message || ''));
+        errorCount++; return;
+      }
+      (accData.accounts || []).forEach(function(a) {
+        accts[a.account_id] = { name: a.name || 'Account', mask: a.mask || a.account_id.slice(-4) };
+      });
+    } catch(e) { errors.push(instName + ' (accts): ' + e.message); errorCount++; return; }
+
+    // Pull all transactions in the window. /transactions/get paginates with
+    // count+offset. Cap page size at 500 (Plaid's max).
+    var allTx = [];
+    var offset = 0, pageSize = 500, tries = 0;
+    while (tries < 40) {   // hard cap on pagination — 20k tx window per token
+      tries++;
+      try {
+        var txResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/transactions/get', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({
+            client_id: cfg.clientId, secret: cfg.secret, access_token: token,
+            start_date: fmtDate(start), end_date: fmtDate(end),
+            options: { count: pageSize, offset: offset }
+          }),
+          muteHttpExceptions: true
+        });
+        var txData = JSON.parse(txResp.getContentText());
+        if (txData.error_code) {
+          // PRODUCT_NOT_READY is common on fresh Items — Plaid takes 30-60s to
+          // process initial transactions. Advise the user to retry.
+          errors.push(instName + ': ' + txData.error_code + ' — ' + (txData.error_message || ''));
+          errorCount++; return;
+        }
+        var batch = txData.transactions || [];
+        allTx = allTx.concat(batch);
+        var total = txData.total_transactions || 0;
+        if (allTx.length >= total || batch.length === 0) break;
+        offset += pageSize;
+      } catch(e) { errors.push(instName + ' (tx): ' + e.message); errorCount++; return; }
+    }
+
+    // Group by (account_id, YYYY-MM).
+    var groups = {};
+    allTx.forEach(function(tx) {
+      if (!tx || !tx.date || !tx.account_id) return;
+      var key = tx.account_id + '|' + tx.date.substring(0, 7);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(tx);
+    });
+
+    Object.keys(groups).forEach(function(key) {
+      var parts  = key.split('|');
+      var acctId = parts[0], ym = parts[1];
+      var info   = accts[acctId] || { name: 'Account', mask: acctId.slice(-4) };
+      var acctFolder = getOrCreateSubfolder_(bankFolder, sanitizeName_(info.name + ' ···' + info.mask));
+      var filename   = ym + '-tx.pdf';
+
+      // Skip if the current month is incomplete — only regenerate finished months.
+      // A tracker key keys off token+acct+month so re-running is safe.
+      var thisYm = end.getFullYear() + '-' + ('0'+(end.getMonth()+1)).slice(-2);
+      var isCurrentMonth = (ym === thisYm);
+      var genKey = token.slice(-8) + '|' + acctId + '|' + ym;
+
+      if (!isCurrentMonth && generated[genKey]) { skippedCount++; return; }
+
+      var txSorted = groups[key].sort(function(a, b) { return a.date.localeCompare(b.date); });
+      var html     = _buildTxStatementHTML(instName, info, ym, txSorted);
+      var pdfBlob  = Utilities.newBlob(html, 'text/html', filename).getAs('application/pdf').setName(filename);
+
+      // Replace any prior version so re-runs update rather than duplicate.
+      var existing = acctFolder.getFilesByName(filename);
+      while (existing.hasNext()) existing.next().setTrashed(true);
+      acctFolder.createFile(pdfBlob);
+
+      generated[genKey] = new Date().toISOString();
+      newCount++;
+    });
+  });
+
+  props.setProperty('PLAID_TX_PDFS_GENERATED', JSON.stringify(generated));
+  return {
+    success: true,
+    generated: newCount,
+    skipped: skippedCount,
+    errors: errorCount,
+    errorDetails: errors,
+    rootFolderUrl: root.getUrl()
+  };
+}
+
+function _buildTxStatementHTML(instName, acctInfo, ym, tx) {
+  var monthLabel = _monthLabel(ym);
+  var moneyIn = 0, moneyOut = 0;
+  var rows = tx.map(function(t) {
+    // Plaid convention: positive amount = money OUT (debit). Flip so the PDF reads intuitively.
+    var amt = -Number(t.amount || 0);
+    if (amt >= 0) moneyIn += amt; else moneyOut += amt;
+    var cat = (t.category || []).join(' › ');
+    var pending = t.pending ? ' <span style="color:#a50e0e;font-size:10px">(pending)</span>' : '';
+    return '<tr>' +
+      '<td>' + t.date + '</td>' +
+      '<td>' + _esc(t.name || t.merchant_name || '(no description)') + pending + '</td>' +
+      '<td style="color:#5f6368">' + _esc(cat) + '</td>' +
+      '<td style="text-align:right;font-variant-numeric:tabular-nums;color:' + (amt >= 0 ? '#137333' : '#a50e0e') + '">' +
+        (amt >= 0 ? '+' : '−') + '$' + Math.abs(amt).toFixed(2) +
+      '</td></tr>';
+  }).join('');
+
+  var net = moneyIn + moneyOut;
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    '@page { margin: 0.5in; }' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;padding:0;color:#202124;}' +
+    '.hdr{border-bottom:2px solid #1a1a2e;padding-bottom:12px;margin-bottom:16px;}' +
+    '.hdr h1{font-size:18px;margin:0 0 4px 0;color:#1a1a2e;}' +
+    '.hdr .sub{color:#5f6368;font-size:12px;}' +
+    '.summary{display:flex;gap:16px;margin-bottom:16px;}' +
+    '.summary .card{flex:1;padding:12px;background:#f8f9fa;border-radius:6px;}' +
+    '.summary .card .label{color:#5f6368;font-size:10px;text-transform:uppercase;letter-spacing:.5px;}' +
+    '.summary .card .value{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px;}' +
+    'th{text-align:left;padding:6px 8px;background:#f8f9fa;border-bottom:2px solid #dadce0;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;}' +
+    'td{padding:6px 8px;border-bottom:1px solid #f1f3f4;vertical-align:top;}' +
+    '.footnote{color:#5f6368;font-size:10px;margin-top:20px;line-height:1.5;padding-top:12px;border-top:1px solid #dadce0;}' +
+    '</style></head><body>' +
+    '<div class="hdr">' +
+      '<h1>' + _esc(instName) + ' — ' + _esc(acctInfo.name) + ' ···' + _esc(acctInfo.mask) + '</h1>' +
+      '<div class="sub">Transaction summary · ' + monthLabel + ' · ' + tx.length + ' transactions</div>' +
+    '</div>' +
+    '<div class="summary">' +
+      '<div class="card"><div class="label">Money in</div><div class="value" style="color:#137333">+$' + moneyIn.toFixed(2) + '</div></div>' +
+      '<div class="card"><div class="label">Money out</div><div class="value" style="color:#a50e0e">−$' + Math.abs(moneyOut).toFixed(2) + '</div></div>' +
+      '<div class="card"><div class="label">Net</div><div class="value" style="color:' + (net >= 0 ? '#137333' : '#a50e0e') + '">' + (net >= 0 ? '+' : '−') + '$' + Math.abs(net).toFixed(2) + '</div></div>' +
+    '</div>' +
+    '<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>' +
+    '<div class="footnote">Generated from Plaid /transactions/get data on ' +
+      new Date().toISOString().substring(0, 10) + '. Amount sign convention: positive = money in, negative = money out. ' +
+      'This is a transaction summary, not a bank-issued statement — use it when the bank\'s formal PDF is not available ' +
+      'via Plaid Statements (e.g. Chase/JPM post-merger institution eligibility block).' +
+    '</div>' +
+    '</body></html>';
+}
+
+function _monthLabel(ym) {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var parts = ym.split('-');
+  return months[Number(parts[1]) - 1] + ' ' + parts[0];
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+// Menu wrapper — asks for a lookback window then runs.
+function syncPlaidTransactionsMonthlyMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var msg1 = ui.alert('Generate Monthly Transaction PDFs',
+    'Pulls transactions from every Plaid connection and renders a monthly PDF per account into ' +
+    '/Bank Statements/[Bank]/[Account ···mask]/YYYY-MM-tx.pdf.\n\n' +
+    'These are TRANSACTION SUMMARIES generated from Plaid data — not bank-issued statements. ' +
+    'Use these when Plaid Statements is blocked at the institution level (e.g. Chase/JPM after the merger).\n\n' +
+    'This uses your existing Plaid Transactions grant. No new authorization, no per-statement charge.\n\n' +
+    'Continue?', ui.ButtonSet.YES_NO);
+  if (msg1 !== ui.Button.YES) return;
+
+  var prompt = ui.prompt('Lookback window',
+    'How many months back? (default 24, max 24 recommended)', ui.ButtonSet.OK_CANCEL);
+  if (prompt.getSelectedButton() !== ui.Button.OK) return;
+  var back = parseInt(prompt.getResponseText(), 10) || 24;
+
+  var r = syncPlaidTransactionsMonthly(back);
+  if (!r.success) { ui.alert('Failed', r.error, ui.ButtonSet.OK); return; }
+
+  var out = 'Generated PDFs: ' + r.generated +
+            '\nSkipped (already up to date): ' + r.skipped +
+            '\nErrors: ' + r.errors;
+  if (r.errors > 0 && r.errorDetails && r.errorDetails.length) {
+    out += '\n\nFirst error(s):\n  • ' + r.errorDetails.slice(0, 5).join('\n  • ');
+  }
+  if (r.rootFolderUrl) out += '\n\nDrive folder: ' + r.rootFolderUrl;
+  ui.alert('Transaction PDFs', out, ui.ButtonSet.OK);
+}
+
 
 // Dry-run preview: enumerates what syncPlaidStatements WOULD download without
 // actually calling /statements/download (the paid endpoint). Only hits the
