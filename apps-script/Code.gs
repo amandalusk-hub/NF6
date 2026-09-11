@@ -172,6 +172,7 @@ function onOpen() {
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
     .addItem('List Plaid Connections (Detailed)', 'listPlaidConnectionDetails')
     .addItem('Search Plaid Institutions (Statements support)', 'searchPlaidInstitutions')
+    .addItem('Diagnose Plaid Statements (why not working)', 'diagnosePlaidStatements')
     .addItem('Remove ONE Plaid Connection…', 'removeOnePlaidConnection')
     .addItem('Remove ALL Plaid Connections', 'removePlaidConnection')
     .addItem('Fix Duplicate Plaid Rows', 'fixDuplicatePlaidRows')
@@ -2677,6 +2678,183 @@ function _esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
+}
+
+// ============================================================================
+// PLAID STATEMENTS DIAGNOSTIC — captures every piece of state that could
+// block Statements from working, in one shot. Writes a full report to Drive
+// and shows a truncated version in a dialog.
+//
+// Per token, dumps:
+//   - /item/get: products / consented_products / billed_products / error
+//   - /institutions/get_by_id: institution's supported products
+//   - /statements/list: exact error_code, error_message, display_message
+//
+// Reading the output:
+//   - "Item has Statements scope: NO" + "Institution supports Statements:
+//     YES" → the Item was linked without Statements in the initial consent.
+//     For OAuth banks this can't be added via update mode; a fresh
+//     Statements-only link is required (openPlaidStatementsLink).
+//   - "Institution supports Statements: NO" → route via a different
+//     institution_id (e.g. JPM Wealth Management ins_133378 instead of
+//     Chase ins_56). Search variants with searchPlaidInstitutions.
+//   - "/statements/list ERROR: PRODUCTS_NOT_SUPPORTED" or "PRODUCT_NOT_READY"
+//     with the Item + institution both showing Statements support → your
+//     Plaid app itself doesn't have Statements enabled in Production.
+//     Fix at dashboard.plaid.com → Team Settings → Keys → request access.
+// ============================================================================
+function diagnosePlaidStatements() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var props   = PropertiesService.getScriptProperties();
+  var tokensT = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var tokensS = JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+
+  var all = [];
+  tokensT.forEach(function(t) { all.push({ token: t, source: 'transactions' }); });
+  tokensS.forEach(function(t) { all.push({ token: t, source: 'statements-only' }); });
+  if (!all.length) { ui.alert('No Plaid tokens.'); return; }
+
+  var out = [];
+  out.push('PLAID STATEMENTS DIAGNOSTIC');
+  out.push('Generated: ' + new Date().toISOString());
+  out.push('Environment: ' + cfg.env);
+  out.push('Client ID: ' + cfg.clientId.substring(0, 6) + '···' + cfg.clientId.slice(-4));
+  out.push('Total tokens: ' + all.length + ' (' + tokensT.length + ' transactions, ' + tokensS.length + ' statements-only)');
+  out.push('');
+  out.push('─'.repeat(72));
+  out.push('');
+
+  all.forEach(function(entry, i) {
+    var token = entry.token;
+    var label = instMap[token] || '(unnamed)';
+    out.push((i + 1) + '. ' + label + '   [' + entry.source + ']');
+    out.push('   token: ···' + token.slice(-4));
+
+    var instId = null;
+
+    // /item/get — the ground truth for what this Item can do.
+    try {
+      var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var itemData = JSON.parse(itemResp.getContentText());
+      if (itemData.error_code) {
+        out.push('   /item/get ERROR: ' + itemData.error_code + ' — ' + (itemData.error_message || ''));
+      } else if (itemData.item) {
+        var it = itemData.item;
+        instId = it.institution_id || null;
+        out.push('   item_id: ' + (it.item_id || '?'));
+        out.push('   institution_id: ' + (instId || '?'));
+        out.push('   products (active):    ' + (it.products || []).join(', '));
+        out.push('   consented_products:   ' + (it.consented_products || []).join(', '));
+        out.push('   billed_products:      ' + (it.billed_products || []).join(', '));
+        if (it.error) {
+          out.push('   ⚠ Item error: ' + it.error.error_code + ' — ' + (it.error.error_message || ''));
+        }
+        var hasStmt = (it.consented_products || []).indexOf('statements') >= 0
+                   || (it.products || []).indexOf('statements') >= 0;
+        out.push('   Item has Statements scope: ' + (hasStmt ? 'YES ✅' : 'NO ❌'));
+      }
+    } catch(e) {
+      out.push('   /item/get exception: ' + e.message);
+    }
+
+    // Institution capabilities — the vendor certification level.
+    if (instId) {
+      try {
+        var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({
+            client_id: cfg.clientId, secret: cfg.secret,
+            institution_id: instId, country_codes: ['US'],
+            options: { include_optional_metadata: true }
+          }),
+          muteHttpExceptions: true
+        });
+        var instData = JSON.parse(instResp.getContentText());
+        if (instData.error_code) {
+          out.push('   /institutions/get_by_id ERROR: ' + instData.error_code);
+        } else if (instData.institution) {
+          var inst  = instData.institution;
+          var prods = inst.products || [];
+          out.push('   Institution name: ' + inst.name);
+          out.push('   Institution products: ' + prods.join(', '));
+          out.push('   Institution OAuth: ' + (inst.oauth ? 'yes' : 'no'));
+          out.push('   Institution supports Statements: ' + (prods.indexOf('statements') >= 0 ? 'YES ✅' : 'NO ❌'));
+        }
+      } catch(e) {
+        out.push('   institution lookup exception: ' + e.message);
+      }
+    }
+
+    // /statements/list — the actual test. Capture EVERYTHING.
+    try {
+      var stmtResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var httpCode = stmtResp.getResponseCode();
+      var stmtData = JSON.parse(stmtResp.getContentText());
+      if (stmtData.error_code) {
+        out.push('   /statements/list ERROR (HTTP ' + httpCode + '):');
+        out.push('       error_code:    ' + stmtData.error_code);
+        out.push('       error_type:    ' + (stmtData.error_type || '?'));
+        out.push('       error_message: ' + (stmtData.error_message || ''));
+        if (stmtData.display_message)   out.push('       display_message:   ' + stmtData.display_message);
+        if (stmtData.suggested_action)  out.push('       suggested_action:  ' + stmtData.suggested_action);
+        if (stmtData.request_id)        out.push('       request_id:        ' + stmtData.request_id);
+        if (stmtData.documentation_url) out.push('       docs:              ' + stmtData.documentation_url);
+      } else {
+        var totalStmts = 0, acctCount = (stmtData.accounts || []).length;
+        (stmtData.accounts || []).forEach(function(a) { totalStmts += (a.statements || []).length; });
+        out.push('   /statements/list OK ✅ — ' + totalStmts + ' statements across ' + acctCount + ' account(s)');
+      }
+    } catch(e) {
+      out.push('   /statements/list exception: ' + e.message);
+    }
+
+    out.push('');
+  });
+
+  // Interpretation hints at the bottom.
+  out.push('─'.repeat(72));
+  out.push('');
+  out.push('READING THIS REPORT:');
+  out.push('');
+  out.push('  Item scope NO + Institution YES → fresh Statements-only link required');
+  out.push('    (openPlaidStatementsLink; OAuth banks can\'t add products to existing Items)');
+  out.push('');
+  out.push('  Item scope YES + Institution YES + /statements/list still errors →');
+  out.push('    your Plaid app itself lacks Statements Production access.');
+  out.push('    Fix at dashboard.plaid.com → Team Settings → Keys → Request Access');
+  out.push('    → "Statements" → wait for Plaid approval (usually 1-3 business days).');
+  out.push('');
+  out.push('  Institution NO → try a different institution variant. Search "JP Morgan"');
+  out.push('    via Tracker → Search Plaid Institutions and look for one that shows');
+  out.push('    "Supports Statements? YES". Then re-link JPM accounts through that one.');
+  out.push('');
+  out.push('  Item error ITEM_LOGIN_REQUIRED → re-auth via Update Plaid Connection first.');
+
+  var reportText = out.join('\n');
+
+  // Save the full report to Drive.
+  var stamp = new Date().toISOString().substring(0, 19).replace(/[:T]/g, '-');
+  var file  = DriveApp.createFile('Plaid Statements Diagnostic ' + stamp + '.txt',
+                                  reportText, MimeType.PLAIN_TEXT);
+
+  // Truncate for the dialog (Apps Script alert cap ≈ 5000 chars safe).
+  var shown = reportText;
+  if (shown.length > 4200) shown = shown.substring(0, 4200) + '\n\n… (truncated — full report in Drive)';
+  ui.alert('Plaid Statements Diagnostic',
+    shown + '\n\nFull report:\n' + file.getUrl(),
+    ui.ButtonSet.OK);
 }
 
 // Menu wrapper — asks for a lookback window then runs.
