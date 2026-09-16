@@ -167,6 +167,7 @@ function onOpen() {
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
     .addItem('Connect Bank for Statements (Plaid)', 'openPlaidStatementsLink')
     .addItem('Update Plaid Connection (Re-auth / Add Accounts)', 'openPlaidUpdate')
+    .addItem('Add Statements Consent to Existing Item (Chase, etc.)', 'addStatementsConsentToChaseMenu')
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
@@ -3225,7 +3226,23 @@ function openPlaidUpdate() {
   // Stash the chosen access_token in script properties under a single fixed
   // key. The sidebar fetches it via a server call (no template injection),
   // and the server clears it on first read.
-  PropertiesService.getScriptProperties().setProperty('PLAID_PENDING_UPDATE_TOKEN', tokens[idx]);
+  var chosenTok = tokens[idx];
+  props.setProperty('PLAID_PENDING_UPDATE_TOKEN', chosenTok);
+  // Also record for handlePlaidUpdateSuccess so it can verify whether
+  // Statements consent was added (or was already present) by this run.
+  props.setProperty('PLAID_LAST_UPDATED_TOKEN', chosenTok);
+  try {
+    var _itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: chosenTok }),
+      muteHttpExceptions: true
+    });
+    var _it = (JSON.parse(_itemResp.getContentText()) || {}).item || {};
+    var _had = (_it.consented_products || []).indexOf('statements') >= 0;
+    props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', _had ? 'true' : 'false');
+  } catch(e) {
+    props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', 'false');
+  }
 
   var html = HtmlService.createHtmlOutputFromFile('PlaidLinkUpdate')
     .setTitle('Update Plaid Connection')
@@ -3246,14 +3263,131 @@ function getPlaidUpdateLinkTokenForSidebar() {
 // In update mode Plaid Link does NOT issue a new public_token to exchange —
 // the original access_token still works and now has whatever new accounts the
 // user toggled on. Just sync to pull them.
+//
+// After sync, verify whether Statements consent was granted by this update
+// flow (via additional_consented_products) so the user knows immediately if
+// Chase honored the request or if they need to fall back to a fresh
+// Statements-only link.
 function handlePlaidUpdateSuccess() {
+  var props   = PropertiesService.getScriptProperties();
+  var lastTok = props.getProperty('PLAID_LAST_UPDATED_TOKEN');
+  var hadStmt = props.getProperty('PLAID_LAST_UPDATED_HAD_STMT') === 'true';
+  props.deleteProperty('PLAID_LAST_UPDATED_TOKEN');
+  props.deleteProperty('PLAID_LAST_UPDATED_HAD_STMT');
+
   try {
     var syncResult = syncPlaidAccounts();
     var count = syncResult.synced || 0;
-    return { success: true, message: 'Connection updated. ' + count + ' account(s) synced.' };
+
+    // Statements consent check — only meaningful when the caller stashed the
+    // token before opening Update Mode.
+    var stmtNote = '';
+    if (lastTok) {
+      try {
+        var cfg = getPlaidConfig_();
+        var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: lastTok }),
+          muteHttpExceptions: true
+        });
+        var it = (JSON.parse(itemResp.getContentText()) || {}).item || {};
+        var consented = it.consented_products || [];
+        var nowHasStmt = consented.indexOf('statements') >= 0;
+        if (nowHasStmt && !hadStmt) {
+          stmtNote = ' Statements consent ADDED ✅ — run Sync Bank Statements to pull PDFs.';
+        } else if (nowHasStmt && hadStmt) {
+          stmtNote = ' Statements consent already present ✅.';
+        } else {
+          stmtNote = ' Statements consent NOT granted ❌ — the bank\'s OAuth flow did not present the consent screen. ' +
+                     'Fall back to Connect Bank for Statements to create a fresh Statements-only Item.';
+        }
+      } catch(e) { /* non-fatal */ }
+    }
+
+    return { success: true, message: 'Connection updated. ' + count + ' account(s) synced.' + stmtNote };
   } catch(e) {
     return { success: false, message: 'Error: ' + e.message };
   }
+}
+
+// Targeted flow — lists Plaid Items whose institution supports Statements
+// but whose Item currently lacks Statements consent, and opens Update Mode
+// for the chosen one. After the sidebar completes, handlePlaidUpdateSuccess
+// re-reads /item/get and reports whether the bank actually granted Statements
+// consent (Chase's OAuth flow is inconsistent about honoring
+// additional_consented_products on existing Items).
+function addStatementsConsentToChaseMenu() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var props   = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }
+
+  // Filter to Items where institution supports Statements but Item does not.
+  var candidates = [];
+  tokens.forEach(function(token) {
+    try {
+      var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var it = (JSON.parse(itemResp.getContentText()) || {}).item;
+      if (!it) return;
+      if ((it.consented_products || []).indexOf('statements') >= 0) return;   // already granted
+
+      var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({
+          client_id: cfg.clientId, secret: cfg.secret,
+          institution_id: it.institution_id, country_codes: ['US']
+        }),
+        muteHttpExceptions: true
+      });
+      var inst  = (JSON.parse(instResp.getContentText()) || {}).institution;
+      var supports = inst && (inst.products || []).indexOf('statements') >= 0;
+      if (!supports) return;
+
+      candidates.push({
+        token: token,
+        label: (instMap[token] || inst.name || '(unnamed)') + '  (···' + token.slice(-4) + ')',
+        institutionName: inst.name
+      });
+    } catch(e) { /* skip on error */ }
+  });
+
+  if (!candidates.length) {
+    ui.alert('No candidates found — every Item either already has Statements consent, ' +
+             'or its institution does not support Statements at all. See the diagnostic report.');
+    return;
+  }
+
+  var lines = candidates.map(function(c, i) { return (i + 1) + '. ' + c.label; });
+  var resp = ui.prompt('Add Statements Consent (Update Mode)',
+    'These Items don\'t have Statements consent yet, but their institution supports Statements:\n\n' +
+    lines.join('\n') +
+    '\n\nEnter the NUMBER to add consent for (1-' + candidates.length + '):\n\n' +
+    'You\'ll be re-prompted by the bank\'s OAuth flow. Look for a Statements consent screen ' +
+    'in addition to the account selection screen.',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= candidates.length) { ui.alert('Invalid selection.'); return; }
+
+  var chosen = candidates[idx];
+  props.setProperty('PLAID_PENDING_UPDATE_TOKEN', chosen.token);
+  // Stash so handlePlaidUpdateSuccess can verify Statements consent was added.
+  props.setProperty('PLAID_LAST_UPDATED_TOKEN',   chosen.token);
+  props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', 'false');
+
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkUpdate')
+    .setTitle('Add Statements Consent — ' + chosen.institutionName)
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
 }
 
 function handlePlaidSuccess(publicToken, institutionName) {
