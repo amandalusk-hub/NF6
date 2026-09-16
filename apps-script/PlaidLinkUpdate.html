@@ -92,12 +92,29 @@
             })
             .handlePlaidUpdateSuccess();
         },
-        onExit: function(err) {
+        onExit: function(err, metadata) {
           setBtn(true, 'Update Connection');
-          if (err) showStatus('error', err.display_message || err.error_message || 'Cancelled');
-          else hideStatus();
+          console.log('Plaid onExit err:', JSON.stringify(err));
+          console.log('Plaid onExit metadata:', JSON.stringify(metadata));
+          if (err) {
+            var msg = err.display_message || err.error_message || err.error_code || 'Cancelled';
+            // Detect the specific 'internal error' Chase throws when we try to
+            // add Statements consent to an existing transactions-only Item.
+            // Chase requires Statements at initial-link time; can't be added.
+            var chaseAddConsentFail = (err.error_code === 'INTERNAL_SERVER_ERROR' ||
+                                        /internal error/i.test(msg)) &&
+                                       (metadata && metadata.institution && /chase/i.test(metadata.institution.name || ''));
+            if (chaseAddConsentFail) {
+              msg = 'Chase rejected adding Statements to an existing Item. ' +
+                    'Use Tracker → Connect Bank for Statements (Plaid) instead ' +
+                    'to create a fresh Statements-only Item.';
+            }
+            showStatus('error', msg);
+          } else hideStatus();
         },
-        onEvent: function(eventName) { console.log('Plaid event:', eventName); }
+        onEvent: function(eventName, metadata) {
+          console.log('Plaid event:', eventName, JSON.stringify(metadata || {}));
+        }
       });
 
       setBtn(true, 'Update Connection');

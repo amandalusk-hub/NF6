@@ -3371,7 +3371,11 @@ function addStatementsConsentToChaseMenu() {
     lines.join('\n') +
     '\n\nEnter the NUMBER to add consent for (1-' + candidates.length + '):\n\n' +
     'You\'ll be re-prompted by the bank\'s OAuth flow. Look for a Statements consent screen ' +
-    'in addition to the account selection screen.',
+    'in addition to the account selection screen.\n\n' +
+    '⚠ NOTE: Chase\'s OAuth backend often rejects this with "Something went wrong / Internal ' +
+    'error". If that happens, close the sidebar and use Tracker → Connect Bank for Statements ' +
+    '(Plaid) instead — that creates a fresh Statements-only Item, which Chase accepts because ' +
+    'Statements is requested at initial link time.',
     ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
 
