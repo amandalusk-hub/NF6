@@ -663,7 +663,7 @@ function seedTLMNDRules() {
     [40, 'Name', 'contains', 'SELL SPAXX',                        '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     [40, 'Name', 'contains', 'REI SPAXX',                         '', '', '(Fidelity SPAXX reinvestment)',                  '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     // TLMND → Fidelity transfer, both sides.
-    [40, 'Name', 'contains', 'To FidelityTLMND',                  '', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION'],
+    [40, 'Name', 'contains', 'FidelityTLM',                       '', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION; loose match catches "FidelityTLM" and "FidelityTLMND"'],
     [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
 
     // ── Bank noise ───────────────────────────────────────────────────────
