@@ -1198,7 +1198,21 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var months  = d.monthKeys || [];
   var mat     = d.categoryMatrix || [];
   var series  = d.monthlySeries || [];
-  var monthLabel = _tlmndMonthLabelSvr_(kpis.ym);
+
+  // Reference month for hero / top movers / comparison table = the LAST
+  // COMPLETED month (not the in-progress current month). Otherwise a mid-
+  // month partial like Sep 1-17 gets compared to full-month averages and
+  // looks either great or terrible for the wrong reason.
+  var _srvNow = new Date();
+  var _srvCurYm = _srvNow.getFullYear() + '-' + ('0'+(_srvNow.getMonth()+1)).slice(-2);
+  var refMonth = null;
+  for (var _si = series.length - 1; _si >= 0; _si--) {
+    if (series[_si].ym !== _srvCurYm) { refMonth = series[_si]; break; }
+  }
+  if (!refMonth) refMonth = series[series.length - 1] || { ym: _srvCurYm, in: 0, out: 0, netAll: 0 };
+  var mtdEntry = (series.length && series[series.length - 1].ym === _srvCurYm && series[series.length - 1] !== refMonth) ? series[series.length - 1] : null;
+
+  var monthLabel = _tlmndMonthLabelSvr_(refMonth.ym) + (mtdEntry ? ' (last complete)' : '');
   var reportDate = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
 
   // Current balances for primary accounts (TLMND checking + Fidelity).
@@ -1213,16 +1227,21 @@ function _tlmndBuildWeeklyPdfHtml_() {
     ? Utilities.formatDate(new Date(balancesRes.latestUpdate), 'America/New_York', 'MMM d, yyyy \'at\' h:mm a')
     : 'not yet synced';
 
-  // Delta vs 6-mo avg for the hero subtitle.
-  var cur = series.length ? series[series.length - 1] : { in: 0, out: 0, netAll: 0 };
-  var delta6 = cur.netAll - kpis.avgT6M;
+  // Delta vs 6-mo avg (of completed months only) for the hero subtitle.
+  var cur = refMonth;
+  var completedSeries = mtdEntry ? series.slice(0, -1) : series;
+  var completed6 = completedSeries.slice(-6);
+  var avg6Complete = completed6.length
+    ? completed6.reduce(function(s, m) { return s + (m.netAll || 0); }, 0) / completed6.length
+    : 0;
+  var delta6 = cur.netAll - avg6Complete;
   var deltaTxt;
   if (Math.abs(delta6) < 500) deltaTxt = 'about in line with the 6-month average';
   else if (delta6 > 0) deltaTxt = _tlmndFmtPos_(delta6) + ' better than 6-month average';
   else                 deltaTxt = _tlmndFmtPos_(delta6) + ' worse than 6-month average';
 
-  // Top In / Out for current month.
-  var curYm = kpis.ym;
+  // Top In / Out for the reference (last complete) month.
+  var curYm = refMonth.ym;
   var inItems = [], outItems = [];
   mat.forEach(function(c) {
     var v = c.months[curYm] || 0;
@@ -1234,10 +1253,15 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
   var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
 
-  // Comparison table — This month / Last / T3M / T6M / T12M.
-  var prev = series.length > 1 ? series[series.length - 2] : { in: 0, out: 0, netAll: 0 };
+  // Comparison table — "This Month" is the reference (last complete) month;
+  // "Last Month" is the completed month before that; averages use completed
+  // months only so the comparison stays apples-to-apples.
+  var refIdx = -1;
+  for (var _pi = 0; _pi < series.length; _pi++) { if (series[_pi].ym === refMonth.ym) { refIdx = _pi; break; } }
+  var prev = refIdx > 0 ? series[refIdx - 1] : { in: 0, out: 0, netAll: 0 };
+  var seriesForAvg = series.slice(0, refIdx + 1);   // up through refMonth inclusive
   function avgField(field, n) {
-    var arr = series.slice(-n);
+    var arr = seriesForAvg.slice(-n);
     if (!arr.length) return 0;
     return arr.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / arr.length;
   }
@@ -1490,6 +1514,13 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '<div class="lbl">Net Cash Flow &middot; ' + monthLabel + '</div>' +
       '<div class="val ' + heroCls + '">' + heroVal + '</div>' +
       '<div class="sub">' + _tlmndEsc_(deltaTxt) + '</div>' +
+      (mtdEntry
+        ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);font-size:10px;opacity:.85">' +
+            _tlmndMonthLabelSvr_(mtdEntry.ym) + ' month-to-date: ' +
+            '<strong>' + _tlmndFmtSvr_(mtdEntry.netAll) + '</strong>' +
+            ' <span style="opacity:.7">(partial month, not directly comparable)</span>' +
+          '</div>'
+        : '') +
     '</div>' +
     // Top movers (two cards side by side)
     '<div class="two">' +
