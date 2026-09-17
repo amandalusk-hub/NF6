@@ -2260,37 +2260,43 @@ function _tlPlannerRecompute(d) {
   var avgIn  = avgN(opIn,  6);
   var avgOut = Math.abs(avgN(opOut, 6));   // magnitude
 
-  // Over N months + user-defined buffer for one-offs / upcoming expenses:
-  var expectedSpend  = avgOut * months;
-  var expectedIncome = avgIn  * months;
-  var totalNeed      = expectedSpend + buffer;            // spend + buffer = what we need to have covered
-  var endingCash     = total + expectedIncome - totalNeed;
-  var toMoveIn       = -endingCash;                        // positive = need to fund
+  // Over N months. Buffer is a TARGET ending cash — the amount you want
+  // to have left over after covering expenses, not an additional spend.
+  // Formula:
+  //   endingWithoutMove = current + expectedIncome - expectedSpend
+  //   toMoveIn = max(0, buffer - endingWithoutMove)   // fund to hit buffer
+  //   endingCash = endingWithoutMove + toMoveIn        // == buffer if funded
+  var expectedSpend      = avgOut * months;
+  var expectedIncome     = avgIn  * months;
+  var endingWithoutMove  = total + expectedIncome - expectedSpend;
+  var toMoveIn           = Math.max(0, buffer - endingWithoutMove);
+  var endingCash         = endingWithoutMove + toMoveIn;
 
-  function fmt(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+  function fmt(v)   { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+  function signed(v){ if (Math.abs(v||0) < 0.5) return '$0'; return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString(); }
 
-  var bufferBlurb = buffer > 0 ? ' (including ' + fmt(buffer) + ' buffer)' : '';
-
+  var bufferBlurb = buffer > 0 ? ' (keep ' + fmt(buffer) + ' buffer)' : '';
   var html;
   if (toMoveIn > 0) {
     html = '<div class="tl-planner-result need">' +
       '<div class="tl-planner-result-label">Move Into TLMND to Cover ' + months + ' Month' + (months === 1 ? '' : 's') + bufferBlurb + '</div>' +
       '<div class="tl-planner-result-value">' + fmt(toMoveIn) + '</div>' +
       '<div class="tl-planner-result-sub">' +
-        'Ending cash after ' + months + ' month' + (months === 1 ? '' : 's') + ' would be −' + fmt(toMoveIn) + ' without new inflows. ' +
-        'Move in ~' + fmt(toMoveIn) + ' from Blue Panda or other entities to end at $0' +
-        (buffer > 0 ? ' with the ' + fmt(buffer) + ' buffer covered' : '') + '.' +
+        'Without a transfer you\'d end at ' + signed(endingWithoutMove) + ' after ' + months + ' month' + (months === 1 ? '' : 's') + '. ' +
+        'Move in ~' + fmt(toMoveIn) + ' from Blue Panda or other entities to cover expenses' +
+        (buffer > 0 ? ' AND keep ' + fmt(buffer) + ' as buffer' : ' and end at $0') + '.' +
       '</div>' +
     '</div>';
   } else {
+    // No transfer needed — endingWithoutMove already meets or beats buffer.
+    var over = endingWithoutMove - buffer;
     html = '<div class="tl-planner-result safe">' +
-      '<div class="tl-planner-result-label">' + months + '-Month Cash Position' + bufferBlurb + '</div>' +
-      '<div class="tl-planner-result-value">+' + fmt(endingCash) + '</div>' +
+      '<div class="tl-planner-result-label">No Transfer Needed' + bufferBlurb + '</div>' +
+      '<div class="tl-planner-result-value">+' + fmt(endingWithoutMove) + '</div>' +
       '<div class="tl-planner-result-sub">' +
-        'Current cash of ' + fmt(total) + ' + expected income of ' + fmt(expectedIncome) + ' covers ' +
-        fmt(expectedSpend) + ' of expenses' +
-        (buffer > 0 ? ' + ' + fmt(buffer) + ' buffer' : '') +
-        ' with ' + fmt(endingCash) + ' left over. No transfer needed.' +
+        'Current cash + expected income covers ' + fmt(expectedSpend) + ' of expenses' +
+        (buffer > 0 ? ' with ' + fmt(endingWithoutMove) + ' left — ' + fmt(over) + ' above your ' + fmt(buffer) + ' buffer target' : ' with ' + fmt(endingWithoutMove) + ' left over') +
+        '.' +
       '</div>' +
     '</div>';
   }
@@ -2299,8 +2305,11 @@ function _tlPlannerRecompute(d) {
     '<div class="row"><span>Current cash on hand</span><span>' + fmt(total) + '</span></div>' +
     '<div class="row"><span>Expected recurring income over ' + months + ' mo</span><span>+' + fmt(expectedIncome) + '</span></div>' +
     '<div class="row"><span>Expected recurring spend over ' + months + ' mo</span><span>−' + fmt(expectedSpend) + '</span></div>' +
-    (buffer > 0 ? '<div class="row"><span>Buffer for one-offs</span><span>−' + fmt(buffer) + '</span></div>' : '') +
-    '<div class="row" style="border-top:1px solid #d0dae5;padding-top:4px;margin-top:4px;font-weight:600"><span>Ending cash at ' + months + '-mo mark</span><span>' + (endingCash < 0 ? '−' : '') + fmt(endingCash) + '</span></div>' +
+    (toMoveIn > 0 ? '<div class="row" style="color:#a50e0e"><span>Amount to move in</span><span>+' + fmt(toMoveIn) + '</span></div>' : '') +
+    '<div class="row" style="border-top:1px solid #d0dae5;padding-top:4px;margin-top:4px;font-weight:600">' +
+      '<span>Ending cash at ' + months + '-mo mark' + (toMoveIn > 0 ? ' (after transfer)' : '') + '</span>' +
+      '<span>' + signed(endingCash) + (buffer > 0 && toMoveIn > 0 ? ' (= buffer)' : '') + '</span>' +
+    '</div>' +
   '</div>';
 
   resultEl.innerHTML = html;
