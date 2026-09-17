@@ -528,15 +528,26 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd table.tl-matrix td:first-child{text-align:left;position:sticky;left:0;background:#fff;font-weight:500}
       #tab-tlmnd table.tl-matrix tr:hover td{background:#f8fbff}
       #tab-tlmnd table.tl-matrix tr:hover td:first-child{background:#f8fbff}
-      #tab-tlmnd table.tl-matrix .row-section{background:#eef4fa;font-weight:600;color:#0d2137}
-      #tab-tlmnd table.tl-matrix .row-section td{background:#eef4fa}
-      #tab-tlmnd table.tl-matrix .row-section td:first-child{background:#eef4fa}
-      #tab-tlmnd table.tl-matrix .row-total{background:#f5f7fa;font-weight:700}
-      #tab-tlmnd table.tl-matrix .row-total td{background:#f5f7fa;border-top:2px solid #dadce0}
-      #tab-tlmnd table.tl-matrix .row-total td:first-child{background:#f5f7fa}
-      #tab-tlmnd table.tl-matrix .row-group{background:#fafbfc;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.4px}
-      #tab-tlmnd table.tl-matrix .row-group td{background:#fafbfc;padding-top:10px;padding-bottom:4px}
-      #tab-tlmnd table.tl-matrix .row-group td:first-child{background:#fafbfc;padding-left:24px}
+      /* Section headers — high contrast so they stand out */
+      #tab-tlmnd table.tl-matrix .row-section{background:#0d2137;font-weight:700;color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+      #tab-tlmnd table.tl-matrix .row-section td{background:#0d2137;color:#fff;padding-top:10px;padding-bottom:10px}
+      #tab-tlmnd table.tl-matrix .row-section td:first-child{background:#0d2137;color:#fff}
+      /* Subtotals within a section (Total Recurring In, etc.) */
+      #tab-tlmnd table.tl-matrix .row-total{background:#dae5ee;font-weight:700}
+      #tab-tlmnd table.tl-matrix .row-total td{background:#dae5ee;color:#0d2137;border-top:1px solid #b8c7d4}
+      #tab-tlmnd table.tl-matrix .row-total td:first-child{background:#dae5ee}
+      /* Net rows — the "punchline" totals across sections */
+      #tab-tlmnd table.tl-matrix .row-net{background:#c8d8e5;font-weight:800;font-size:13px}
+      #tab-tlmnd table.tl-matrix .row-net td{background:#c8d8e5;color:#0d2137;border-top:2px solid #0d2137;border-bottom:2px solid #0d2137;padding-top:10px;padding-bottom:10px}
+      #tab-tlmnd table.tl-matrix .row-net td:first-child{background:#c8d8e5}
+      /* NET ALL — the grand total, biggest visual weight */
+      #tab-tlmnd table.tl-matrix .row-grand{background:#0d2137;font-weight:800;font-size:14px}
+      #tab-tlmnd table.tl-matrix .row-grand td{background:#0d2137;color:#fff;border-top:3px double #0d2137;padding-top:14px;padding-bottom:14px}
+      #tab-tlmnd table.tl-matrix .row-grand td:first-child{background:#0d2137;color:#fff}
+      /* Subgroup headers (People & Payroll, etc.) — medium gray */
+      #tab-tlmnd table.tl-matrix .row-group{background:#dfe4ea;color:#2c3e50;font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px}
+      #tab-tlmnd table.tl-matrix .row-group td{background:#dfe4ea;padding-top:8px;padding-bottom:8px}
+      #tab-tlmnd table.tl-matrix .row-group td:first-child{background:#dfe4ea;padding-left:24px}
       #tab-tlmnd table.tl-matrix .tl-cat-row td:first-child{padding-left:24px}
       #tab-tlmnd .amt-pos{color:#137333}
       #tab-tlmnd .amt-neg{color:#a50e0e}
@@ -2437,13 +2448,13 @@ function _tlHtmlCategoryMatrix(d) {
     var tds = months.map(function() { return '<td></td>'; }).join('');
     return '<tr class="row-group"><td>' + label + '</td>' + tds + '<td></td></tr>';
   }
-  function totalRow(label, arr) {
+  function totalRow(label, arr, cls) {
     var perMonth = months.map(function(ym) {
       return arr.reduce(function(s, c) { return s + (c.months[ym] || 0); }, 0);
     });
     var grand = perMonth.reduce(function(s, v) { return s + v; }, 0);
     var tds = perMonth.map(function(v) { return '<td>' + fmt(v) + '</td>'; }).join('');
-    return '<tr class="row-total"><td>' + label + '</td>' + tds + '<td>' + fmt(grand) + '</td></tr>';
+    return '<tr class="' + (cls || 'row-total') + '"><td>' + label + '</td>' + tds + '<td>' + fmt(grand) + '</td></tr>';
   }
 
   var thead = '<thead><tr><th>Category</th>' + months.map(function(m) {
@@ -2455,17 +2466,18 @@ function _tlHtmlCategoryMatrix(d) {
     totalRow('Total Recurring In', recIn) +
     _tlRenderGroupedSection('Recurring — Money Out', recOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Recurring Out', recOut) +
-    totalRow('Net Recurring', recIn.concat(recOut)) +
+    totalRow('Net Recurring', recIn.concat(recOut), 'row-net') +
     _tlRenderGroupedSection('Non-Recurring — Money In',  nonIn,  months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Non-Recurring In', nonIn) +
     _tlRenderGroupedSection('Non-Recurring — Money Out', nonOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Non-Recurring Out', nonOut) +
+    totalRow('Net Non-Recurring', nonIn.concat(nonOut), 'row-net') +
     _tlRenderGroupedSection('Inter-Entity Transfers — In',  ieIn,  months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Inter-Entity In', ieIn) +
     _tlRenderGroupedSection('Inter-Entity Transfers — Out', ieOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Inter-Entity Out', ieOut) +
-    totalRow('Net Inter-Entity', ieIn.concat(ieOut)) +
-    totalRow('NET ALL', mat) +
+    totalRow('Net Inter-Entity', ieIn.concat(ieOut), 'row-net') +
+    totalRow('NET ALL', mat, 'row-grand') +
     '</tbody>';
 
   return '<div class="tl-cat-table"><table class="tl-matrix">' + thead + body + '</table></div>' +
