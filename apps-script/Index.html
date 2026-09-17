@@ -2315,23 +2315,52 @@ function _tlPlannerRecompute(d) {
   resultEl.innerHTML = html;
 }
 
+// Given the monthly series, return the last COMPLETED month's entry
+// (skips the current in-progress month so hero/top-movers/comparison
+// don't get skewed by a half-full period). Falls back to whatever the
+// last entry is if we can't determine "current" cleanly.
+function _tlLastCompleteMonth(months) {
+  if (!months || !months.length) return null;
+  var now = new Date();
+  var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  for (var i = months.length - 1; i >= 0; i--) {
+    if (months[i].ym !== curYm) return months[i];
+  }
+  return months[months.length - 1];
+}
+
 // ─── Redesigned top block ──────────────────────────────────────────────
 // Hero card (big Net number + comparison sentence) alongside a 6-month
 // sparkline; then a Money In / Money Out card pair showing the top
 // contributing categories this month; then a compact comparison table.
 //
-// Design goal: give Mike ONE big number to look at, then the story that
-// explains it — where money came from, where it went, and how this
-// month compares to normal.
+// Reference month = LAST COMPLETED month (not current partial month) —
+// so all comparisons vs. 6-month averages are apples-to-apples. Current
+// MTD is shown as a smaller line below for context.
 function _tlHtmlHero(d) {
   var months = d.monthlySeries || [];
   if (!months.length) return '';
-  var cur   = months[months.length - 1];
+  var cur   = _tlLastCompleteMonth(months);
+  if (!cur) cur = months[months.length - 1];
   var k     = d.kpis;
-  var monthLabel = _tlMonthLabel(k.ym);
+  var monthLabel = _tlMonthLabel(cur.ym);
+  // Current in-progress month for the MTD line — only show if it's different
+  // from the reference month (i.e., we're mid-month).
+  var latestEntry = months[months.length - 1];
+  var isMidMonth  = latestEntry && latestEntry.ym !== cur.ym;
+  var mtdEntry    = isMidMonth ? latestEntry : null;
 
-  // Comparison sentence — 6-mo avg is our default benchmark.
-  var delta6 = cur.netAll - k.avgT6M;
+  // Avg NetAll across the LAST N COMPLETED months (skip in-progress current).
+  var completeSeries = mtdEntry ? months.slice(0, -1) : months;
+  function avgComplete(n) {
+    var arr = completeSeries.slice(-n);
+    if (!arr.length) return 0;
+    return arr.reduce(function(s, m) { return s + (m.netAll || 0); }, 0) / arr.length;
+  }
+  var avg6 = avgComplete(6);
+
+  // Comparison sentence — 6-mo avg of completed months is the benchmark.
+  var delta6 = cur.netAll - avg6;
   var direction, deltaTxt;
   if (Math.abs(delta6) < 500) {
     direction = 'arrow-flat';
@@ -2351,12 +2380,26 @@ function _tlHtmlHero(d) {
   // tooltip with the month + amount, and mini labels below the line.
   var spark = _tlSparkline(months, 260, 70);
 
+  // MTD line for the in-progress month, so she still sees "what's
+  // happened this month so far" without it skewing the hero comparison.
+  var mtdLine = '';
+  if (mtdEntry) {
+    var mtdVal = (mtdEntry.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(mtdEntry.netAll)).toLocaleString();
+    var mtdCls = mtdEntry.netAll >= 0 ? 'pos' : 'neg';
+    mtdLine = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;opacity:.85">' +
+      _tlMonthLabel(mtdEntry.ym) + ' <em>month-to-date</em>: ' +
+      '<span class="' + mtdCls + '" style="font-weight:700">' + mtdVal + '</span>' +
+      ' <span style="opacity:.7">— partial month, not directly comparable</span>' +
+    '</div>';
+  }
+
   return '' +
     '<div class="tl-hero-row">' +
       '<div class="tl-hero">' +
-        '<div class="tl-hero-label">Net Cash Flow · ' + monthLabel + '</div>' +
+        '<div class="tl-hero-label">Net Cash Flow · ' + monthLabel + (mtdEntry ? ' (last complete)' : '') + '</div>' +
         '<div class="tl-hero-value ' + heroCls + '">' + heroVal + '</div>' +
         '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(direction) + '</span> ' + deltaTxt + '</div>' +
+        mtdLine +
       '</div>' +
       '<div class="tl-spark-card">' +
         '<div class="tl-spark-label">Net cash flow · last 6 months</div>' +
@@ -2369,8 +2412,12 @@ function _tlHtmlHero(d) {
 function _tlHtmlTopMovers(d) {
   var months = d.monthlySeries || [];
   if (!months.length) return '';
-  var curYm    = months[months.length - 1].ym;
-  var monthLbl = _tlMonthLabel(curYm);
+  // Use last COMPLETED month, not the in-progress current one, so the
+  // top-mover totals are comparable to prior months.
+  var refMonth = _tlLastCompleteMonth(months) || months[months.length - 1];
+  var curYm    = refMonth.ym;
+  var isMTD    = months[months.length - 1].ym !== curYm;
+  var monthLbl = _tlMonthLabel(curYm) + (isMTD ? ' (last complete)' : '');
 
   // Split categoryMatrix by direction using the current month only.
   var inItems = [], outItems = [];
@@ -2544,12 +2591,15 @@ function _tlHtmlBurnForecast(d) {
 function _tlHtmlCompareTable(d) {
   var months = d.monthlySeries || [];
   if (months.length < 2) return '';
-  var cur  = months[months.length - 1];
-  var prev = months[months.length - 2] || { in: 0, out: 0, netAll: 0 };
-  var k    = d.kpis;
+  // "This Month" = last completed month; "Last Month" = the one before.
+  // Averages use completed months only.
+  var cur = _tlLastCompleteMonth(months) || months[months.length - 1];
+  var curIdx = months.map(function(m) { return m.ym; }).indexOf(cur.ym);
+  var prev = curIdx > 0 ? months[curIdx - 1] : { in: 0, out: 0, netAll: 0 };
+  var completeSeries = months.filter(function(m) { return m.ym <= cur.ym; });
 
   function avgN(field, n) {
-    var a = months.slice(-n);
+    var a = completeSeries.slice(-n);
     if (!a.length) return 0;
     return a.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / a.length;
   }
@@ -2572,9 +2622,10 @@ function _tlHtmlCompareTable(d) {
     '</tr>';
   }).join('');
 
+  var isMTD = months[months.length - 1].ym !== cur.ym;
   return '' +
     '<div class="tl-compare">' +
-      '<div class="tl-compare-title">' + _tlMonthLabel(cur.ym) + ' vs benchmarks</div>' +
+      '<div class="tl-compare-title">' + _tlMonthLabel(cur.ym) + (isMTD ? ' (last complete)' : '') + ' vs benchmarks</div>' +
       '<table><thead><tr><th></th><th>This Month</th><th>Last Month</th><th>3-Mo Avg</th><th>6-Mo Avg</th><th>12-Mo Avg</th></tr></thead>' +
       '<tbody>' + body + '</tbody></table>' +
     '</div>';
