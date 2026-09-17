@@ -176,6 +176,8 @@ function _tlmndFetchPlaidRecords(plaidAccts, start, end, results) {
   plaidAccts.forEach(function(a) { wanted[a.accountId] = a; });
 
   var records = [];
+  var found   = {};   // wanted accountId → token slice(-4) that has it
+  var scanned = 0;
 
   tokens.forEach(function(token) {
     // Skip early if none of the wanted accounts are in this Item — do a cheap
@@ -188,8 +190,14 @@ function _tlmndFetchPlaidRecords(plaidAccts, start, end, results) {
         muteHttpExceptions: true
       });
       var accData = JSON.parse(accResp.getContentText());
-      if (accData.error_code) { return; }
-      (accData.accounts || []).forEach(function(a) { if (wanted[a.account_id]) hasWanted = true; });
+      if (accData.error_code) {
+        results.errors.push('Plaid /accounts/get (' + token.slice(-4) + '): ' + accData.error_code + ' — ' + (accData.error_message || ''));
+        return;
+      }
+      (accData.accounts || []).forEach(function(a) {
+        scanned++;
+        if (wanted[a.account_id]) { hasWanted = true; found[a.account_id] = token.slice(-4); }
+      });
     } catch(e) { return; }
     if (!hasWanted) return;
 
@@ -240,6 +248,19 @@ function _tlmndFetchPlaidRecords(plaidAccts, start, end, results) {
     }
   });
 
+  // Surface which configured accountIds we could NOT find in any token.
+  // This is the most common "0 transactions returned" cause — the IDs
+  // provided don't match any account under the current PLAID_TOKENS set
+  // (possibly because Chase re-issued them during a re-link, or the ID
+  // came from an Item that was later removed).
+  var missing = plaidAccts.filter(function(a) { return !found[a.accountId]; });
+  if (missing.length) {
+    missing.forEach(function(m) {
+      results.errors.push('Configured Plaid account NOT FOUND across ' + tokens.length +
+        ' token(s) / ' + scanned + ' account(s): ' + m.label + ' (' + m.accountId.substring(0, 8) + '···' + m.accountId.slice(-6) + ')');
+    });
+  }
+
   return records;
 }
 
@@ -263,14 +284,24 @@ function _tlmndFetchSnapTradeRecords(snapAccts, start, end, results) {
 
   snapAccts.forEach(function(a) {
     try {
-      var resp = snapTradeRequest_('GET', '/accounts/' + a.accountId + '/activities', {
+      // SnapTrade transactions/activities endpoint is /activities (top-level),
+      // with `accounts` as a query param (comma-separated IDs), NOT
+      // /accounts/{id}/activities. Response is either an array directly or an
+      // object with .data / .transactions / .results wrapping the array —
+      // handle all three shapes defensively.
+      var resp = snapTradeRequest_('GET', '/activities', {
         userId:     SNAPTRADE_USER_ID,
         userSecret: userSecret,
+        accounts:   a.accountId,
         startDate:  fmt(start),
         endDate:    fmt(end)
       }, null);
-      // SnapTrade returns an array of activity objects.
-      (resp || []).forEach(function(act) {
+      var arr = Array.isArray(resp) ? resp
+              : (resp && Array.isArray(resp.data))         ? resp.data
+              : (resp && Array.isArray(resp.transactions)) ? resp.transactions
+              : (resp && Array.isArray(resp.results))      ? resp.results
+              : [];
+      arr.forEach(function(act) {
         var amtRaw   = act.amount != null ? Number(act.amount) : (act.price != null ? Number(act.price) * Number(act.units || 0) : 0);
         var currency = (act.currency && act.currency.code) || 'USD';
         // Only USD for now; skip anything else (family office is USD-book)
@@ -405,6 +436,78 @@ function syncTLMNDCashFlowMenu() {
 // Daily scheduled trigger — runs at ~4:30 AM in the script's timezone.
 // Runs quietly (no UI); errors surface in the executions log.
 function _tlmndDailySync() { syncTLMNDCashFlow(); }
+
+// Diagnostic — dumps every Plaid account_id across every current token +
+// which SnapTrade account_ids are visible, and highlights whether the ones
+// in TLMND_CONFIG were actually found. Use when Sync TLMND Cash Flow
+// returns 0 transactions or "account NOT FOUND" errors.
+function diagnoseTLMNDConfig() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getTLMNDConfig_();
+  if (!cfg) { ui.alert('TLMND_CONFIG not set. Run Initialize first.'); return; }
+
+  var out = [];
+  out.push('TLMND CONFIG DIAGNOSTIC');
+  out.push('Generated: ' + new Date().toISOString());
+  out.push('');
+  out.push('── CONFIGURED ACCOUNTS ──');
+  cfg.plaidAccounts.forEach(function(a) {
+    out.push('  Plaid    · ' + a.label + '  (role=' + a.role + ')');
+    out.push('            id: ' + a.accountId);
+  });
+  cfg.snapTradeAccounts.forEach(function(a) {
+    out.push('  SnapTrade · ' + a.label + '  (role=' + a.role + ')');
+    out.push('            id: ' + a.accountId);
+  });
+  out.push('');
+  out.push('── AVAILABLE PLAID ACCOUNTS (across all tokens) ──');
+
+  var pcfg = getPlaidConfig_();
+  var tokens = JSON.parse(PropertiesService.getScriptProperties().getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(PropertiesService.getScriptProperties().getProperty('PLAID_INSTITUTIONS') || '{}');
+  var found = {};
+
+  tokens.forEach(function(token, i) {
+    var label = instMap[token] || '(unnamed)';
+    out.push('');
+    out.push('[' + (i+1) + '] ' + label + '   token ···' + token.slice(-4));
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(pcfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: pcfg.clientId, secret: pcfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var data = JSON.parse(resp.getContentText());
+      if (data.error_code) {
+        out.push('    ERROR: ' + data.error_code + ' — ' + (data.error_message || ''));
+        return;
+      }
+      (data.accounts || []).forEach(function(a) {
+        var wanted = cfg.plaidAccounts.filter(function(w) { return w.accountId === a.account_id; });
+        var marker = wanted.length ? '  ✅ MATCHES ' + wanted[0].label : '';
+        out.push('    · ' + (a.name || 'Account') + '  ···' + (a.mask || '????') + marker);
+        out.push('      id: ' + a.account_id);
+        if (wanted.length) found[a.account_id] = true;
+      });
+    } catch(e) {
+      out.push('    fetch exception: ' + e.message);
+    }
+  });
+
+  out.push('');
+  out.push('── MATCH SUMMARY ──');
+  cfg.plaidAccounts.forEach(function(a) {
+    out.push('  ' + (found[a.accountId] ? '✅' : '❌') + ' ' + a.label + ' (' + a.accountId.substring(0, 8) + '···' + a.accountId.slice(-6) + ')');
+  });
+
+  var reportText = out.join('\n');
+  var stamp = new Date().toISOString().substring(0, 19).replace(/[:T]/g, '-');
+  var file  = DriveApp.createFile('TLMND Config Diagnostic ' + stamp + '.txt', reportText, MimeType.PLAIN_TEXT);
+
+  var shown = reportText;
+  if (shown.length > 4200) shown = shown.substring(0, 4200) + '\n\n… (truncated — full report in Drive)';
+  ui.alert('TLMND Config Diagnostic', shown + '\n\nFull report:\n' + file.getUrl(), ui.ButtonSet.OK);
+}
 
 function installTLMNDCashFlowTrigger() {
   var ui = SpreadsheetApp.getUi();

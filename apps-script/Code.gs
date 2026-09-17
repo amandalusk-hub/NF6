@@ -166,6 +166,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Initialize TLMND Cash Flow Config', 'initTLMNDConfigDefaults')
     .addItem('Sync TLMND Cash Flow (manual)', 'syncTLMNDCashFlowMenu')
+    .addItem('Diagnose TLMND Cash Flow Config', 'diagnoseTLMNDConfig')
     .addItem('Install TLMND Cash Flow Daily Trigger (4:30 AM)', 'installTLMNDCashFlowTrigger')
     .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
