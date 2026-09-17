@@ -154,6 +154,18 @@ function syncTLMNDCashFlow() {
     results.success = false;
   }
 
+  // Auto-categorize via rules engine (if any rules exist). Non-fatal on failure.
+  try {
+    var ruleRes = applyTLMNDRules();
+    if (ruleRes.success) {
+      results.categorized   = ruleRes.categorized;
+      results.excluded      = ruleRes.excluded;
+      results.uncategorized = ruleRes.uncategorized;
+    }
+  } catch(e) {
+    results.errors.push('Rules apply failed: ' + e.message);
+  }
+
   results.errorCount = results.errors.length;
   return results;
 }
@@ -424,11 +436,14 @@ function _tlmndUpsertRecords(records) {
 function syncTLMNDCashFlowMenu() {
   var ui = SpreadsheetApp.getUi();
   var r  = syncTLMNDCashFlow();
-  var msg = 'Plaid transactions:     ' + (r.plaidCount || 0) +
-            '\nSnapTrade activities: ' + (r.snapTradeCount || 0) +
-            '\nUpserts:                     ' + (r.upserts || 0) +
-            '\nNew rows:                  ' + (r.newRows || 0) +
-            '\nErrors:                        ' + (r.errorCount || 0);
+  var msg = 'Plaid transactions:       ' + (r.plaidCount || 0) +
+            '\nSnapTrade activities:  ' + (r.snapTradeCount || 0) +
+            '\nUpserts:                        ' + (r.upserts || 0) +
+            '\nNew rows:                     ' + (r.newRows || 0) +
+            '\nCategorized:                 ' + (r.categorized || 0) +
+            '\n  of which [EXCLUDED]: ' + (r.excluded || 0) +
+            '\nStill uncategorized:      ' + (r.uncategorized || 0) +
+            '\nErrors:                           ' + (r.errorCount || 0);
   if (r.errors && r.errors.length) msg += '\n\nErrors:\n  • ' + r.errors.slice(0, 8).join('\n  • ');
   ui.alert(r.success ? 'TLMND Cash Flow Synced' : 'TLMND Cash Flow: Errors', msg, ui.ButtonSet.OK);
 }
@@ -507,6 +522,272 @@ function diagnoseTLMNDConfig() {
   var shown = reportText;
   if (shown.length > 4200) shown = shown.substring(0, 4200) + '\n\n… (truncated — full report in Drive)';
   ui.alert('TLMND Config Diagnostic', shown + '\n\nFull report:\n' + file.getUrl(), ui.ButtonSet.OK);
+}
+
+// ============================================================================
+// PHASE 2 — CATEGORY RULES ENGINE
+//
+// The TLMND_CATEGORY_RULES sheet is the source of truth for turning raw
+// transaction names into your line-item categories (Solaris-Fl Loan Repay,
+// Ellison Medical, Payroll, etc). Applied automatically after every sync,
+// and on demand via "Apply TLMND Rules" menu.
+//
+// Schema (columns A–L):
+//   Priority       — lower runs first; first match wins per transaction
+//   Match Field    — Name | Merchant | Account (what to test against)
+//   Match Type     — contains | starts_with | regex | equals (case-insensitive)
+//   Pattern        — the pattern to match
+//   Amount Min     — optional; skip rule if amount < this (blank = no min)
+//   Amount Max     — optional; skip rule if amount > this
+//   Category       — line item name (e.g. "Solaris-Fl Holding LLC Loan Repayment Income")
+//   Recurring      — Yes | No | blank
+//   Entity Tag     — TLM | NF | NF6 | Dr M | TLN | TLW | blank (attribution)
+//   Exclude        — Yes | blank; if Yes, the transaction is excluded from
+//                    cash-flow totals (used for internal transfers and
+//                    Fidelity SPAXX cash-mgmt noise that would double-count)
+//   Enabled        — Yes | blank; blank disables the rule (leave in place
+//                    but don't apply)
+//   Notes          — free text for you
+//
+// Manual overrides: if you set the Category column on a transaction manually
+// (a value that doesn't match any rule), it's preserved on re-sync. Only
+// rows whose Category is either blank OR was set by a rule (matches some
+// rule's Category) get re-categorized.
+// ============================================================================
+
+var TLMND_RULES_HEADERS = [
+  'Priority',     // A
+  'Match Field',  // B
+  'Match Type',   // C
+  'Pattern',      // D
+  'Amount Min',   // E
+  'Amount Max',   // F
+  'Category',     // G
+  'Recurring',    // H
+  'Entity Tag',   // I
+  'Exclude',      // J
+  'Enabled',      // K
+  'Notes'         // L
+];
+
+function _tlmndGetOrCreateRulesSheet() {
+  var ss    = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('TLMND_CATEGORY_RULES');
+  if (!sheet) {
+    sheet = ss.insertSheet('TLMND_CATEGORY_RULES');
+    sheet.getRange(1, 1, 1, TLMND_RULES_HEADERS.length).setValues([TLMND_RULES_HEADERS])
+      .setFontWeight('bold').setBackground('#f8f9fa');
+    sheet.setFrozenRows(1);
+    sheet.setColumnWidth(4, 300);   // Pattern
+    sheet.setColumnWidth(7, 280);   // Category
+    sheet.setColumnWidth(12, 200);  // Notes
+  }
+  return sheet;
+}
+
+// Starter rule set matched to the patterns actually observed in the user's
+// TLMND_TRANSACTIONS data. Idempotent: replaces the sheet's rules entirely
+// each time it's run — so you can re-seed after schema changes without
+// creating duplicates. Any custom rules you added by hand will be lost — add
+// them again after re-seeding.
+function seedTLMNDRules() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert('Seed TLMND Rules',
+    'This will REPLACE all rules in TLMND_CATEGORY_RULES with a starter set matched to your ' +
+    'spreadsheet\'s line items. Any custom rules you added will be lost — you can re-add them after.\n\nContinue?',
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  var sheet = _tlmndGetOrCreateRulesSheet();
+  var last  = sheet.getLastRow();
+  if (last > 1) sheet.getRange(2, 1, last - 1, TLMND_RULES_HEADERS.length).clearContent();
+
+  // Rule schema: [Priority, Match Field, Match Type, Pattern, Amt Min, Amt Max, Category, Recurring, Entity Tag, Exclude, Enabled, Notes]
+  var rules = [
+    // ── MONEY IN — recurring ─────────────────────────────────────────────
+    [10, 'Name', 'contains', 'SOLARIS-FL HOLDI',                  '', '', 'Solaris-Fl Holding LLC Loan Repayment Income', 'Yes', 'TLM',        '', 'Yes', 'Monthly ~$16,656'],
+    [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'NF USA CA',  '', 'Yes', 'Lands on NF USA CA ···2086'],
+    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'No',  'TLM',        '', 'Yes', ''],
+
+    // ── MONEY OUT — recurring ────────────────────────────────────────────
+    [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLM',        '', 'Yes', 'Monthly ~$9,764'],
+    [10, 'Name', 'contains', 'THE GUARDIAN',                      '', '', 'The Guardian Insurance',                        'Yes', 'TLM',        '', 'Yes', 'Monthly ~$625'],
+    [10, 'Name', 'contains', 'EWALLET - Divvy',                   '', '', 'Divvy Bill (Grand Total)',                      'Yes', 'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'BSCAccountingLLC',                  '', '', 'BSC Accounting LLC (Accounting Fees)',          'Yes', 'TLM',        '', 'Yes', 'Monthly -$3,500'],
+    [10, 'Name', 'contains', 'PENN MUTUAL LIFE INS',              '', '', 'Life Insurance (Waskar Tejeda / Penn Mutual)',  'Yes', 'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'To ManuEstrada',                    '', '', 'Manuela Estrada - Legal Fees',                  'Yes', 'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'To LynnNguyen',                     '', '', 'Lynn Repayment',                                'Yes', 'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'MANUELA VALLEJO',                   '', '', 'Consulting - Manuela Vallejo',                  'Yes', 'TLM',        '', 'Yes', 'International wire, Vietnam'],
+
+    // ── MONEY OUT — non-recurring / one-offs ─────────────────────────────
+    [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', ''],
+    [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF Medellin (Inter-Entity Transfer)',           'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
+    [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLM',        '', 'Yes', ''],
+    [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Consulting - Manuela Estrada (House Project)',  'No',  'TLM',        '', 'Yes', ''],
+
+    // ── FIDELITY (SnapTrade) — real cash flow ────────────────────────────
+    [30, 'Name', 'contains', 'GUSTO NET',                         '', '', 'Payroll (Net Wages)',                           'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO TAX',                         '', '', 'Payroll (Employer Taxes)',                      'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO ICD',                         '', '', 'Payroll (Contractor Deposits)',                 'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO FEE',                         '', '', 'Payroll (Gusto Fees)',                          'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO CND',                         '', '', 'Payroll (Contractor Non-Deposit)',              'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'NEXT INSUR',                        '', '', 'Business Insurance (Next Insurance)',           'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'DIVIDEND SPAXX',                    '', '', 'Fidelity Money Market Interest',                'Yes', 'TLM',        '', 'Yes', ''],
+
+    // ── EXCLUDE — internal cash mgmt / would double-count ────────────────
+    // Fidelity SPAXX buy/sell/reinvest — internal cash sweep, not real flow.
+    [40, 'Name', 'contains', 'BUY SPAXX',                         '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+    [40, 'Name', 'contains', 'SELL SPAXX',                        '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+    [40, 'Name', 'contains', 'REI SPAXX',                         '', '', '(Fidelity SPAXX reinvestment)',                  '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+    // TLMND → Fidelity transfer, both sides.
+    [40, 'Name', 'contains', 'To FidelityTLMND',                  '', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION'],
+    [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+
+    // ── Bank noise ───────────────────────────────────────────────────────
+    [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
+    [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
+
+    // ── Inter-account journal transfers (Chase-internal, exclude) ─────────
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — internal Chase transfer'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — internal Chase transfer'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', '(Journal from other Chase acct)',               '',   '',           'Yes', 'Yes', 'Excluded — investigate ···8686'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', '(Journal to Chase ···5155)',                    '',   '',           'Yes', 'Yes', 'Excluded — investigate ···5155']
+  ];
+
+  sheet.getRange(2, 1, rules.length, TLMND_RULES_HEADERS.length).setValues(rules);
+  ui.alert('Seeded ' + rules.length + ' rules into TLMND_CATEGORY_RULES.\n\n' +
+           'Run Tracker → Apply TLMND Rules to categorize existing transactions, ' +
+           'or run a full Sync — rules are applied automatically after every sync.');
+}
+
+function _tlmndLoadRules() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_CATEGORY_RULES');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, TLMND_RULES_HEADERS.length).getValues();
+  var rules = [];
+  vals.forEach(function(r) {
+    if (String(r[10]).toLowerCase() !== 'yes') return;   // Enabled column
+    if (!r[3]) return;                                    // no Pattern → skip
+    rules.push({
+      priority:  Number(r[0]) || 999,
+      field:     String(r[1] || 'Name'),
+      matchType: String(r[2] || 'contains').toLowerCase(),
+      pattern:   String(r[3]),
+      amtMin:    r[4] === '' || r[4] == null ? null : Number(r[4]),
+      amtMax:    r[5] === '' || r[5] == null ? null : Number(r[5]),
+      category:  String(r[6] || ''),
+      recurring: String(r[7] || ''),
+      entityTag: String(r[8] || ''),
+      exclude:   String(r[9]).toLowerCase() === 'yes'
+    });
+  });
+  rules.sort(function(a, b) { return a.priority - b.priority; });
+  return rules;
+}
+
+function _tlmndMatchOne(fieldValue, matchType, pattern) {
+  var haystack = String(fieldValue || '').toLowerCase();
+  var needle   = String(pattern || '').toLowerCase();
+  switch (matchType) {
+    case 'equals':      return haystack === needle;
+    case 'starts_with': return haystack.indexOf(needle) === 0;
+    case 'regex':
+      try { return new RegExp(pattern, 'i').test(fieldValue); } catch(e) { return false; }
+    case 'contains':
+    default:            return haystack.indexOf(needle) >= 0;
+  }
+}
+
+// Apply rules to TLMND_TRANSACTIONS. Preserves manually-set Category values
+// (any Category that doesn't match some rule's Category is treated as manual).
+function applyTLMNDRules() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'No transactions to categorize.' };
+
+  var rules = _tlmndLoadRules();
+  if (!rules.length) return { success: false, error: 'No enabled rules in TLMND_CATEGORY_RULES. Run "Seed TLMND Rules" first.' };
+
+  // Header index map for future-proofing.
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  function ci(name) { return headers.indexOf(name); }
+  var idxName   = ci('Name');
+  var idxMerch  = ci('Merchant');
+  var idxAccount= ci('Account');
+  var idxAmount = ci('Amount USD');
+  var idxCat    = ci('Category');
+  var idxRec    = ci('Recurring');
+  var idxEnt    = ci('Entity Tag');
+  var idxNotes  = ci('Notes');
+  if (idxCat < 0) return { success: false, error: 'Category column missing.' };
+
+  // Set of rule categories so we can detect manual overrides.
+  var ruleCategories = {};
+  rules.forEach(function(r) { if (r.category) ruleCategories[r.category] = true; });
+
+  var last = sheet.getLastRow();
+  var range = sheet.getRange(2, 1, last - 1, headers.length);
+  var vals  = range.getValues();
+
+  var categorized = 0, skippedManual = 0, uncategorized = 0, excluded = 0;
+
+  vals.forEach(function(row, i) {
+    var existing = String(row[idxCat] || '').trim();
+    // Manual override: category set to a value no rule uses → preserve.
+    if (existing && !ruleCategories[existing]) { skippedManual++; return; }
+
+    var matched = null;
+    for (var k = 0; k < rules.length; k++) {
+      var r = rules[k];
+      var fieldVal = r.field === 'Merchant' ? row[idxMerch]
+                   : r.field === 'Account'  ? row[idxAccount]
+                   :                          row[idxName];
+      if (!_tlmndMatchOne(fieldVal, r.matchType, r.pattern)) continue;
+      var amt = Number(row[idxAmount] || 0);
+      if (r.amtMin !== null && amt < r.amtMin) continue;
+      if (r.amtMax !== null && amt > r.amtMax) continue;
+      matched = r; break;
+    }
+
+    if (matched) {
+      row[idxCat] = matched.category;
+      if (matched.recurring) row[idxRec] = matched.recurring;
+      if (matched.entityTag) row[idxEnt] = matched.entityTag;
+      if (matched.exclude) {
+        // Prepend [EXCLUDED] marker in Notes so users see it in the sheet at a glance.
+        var n = String(row[idxNotes] || '');
+        if (n.indexOf('[EXCLUDED]') < 0) row[idxNotes] = ('[EXCLUDED] ' + n).trim();
+        excluded++;
+      }
+      categorized++;
+    } else if (!existing) {
+      uncategorized++;
+    }
+  });
+
+  range.setValues(vals);
+  return {
+    success: true,
+    total: vals.length,
+    categorized: categorized,
+    excluded: excluded,
+    skippedManual: skippedManual,
+    uncategorized: uncategorized
+  };
+}
+
+function applyTLMNDRulesMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r  = applyTLMNDRules();
+  if (!r.success) { ui.alert('Failed', r.error, ui.ButtonSet.OK); return; }
+  ui.alert('TLMND Rules Applied',
+    'Total rows:                  ' + r.total +
+    '\nCategorized (this run): ' + r.categorized +
+    '\n  of which [EXCLUDED]: ' + r.excluded +
+    '\nSkipped (manual override): ' + r.skippedManual +
+    '\nStill uncategorized:      ' + r.uncategorized +
+    (r.uncategorized > 0 ? '\n\nFor the uncategorized rows, either add a new rule in TLMND_CATEGORY_RULES ' +
+     'or set the Category column manually — manual values are preserved on re-sync.' : ''),
+    ui.ButtonSet.OK);
 }
 
 function installTLMNDCashFlowTrigger() {

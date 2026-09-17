@@ -166,6 +166,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Initialize TLMND Cash Flow Config', 'initTLMNDConfigDefaults')
     .addItem('Sync TLMND Cash Flow (manual)', 'syncTLMNDCashFlowMenu')
+    .addItem('Seed TLMND Category Rules', 'seedTLMNDRules')
+    .addItem('Apply TLMND Rules (recategorize)', 'applyTLMNDRulesMenu')
     .addItem('Diagnose TLMND Cash Flow Config', 'diagnoseTLMNDConfig')
     .addItem('Install TLMND Cash Flow Daily Trigger (4:30 AM)', 'installTLMNDCashFlowTrigger')
     .addSeparator()
