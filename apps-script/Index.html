@@ -472,8 +472,9 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-spark-card{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column}
       #tab-tlmnd .tl-spark-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
       #tab-tlmnd .tl-spark-title{font-size:13px;color:#0d2137;font-weight:600;margin-bottom:4px}
-      #tab-tlmnd .tl-spark-svg{width:100%;flex:1;min-height:70px}
+      #tab-tlmnd .tl-spark-svg{width:100%;flex:1;min-height:90px}
       #tab-tlmnd .tl-spark-legend{margin-top:6px;display:flex;justify-content:space-between;font-size:10px;color:#5f6368}
+      #tab-tlmnd .tl-spark-hint{margin-top:6px;font-size:10px;color:#9aa0a6;text-align:center;font-style:italic}
       #tab-tlmnd .tl-flow-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
       @media(max-width:720px){#tab-tlmnd .tl-flow-row{grid-template-columns:1fr}}
       #tab-tlmnd .tl-flow{background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-top:3px solid #ddd}
@@ -2025,11 +2026,9 @@ function _tlHtmlHero(d) {
   var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
   var heroVal = (cur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(cur.netAll)).toLocaleString();
 
-  // 6-month sparkline (or however many we have).
-  var spark = _tlSparkline(months.map(function(s) { return s.netAll; }), 260, 60);
-  var min = Math.min.apply(null, months.map(function(s) { return s.netAll; }));
-  var max = Math.max.apply(null, months.map(function(s) { return s.netAll; }));
-  var firstYm = months[0].ym, lastYm = months[months.length-1].ym;
+  // Sparkline showing net cash flow per month. Each point has a hover
+  // tooltip with the month + amount, and mini labels below the line.
+  var spark = _tlSparkline(months, 260, 70);
 
   return '' +
     '<div class="tl-hero-row">' +
@@ -2039,10 +2038,9 @@ function _tlHtmlHero(d) {
         '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(direction) + '</span> ' + deltaTxt + '</div>' +
       '</div>' +
       '<div class="tl-spark-card">' +
-        '<div class="tl-spark-label">Net cash flow trend</div>' +
-        '<div class="tl-spark-title">' + _tlFmtSigned(min) + ' → ' + _tlFmtSigned(max) + '</div>' +
+        '<div class="tl-spark-label">Net cash flow · last 6 months</div>' +
         spark +
-        '<div class="tl-spark-legend"><span>' + _tlMonthLabel(firstYm) + '</span><span>' + _tlMonthLabel(lastYm) + '</span></div>' +
+        '<div class="tl-spark-hint">Hover over a dot to see the month\'s net cash flow.</div>' +
       '</div>' +
     '</div>';
 }
@@ -2050,7 +2048,8 @@ function _tlHtmlHero(d) {
 function _tlHtmlTopMovers(d) {
   var months = d.monthlySeries || [];
   if (!months.length) return '';
-  var curYm = months[months.length - 1].ym;
+  var curYm    = months[months.length - 1].ym;
+  var monthLbl = _tlMonthLabel(curYm);
 
   // Split categoryMatrix by direction using the current month only.
   var inItems = [], outItems = [];
@@ -2084,14 +2083,14 @@ function _tlHtmlTopMovers(d) {
     '<div class="tl-flow-row">' +
       '<div class="tl-flow in">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Money In · Top Sources</div>' +
+          '<div class="tl-flow-title">' + monthLbl + ' · Top Sources of Money In</div>' +
           '<div class="tl-flow-total pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
         '</div>' +
         itemList(inItems, 5) +
       '</div>' +
       '<div class="tl-flow out">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Money Out · Top Expenses</div>' +
+          '<div class="tl-flow-title">' + monthLbl + ' · Top Expenses</div>' +
           '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         '</div>' +
         itemList(outItems, 5) +
@@ -2278,29 +2277,62 @@ function _tlArrowGlyph(kind) {
   if (kind === 'arrow-down') return '▼';
   return '■';
 }
-function _tlSparkline(vals, w, h) {
-  if (!vals || !vals.length) return '';
-  var padY = 6, padX = 4;
+// Sparkline of monthly net cash flow. Accepts an array of series objects
+// {ym, netAll, ...} so it can render month labels and hover tooltips
+// alongside the line. Falls back to a bare number array for legacy callers.
+function _tlSparkline(series, w, h) {
+  if (!series || !series.length) return '';
+  // Normalize input: series objects → extract netAll + ym; bare numbers stay.
+  var isObj = typeof series[0] === 'object';
+  var vals  = isObj ? series.map(function(s) { return s.netAll; }) : series;
+  var yms   = isObj ? series.map(function(s) { return s.ym; })     : series.map(function() { return ''; });
+
+  var padY = 12, padX = 20, labelH = 14;
+  var chartH = h - labelH;
   var min = Math.min.apply(null, vals), max = Math.max.apply(null, vals);
   if (min === max) { min -= 1; max += 1; }
   var rng = max - min;
   var step = vals.length > 1 ? (w - padX*2) / (vals.length - 1) : 0;
   var pts = vals.map(function(v, i) {
     var x = padX + i * step;
-    var y = padY + (h - padY*2) * (1 - (v - min) / rng);
-    return x + ',' + y;
+    var y = padY + (chartH - padY*2) * (1 - (v - min) / rng);
+    return { x: x, y: y, v: v, ym: yms[i] };
   });
   // Zero baseline if it lies within the range.
   var zeroLine = '';
   if (min < 0 && max > 0) {
-    var zy = padY + (h - padY*2) * (1 - (0 - min) / rng);
-    zeroLine = '<line x1="' + padX + '" y1="' + zy + '" x2="' + (w-padX) + '" y2="' + zy + '" stroke="#dadce0" stroke-dasharray="2,3"/>';
+    var zy = padY + (chartH - padY*2) * (1 - (0 - min) / rng);
+    zeroLine = '<line x1="' + padX + '" y1="' + zy + '" x2="' + (w-padX) + '" y2="' + zy + '" stroke="#dadce0" stroke-dasharray="2,3"/>' +
+               '<text x="' + (padX - 3) + '" y="' + (zy + 3) + '" text-anchor="end" font-size="8" fill="#9aa0a6">$0</text>';
   }
   var color = vals[vals.length-1] >= 0 ? '#137333' : '#a50e0e';
+  var polyPts = pts.map(function(p) { return p.x + ',' + p.y; }).join(' ');
+
+  // Circles with tooltip titles + amount labels above each dot.
+  var dots = pts.map(function(p, i) {
+    var mLbl = _tlMonthLabel(p.ym);
+    var fmt  = (p.v < 0 ? '−$' : '+$') + Math.abs(Math.round(p.v)).toLocaleString();
+    var isLast = i === pts.length - 1;
+    var r = isLast ? 4 : 3;
+    var dotColor = p.v >= 0 ? '#137333' : '#a50e0e';
+    return '<g><title>' + mLbl + ': ' + fmt + '</title>' +
+      '<circle cx="' + p.x + '" cy="' + p.y + '" r="' + r + '" fill="' + dotColor + '"' +
+      (isLast ? ' stroke="#fff" stroke-width="1.5"' : '') + '/>' +
+      '<circle cx="' + p.x + '" cy="' + p.y + '" r="10" fill="transparent" style="cursor:pointer"><title>' + mLbl + ': ' + fmt + '</title></circle>' +
+    '</g>';
+  }).join('');
+
+  // Month labels below the line — abbreviated (Apr, May, ...) to fit.
+  var monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var mLabels = pts.map(function(p) {
+    var mo = p.ym ? monthShort[Number(p.ym.split('-')[1]) - 1] : '';
+    return '<text x="' + p.x + '" y="' + (h - 2) + '" text-anchor="middle" font-size="10" fill="#5f6368">' + mo + '</text>';
+  }).join('');
+
   return '<svg class="tl-spark-svg" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
     zeroLine +
-    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
-    pts.map(function(p) { var xy = p.split(','); return '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="2.5" fill="' + color + '"/>'; }).join('') +
+    '<polyline points="' + polyPts + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+    dots + mLabels +
     '</svg>';
 }
 
