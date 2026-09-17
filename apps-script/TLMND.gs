@@ -628,6 +628,11 @@ function seedTLMNDRules() {
     [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
     [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction'],
     [10, 'Name', 'contains', 'SA NJ REALTY',                      '', '', 'ASC Rental Income - TLMND Share (SA NJ Realty)', 'Yes', 'TLMND',   '', 'Yes', 'Recurring — Mike\'s real estate rent (comes in every so often)'],
+    // WASKAR TEJEDA payments (CHIPS credits, wires) — categorize with Wasica
+    // Holdings per user. Priority 15 keeps Penn Mutual Life Insurance
+    // (priority 10) winning first for its specific pattern even though
+    // that transaction also references Waskar in its wire memo.
+    [15, 'Name', 'contains', 'WASKAR',                             '', '', 'Wasica Holdings (Book Credit)',                  'Yes', 'TLMND',   '', 'Yes', 'Waskar Tejeda transfers routed to Wasica Holdings category'],
 
     // ── MONEY OUT — recurring ────────────────────────────────────────────
     [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],
@@ -724,6 +729,7 @@ function seedTLMNDRules() {
     [200, 'Name', 'contains',    'ORIG CO NAME:',                 '', '', 'Other ACH (Deposit or Debit)',             'No',  'TLMND', '', 'Yes', 'Catch-all — inbound or outbound ACH not matched'],
     [200, 'Name', 'contains',    'REMOTE ONLINE DEPOSIT',         '', '', 'Remote Check Deposit',                     'No',  'TLMND', '', 'Yes', 'Deposited check via app/scanner'],
     [200, 'Name', 'contains',    'DEPOSIT ID NUMBER',             '', '', 'Branch Deposit',                           'No',  'TLMND', '', 'Yes', 'Cash/check deposit at branch'],
+    [200, 'Name', 'starts_with', 'CHECK #',                       '', '', 'Check Payment',                            'No',  'TLMND', '', 'Yes', 'Hand-written check debited from the account'],
 
     // ── Inter-account journal transfers ──────────────────────────────────
     // NF USA CA ↔ TLMND internal journals: paired with the Ellison deposit
@@ -735,8 +741,9 @@ function seedTLMNDRules() {
     // Match both by account-mask (internal Chase transfer) AND by name
     // substring in case Blue Panda money arrives via a different mechanism
     // (wire, ACH) with a different name format.
-    [15, 'Name', 'contains', 'BLUE PANDA',                        '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Any Blue Panda inbound — catches wires/ACH by name'],
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding (Chase internal transfer)'],
+    [15, 'Name', 'contains', 'BLUE PANDA',                        '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Any Blue Panda inbound — catches wires/ACH by name'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Blue Panda Family ···8686 → TLMND (inbound Chase internal transfer)'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...8686',    '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'TLMND → Blue Panda Family ···8686 (outbound Chase internal transfer)'],
     // TLMND ↔ NF USA TX: real inter-entity movement, COUNT it. Match by
     // name substring first (catches wires/ACH) then by the internal
     // Chase transfer format as a fallback.
@@ -755,7 +762,7 @@ function seedTLMNDRules() {
   // source filter so a SnapTrade pattern like starts_with 'DEPOSIT' can't
   // accidentally match a Plaid transaction that starts with the same word.
   var snapTradePatterns = ['BUY ','SELL ','DIVIDEND','INTEREST','WITHDRAWAL','DEPOSIT','TRANSFER','FEE','TAX','CONTRIBUTION','REI '];
-  var plaidPatterns     = ['DOMESTIC WIRE TRANSFER','INTERNATIONAL WIRE','BOOK TRANSFER','Online ACH Payment','ORIG CO NAME:','REMOTE ONLINE DEPOSIT','DEPOSIT ID NUMBER'];
+  var plaidPatterns     = ['DOMESTIC WIRE TRANSFER','INTERNATIONAL WIRE','BOOK TRANSFER','Online ACH Payment','ORIG CO NAME:','REMOTE ONLINE DEPOSIT','DEPOSIT ID NUMBER','CHECK #'];
   rules.forEach(function(r) {
     if (r[0] !== 200) return;
     if (snapTradePatterns.indexOf(String(r[3])) >= 0) r[12] = 'SnapTrade';
