@@ -550,6 +550,18 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd table.tl-matrix .row-group td{background:#dfe4ea;padding-top:8px;padding-bottom:8px}
       #tab-tlmnd table.tl-matrix .row-group td:first-child{background:#dfe4ea;padding-left:24px}
       #tab-tlmnd table.tl-matrix .tl-cat-row td:first-child{padding-left:24px}
+      /* Internal Movements panel — reference only */
+      #tab-tlmnd .tl-internal{background:#fff;border-radius:10px;padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;border-left:4px solid #9aa0a6}
+      #tab-tlmnd .tl-internal-title{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:6px}
+      #tab-tlmnd .tl-internal-sub{font-size:11px;color:#5f6368;margin-bottom:14px;font-style:italic}
+      #tab-tlmnd .tl-internal-table{width:100%;border-collapse:collapse;font-size:12px}
+      #tab-tlmnd .tl-internal-table th{text-align:right;padding:6px 10px;background:#f8f9fa;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.4px;white-space:nowrap;border-bottom:1px solid #e0e0e0}
+      #tab-tlmnd .tl-internal-table th:first-child{text-align:left}
+      #tab-tlmnd .tl-internal-table td{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap;color:#5f6368}
+      #tab-tlmnd .tl-internal-table td:first-child{text-align:left;font-weight:500;color:#333}
+      #tab-tlmnd .tl-internal-table .flow-out{color:#a50e0e}
+      #tab-tlmnd .tl-internal-table .flow-in{color:#137333}
+      #tab-tlmnd .tl-internal-empty{color:#9aa0a6;font-style:italic;padding:12px 0}
       #tab-tlmnd .amt-pos{color:#137333}
       #tab-tlmnd .amt-neg{color:#a50e0e}
       #tab-tlmnd .amt-zero{color:#bbb}
@@ -1982,7 +1994,8 @@ function renderTLMNDCashFlow() {
   }
 
   var html = _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
-             _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) + _tlHtmlCategoryMatrix(d);
+             _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
+             _tlHtmlCategoryMatrix(d) + _tlHtmlInternalMovements(d);
   content.innerHTML = html;
 
   // Wire up click-to-drill on category rows.
@@ -2525,6 +2538,80 @@ function _tlHtmlCategoryMatrix(d) {
       'Click any row to see the underlying transactions. Data as of ' + (d.generatedAt || '') +
     '</div>' +
     _tlHtmlDrilldownModal();
+}
+
+// ─── Internal Account Movements ───────────────────────────────────────
+// Shows the excluded transfers that move money between TLMND's own
+// accounts (Chase TLMND ↔ Fidelity TLMND, NF USA CA ↔ TLMND).
+// These aren't real cash flow but she should still see them for
+// reconciliation — did the wire go through, is the amount right, etc.
+// Filters out SPAXX cash-management noise since that's pure internal
+// Fidelity plumbing with no meaning outside the brokerage account.
+function _tlHtmlInternalMovements(d) {
+  var months = d.monthKeys || [];
+  var txns   = d.transactions || [];
+  if (!months.length || !txns.length) return '';
+
+  // Group excluded transactions by category, but only keep the ones that
+  // represent a real account-to-account movement (Transfer / Journal).
+  // Skip Fidelity SPAXX cash sweep, reinvestments, and investment buys/sells
+  // — those are internal Fidelity plumbing, not cross-account moves the
+  // user cares about.
+  var byCategory = {};
+  txns.forEach(function(t) {
+    if (!t.excluded) return;
+    var cat = t.category || '(Uncategorized)';
+    var lower = cat.toLowerCase();
+    if (/spaxx|reinvestment|purchase|sale|contribution/.test(lower)) return;
+    if (!/transfer|journal/.test(lower)) return;
+    if (!byCategory[cat]) byCategory[cat] = { category: cat, months: {}, total: 0 };
+    byCategory[cat].months[t.ym] = (byCategory[cat].months[t.ym] || 0) + t.amount;
+    byCategory[cat].total += t.amount;
+  });
+
+  var groups = Object.keys(byCategory).map(function(k) { return byCategory[k]; })
+    .sort(function(a, b) { return Math.abs(b.total) - Math.abs(a.total); });
+
+  if (!groups.length) {
+    return '' +
+      '<div class="tl-internal">' +
+        '<div class="tl-internal-title">Internal Account Movements</div>' +
+        '<div class="tl-internal-sub">Not counted in cash flow · shown for reconciliation only</div>' +
+        '<div class="tl-internal-empty">No internal transfers in this window.</div>' +
+      '</div>';
+  }
+
+  // Header row: month columns
+  var monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var thead = '<thead><tr><th>Movement</th>' +
+    months.map(function(ym) {
+      var p = ym.split('-'); return '<th>' + monthShort[Number(p[1])-1] + ' ' + p[0].slice(2) + '</th>';
+    }).join('') +
+    '<th>Total</th></tr></thead>';
+
+  // Body rows: one per grouped movement
+  var body = '<tbody>' + groups.map(function(g) {
+    var tds = months.map(function(ym) {
+      var v = g.months[ym] || 0;
+      if (!v) return '<td>·</td>';
+      var cls = v >= 0 ? 'flow-in' : 'flow-out';
+      var sign = v >= 0 ? '+' : '−';
+      return '<td class="' + cls + '">' + sign + '$' + Math.abs(Math.round(v)).toLocaleString() + '</td>';
+    }).join('');
+    var total = g.total || 0;
+    var totalCls = total >= 0 ? 'flow-in' : 'flow-out';
+    var totalSign = total >= 0 ? '+' : '−';
+    return '<tr><td>' + g.category + '</td>' + tds +
+      '<td class="' + totalCls + '"><strong>' + totalSign + '$' + Math.abs(Math.round(total)).toLocaleString() + '</strong></td></tr>';
+  }).join('') + '</tbody>';
+
+  return '' +
+    '<div class="tl-internal">' +
+      '<div class="tl-internal-title">Internal Account Movements</div>' +
+      '<div class="tl-internal-sub">Transfers between TLMND\'s own accounts (Chase ↔ Fidelity, NF USA CA ↔ TLMND). ' +
+        'Not counted in cash flow · shown for reconciliation only.</div>' +
+      '<table class="tl-internal-table">' + thead + body + '</table>' +
+    '</div>';
 }
 
 function _tlHtmlDrilldownModal() {
