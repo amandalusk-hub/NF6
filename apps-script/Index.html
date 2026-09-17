@@ -497,6 +497,26 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-compare td{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap}
       #tab-tlmnd .tl-compare td:first-child{text-align:left;font-weight:500;color:#0d2137}
       #tab-tlmnd .tl-compare tr.net-row td{font-weight:700;font-size:13px;border-top:2px solid #dadce0}
+      /* Burn & Forecast section */
+      #tab-tlmnd .tl-forecast{background:#fff;border-radius:10px;padding:20px 24px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;border-left:4px solid #0d2137}
+      #tab-tlmnd .tl-forecast-title{font-size:12px;color:#666;text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:14px}
+      #tab-tlmnd .tl-forecast-sub{font-size:11px;color:#5f6368;margin-bottom:16px}
+      #tab-tlmnd .tl-forecast-flow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #f0f0f0}
+      @media(max-width:720px){#tab-tlmnd .tl-forecast-flow{grid-template-columns:1fr}}
+      #tab-tlmnd .tl-forecast-flow-item{padding:0}
+      #tab-tlmnd .tl-forecast-flow-label{font-size:11px;color:#666;margin-bottom:4px}
+      #tab-tlmnd .tl-forecast-flow-value{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+      #tab-tlmnd .tl-forecast-flow-detail{font-size:10px;color:#999;margin-top:3px}
+      #tab-tlmnd .tl-forecast-callout{background:linear-gradient(135deg,#eef4fa 0%,#f8fbff 100%);border-radius:8px;padding:14px 18px;margin-bottom:14px}
+      #tab-tlmnd .tl-forecast-callout-label{font-size:11px;color:#5f6368;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+      #tab-tlmnd .tl-forecast-callout-value{font-size:26px;font-weight:800;color:#0d2137;font-variant-numeric:tabular-nums}
+      #tab-tlmnd .tl-forecast-callout-sub{font-size:11px;color:#5f6368;margin-top:4px}
+      #tab-tlmnd .tl-forecast-buffers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+      @media(max-width:600px){#tab-tlmnd .tl-forecast-buffers{grid-template-columns:1fr}}
+      #tab-tlmnd .tl-forecast-buffer{background:#fafbfc;border-radius:6px;padding:10px 12px;border:1px solid #eee}
+      #tab-tlmnd .tl-forecast-buffer-label{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+      #tab-tlmnd .tl-forecast-buffer-value{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;color:#0d2137}
+      #tab-tlmnd .tl-forecast-buffer-sub{font-size:10px;color:#999;margin-top:2px}
       #tab-tlmnd .tl-chart-wrap{background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px}
       #tab-tlmnd .tl-chart-title{font-size:14px;font-weight:600;color:#0d2137;margin-bottom:12px}
       #tab-tlmnd .tl-chart{width:100%;height:220px}
@@ -1949,7 +1969,8 @@ function renderTLMNDCashFlow() {
     });
   }
 
-  var html = _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) + _tlHtmlChart(d.monthlySeries) + _tlHtmlCategoryMatrix(d);
+  var html = _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
+             _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) + _tlHtmlCategoryMatrix(d);
   content.innerHTML = html;
 
   // Wire up click-to-drill on category rows.
@@ -2063,6 +2084,114 @@ function _tlHtmlTopMovers(d) {
           '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         '</div>' +
         itemList(outItems, 5) +
+      '</div>' +
+    '</div>';
+}
+
+// ─── Burn & Forecast ──────────────────────────────────────────────────
+// Answers "how much cash does TLMND need per month, and how much should
+// we keep on hand?" Excludes inter-entity transfers from the burn math
+// since those are discretionary movements (funded by other entities to
+// cover the shortfall) — the real operational picture is customers/loans
+// coming in vs. payroll/insurance/ops going out.
+function _tlHtmlBurnForecast(d) {
+  var months = d.monthlySeries || [];
+  var mat    = d.categoryMatrix || [];
+  if (!months.length) return '';
+
+  // Bucket monthly totals into operational vs inter-entity.
+  function isInterEntity(c) { return /transfer|blue panda|nf europe|nf medellin|nf usa tx|inter-entity/i.test(c); }
+  var opIn = {}, opOut = {};
+  months.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
+  mat.forEach(function(c) {
+    if (isInterEntity(c.category)) return;
+    Object.keys(c.months).forEach(function(ym) {
+      if (opIn[ym] === undefined) return;
+      var v = c.months[ym] || 0;
+      if (v >= 0) opIn[ym]  += v;
+      else        opOut[ym] += v;
+    });
+  });
+
+  function avgLastN(dict, n) {
+    var vals = months.slice(-n).map(function(m) { return dict[m.ym] || 0; });
+    if (!vals.length) return 0;
+    return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
+  }
+
+  var avgIn6  = avgLastN(opIn,  6);
+  var avgOut6 = avgLastN(opOut, 6);   // negative
+  var avgIn3  = avgLastN(opIn,  3);
+  var avgOut3 = avgLastN(opOut, 3);
+  var netMonthly6 = avgIn6 + avgOut6;   // typically negative → shortfall
+  var netMonthly3 = avgIn3 + avgOut3;
+  var monthlyNeed = -netMonthly6;       // positive if we need to move money IN each month
+
+  function fmt(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+  function fmtSigned(v) {
+    if (Math.abs(v || 0) < 0.5) return '$0';
+    return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString();
+  }
+
+  var monthAbsOut = Math.abs(avgOut6);
+  var buffer1     = monthAbsOut;
+  var buffer3     = monthAbsOut * 3;
+  var buffer6     = monthAbsOut * 6;
+
+  var calloutHtml = monthlyNeed > 0
+    ? '<div class="tl-forecast-callout">' +
+        '<div class="tl-forecast-callout-label">Monthly transfer needed into TLMND</div>' +
+        '<div class="tl-forecast-callout-value">' + fmt(monthlyNeed) + '</div>' +
+        '<div class="tl-forecast-callout-sub">Operational money out exceeds money in by this much on average. To break even each month, ' +
+          'roughly ' + fmt(monthlyNeed) + ' needs to move into TLMND from Blue Panda or other entities.</div>' +
+      '</div>'
+    : '<div class="tl-forecast-callout">' +
+        '<div class="tl-forecast-callout-label">Monthly operational surplus</div>' +
+        '<div class="tl-forecast-callout-value" style="color:#137333">+' + fmt(-monthlyNeed) + '</div>' +
+        '<div class="tl-forecast-callout-sub">Operational money in exceeds money out. TLMND is self-funding on average and can hold excess ' +
+          'or send it out to other entities.</div>' +
+      '</div>';
+
+  return '' +
+    '<div class="tl-forecast">' +
+      '<div class="tl-forecast-title">Cash Needs & Forecast</div>' +
+      '<div class="tl-forecast-sub">Based on trailing 6 months of operational activity (customers, loans, payroll, ' +
+        'insurance, ops — excludes inter-entity transfers which are the funding mechanism, not the need).</div>' +
+      '<div class="tl-forecast-flow">' +
+        '<div class="tl-forecast-flow-item">' +
+          '<div class="tl-forecast-flow-label">Avg Operational Money In</div>' +
+          '<div class="tl-forecast-flow-value amt-pos">+' + fmt(avgIn6) + '</div>' +
+          '<div class="tl-forecast-flow-detail">Customers, loans, investment income · T3M avg ' + fmtSigned(avgIn3) + '</div>' +
+        '</div>' +
+        '<div class="tl-forecast-flow-item">' +
+          '<div class="tl-forecast-flow-label">Avg Operational Money Out</div>' +
+          '<div class="tl-forecast-flow-value amt-neg">' + fmtSigned(avgOut6) + '</div>' +
+          '<div class="tl-forecast-flow-detail">Payroll, insurance, ops · T3M avg ' + fmtSigned(avgOut3) + '</div>' +
+        '</div>' +
+        '<div class="tl-forecast-flow-item">' +
+          '<div class="tl-forecast-flow-label">Net Monthly Operational</div>' +
+          '<div class="tl-forecast-flow-value ' + (netMonthly6 >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmtSigned(netMonthly6) + '</div>' +
+          '<div class="tl-forecast-flow-detail">T3M avg ' + fmtSigned(netMonthly3) + '</div>' +
+        '</div>' +
+      '</div>' +
+      calloutHtml +
+      '<div class="tl-forecast-callout-label" style="margin-bottom:8px">Recommended cash on hand in TLMND</div>' +
+      '<div class="tl-forecast-buffers">' +
+        '<div class="tl-forecast-buffer">' +
+          '<div class="tl-forecast-buffer-label">1-Month Buffer</div>' +
+          '<div class="tl-forecast-buffer-value">' + fmt(buffer1) + '</div>' +
+          '<div class="tl-forecast-buffer-sub">Covers 1 month of typical expenses</div>' +
+        '</div>' +
+        '<div class="tl-forecast-buffer">' +
+          '<div class="tl-forecast-buffer-label">3-Month Buffer</div>' +
+          '<div class="tl-forecast-buffer-value">' + fmt(buffer3) + '</div>' +
+          '<div class="tl-forecast-buffer-sub">Typical conservative reserve</div>' +
+        '</div>' +
+        '<div class="tl-forecast-buffer">' +
+          '<div class="tl-forecast-buffer-label">6-Month Buffer</div>' +
+          '<div class="tl-forecast-buffer-value">' + fmt(buffer6) + '</div>' +
+          '<div class="tl-forecast-buffer-sub">Full runway if inflows stop</div>' +
+        '</div>' +
       '</div>' +
     '</div>';
 }
@@ -2214,9 +2343,9 @@ function _tlHtmlChart(series) {
 // tests matters — first match wins.
 function _tlGroupOf(cat) {
   var c = String(cat || '').toLowerCase();
-  if (/consulting|payroll|lusk|estrada|nguyen|vallejo|mint|lynn/.test(c))       return 'People & Payroll';
+  if (/consulting|payroll|lusk|estrada|nguyen|vallejo|mint|lynn|bsc|accounting/.test(c)) return 'People & Payroll';
   if (/insurance|guardian|healthcar|life ins|next insur/.test(c))               return 'Insurance';
-  if (/divvy|accounting|bank fees|paris|apt maintenance|charity|donation/.test(c)) return 'Operations & Facilities';
+  if (/divvy|bank fees|paris|apt maintenance|charity|donation/.test(c))         return 'Operations & Facilities';
   if (/legal|law|roetzel/.test(c))                                              return 'Legal';
   if (/ellison|solaris|wasica|book credit|macdonald|cherry valley/.test(c))     return 'Customers & Loan Repayments';
   if (/fidelity|money market|dividend|interest/.test(c))                        return 'Fidelity Investments';

@@ -563,18 +563,24 @@ function diagnoseTLMNDConfig() {
 // ============================================================================
 
 var TLMND_RULES_HEADERS = [
-  'Priority',     // A
-  'Match Field',  // B
-  'Match Type',   // C
-  'Pattern',      // D
-  'Amount Min',   // E
-  'Amount Max',   // F
-  'Category',     // G
-  'Recurring',    // H
-  'Entity Tag',   // I
-  'Exclude',      // J
-  'Enabled',      // K
-  'Notes'         // L
+  'Priority',       // A
+  'Match Field',    // B
+  'Match Type',     // C
+  'Pattern',        // D
+  'Amount Min',     // E
+  'Amount Max',     // F
+  'Category',       // G
+  'Recurring',      // H
+  'Entity Tag',     // I
+  'Exclude',        // J
+  'Enabled',        // K
+  'Notes',          // L
+  'Source Filter'   // M — Plaid | SnapTrade | blank (any). Restricts the
+                    //     rule to only match rows from a specific source.
+                    //     Fidelity catch-alls (BUY/SELL/DEPOSIT/etc.) use
+                    //     'SnapTrade' so they don't accidentally match
+                    //     Plaid rows whose Name starts with the same word
+                    //     (e.g. "DEPOSIT ID NUMBER 553083" on Chase).
 ];
 
 function _tlmndGetOrCreateRulesSheet() {
@@ -734,6 +740,24 @@ function seedTLMNDRules() {
     [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to/from NF USA TX',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)']
   ];
 
+  // Pad every rule to the full header width so setValues stays rectangular.
+  rules = rules.map(function(r) {
+    return r.length < TLMND_RULES_HEADERS.length
+      ? r.concat(new Array(TLMND_RULES_HEADERS.length - r.length).fill(''))
+      : r;
+  });
+
+  // Post-process: mark catch-all rules (priority 200) with the correct
+  // source filter so a SnapTrade pattern like starts_with 'DEPOSIT' can't
+  // accidentally match a Plaid transaction that starts with the same word.
+  var snapTradePatterns = ['BUY ','SELL ','DIVIDEND','INTEREST','WITHDRAWAL','DEPOSIT','TRANSFER','FEE','TAX','CONTRIBUTION','REI '];
+  var plaidPatterns     = ['DOMESTIC WIRE TRANSFER','INTERNATIONAL WIRE','BOOK TRANSFER','Online ACH Payment','ORIG CO NAME:','REMOTE ONLINE DEPOSIT','DEPOSIT ID NUMBER'];
+  rules.forEach(function(r) {
+    if (r[0] !== 200) return;
+    if (snapTradePatterns.indexOf(String(r[3])) >= 0) r[12] = 'SnapTrade';
+    else if (plaidPatterns.indexOf(String(r[3])) >= 0) r[12] = 'Plaid';
+  });
+
   sheet.getRange(2, 1, rules.length, TLMND_RULES_HEADERS.length).setValues(rules);
   ui.alert('Seeded ' + rules.length + ' rules into TLMND_CATEGORY_RULES.\n\n' +
            'Run Tracker → Apply TLMND Rules to categorize existing transactions, ' +
@@ -749,16 +773,17 @@ function _tlmndLoadRules() {
     if (String(r[10]).toLowerCase() !== 'yes') return;   // Enabled column
     if (!r[3]) return;                                    // no Pattern → skip
     rules.push({
-      priority:  Number(r[0]) || 999,
-      field:     String(r[1] || 'Name'),
-      matchType: String(r[2] || 'contains').toLowerCase(),
-      pattern:   String(r[3]),
-      amtMin:    r[4] === '' || r[4] == null ? null : Number(r[4]),
-      amtMax:    r[5] === '' || r[5] == null ? null : Number(r[5]),
-      category:  String(r[6] || ''),
-      recurring: String(r[7] || ''),
-      entityTag: String(r[8] || ''),
-      exclude:   String(r[9]).toLowerCase() === 'yes'
+      priority:     Number(r[0]) || 999,
+      field:        String(r[1] || 'Name'),
+      matchType:    String(r[2] || 'contains').toLowerCase(),
+      pattern:      String(r[3]),
+      amtMin:       r[4] === '' || r[4] == null ? null : Number(r[4]),
+      amtMax:       r[5] === '' || r[5] == null ? null : Number(r[5]),
+      category:     String(r[6] || ''),
+      recurring:    String(r[7] || ''),
+      entityTag:    String(r[8] || ''),
+      exclude:      String(r[9]).toLowerCase() === 'yes',
+      sourceFilter: String(r[12] || '').trim()   // '' = any; 'Plaid' | 'SnapTrade'
     });
   });
   rules.sort(function(a, b) { return a.priority - b.priority; });
@@ -793,6 +818,7 @@ function applyTLMNDRules() {
   var idxName   = ci('Name');
   var idxMerch  = ci('Merchant');
   var idxAccount= ci('Account');
+  var idxSource = ci('Source');
   var idxAmount = ci('Amount USD');
   var idxCat    = ci('Category');
   var idxRec    = ci('Recurring');
@@ -818,6 +844,11 @@ function applyTLMNDRules() {
     var matched = null;
     for (var k = 0; k < rules.length; k++) {
       var r = rules[k];
+      // Source filter — restrict a rule to Plaid or SnapTrade only.
+      // Prevents e.g. the Fidelity SnapTrade "starts_with DEPOSIT" rule
+      // from wrongly matching a Plaid Chase branch deposit named
+      // "DEPOSIT ID NUMBER 553083".
+      if (r.sourceFilter && r.sourceFilter !== String(row[idxSource] || '')) continue;
       var fieldVal = r.field === 'Merchant' ? row[idxMerch]
                    : r.field === 'Account'  ? row[idxAccount]
                    :                          row[idxName];
