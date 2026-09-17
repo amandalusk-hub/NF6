@@ -1201,6 +1201,18 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var monthLabel = _tlmndMonthLabelSvr_(kpis.ym);
   var reportDate = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
 
+  // Current balances for primary accounts (TLMND checking + Fidelity).
+  // Passthrough accounts (NF USA CA) are already filtered out by
+  // getTLMNDAccountBalances via the hardcoded passthrough list.
+  var balancesRes = null;
+  try { balancesRes = getTLMNDAccountBalances(); } catch(e) { balancesRes = null; }
+  var balList = (balancesRes && balancesRes.success && balancesRes.balances) ? balancesRes.balances : [];
+  var balTotal = 0;
+  balList.forEach(function(b) { balTotal += Number(b.value) || 0; });
+  var balAsOf = balancesRes && balancesRes.latestUpdate
+    ? Utilities.formatDate(new Date(balancesRes.latestUpdate), 'America/New_York', 'MMM d, yyyy \'at\' h:mm a')
+    : 'not yet synced';
+
   // Delta vs 6-mo avg for the hero subtitle.
   var cur = series.length ? series[series.length - 1] : { in: 0, out: 0, netAll: 0 };
   var delta6 = cur.netAll - kpis.avgT6M;
@@ -1399,6 +1411,15 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '.report-hdr{border-bottom:3px solid #0d2137;padding-bottom:8px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:baseline}' +
       '.report-hdr h1{font-size:16px;margin:0;color:#0d2137;letter-spacing:.3px}' +
       '.report-hdr .date{font-size:11px;color:#5f6368}' +
+      '.balances{background:#eef4fa;border:1px solid #d0dae5;border-radius:6px;padding:10px 14px;margin-bottom:12px}' +
+      '.balances .lbl{font-size:9px;color:#5f6368;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}' +
+      '.balances .asof{float:right;font-size:9px;color:#5f6368;font-style:italic;text-transform:none;letter-spacing:0}' +
+      '.balances table{width:100%;border-collapse:collapse;font-size:11px}' +
+      '.balances td{padding:3px 0;font-variant-numeric:tabular-nums}' +
+      '.balances td.acct{color:#3c4858}' +
+      '.balances td.amt{text-align:right;font-weight:700;color:#0d2137;width:120px}' +
+      '.balances tr.total td{border-top:1px solid #b8c7d4;padding-top:6px;margin-top:4px;font-weight:800}' +
+      '.balances tr.total td.acct{color:#0d2137}' +
       '.hero{background:#0d2137;color:#fff;padding:16px 20px;border-radius:6px;margin-bottom:12px}' +
       '.hero .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;opacity:.75;margin-bottom:4px}' +
       '.hero .val{font-size:32px;font-weight:800;line-height:1;letter-spacing:-.5px}' +
@@ -1449,6 +1470,21 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '<h1>TLMND Cash Flow &mdash; ' + monthLabel + '</h1>' +
       '<div class="date">Report generated ' + _tlmndEsc_(reportDate) + '</div>' +
     '</div>' +
+    // Current Balances strip
+    (balList.length
+      ? '<div class="balances">' +
+          '<div class="lbl">Current Balances <span class="asof">as of ' + _tlmndEsc_(balAsOf) + '</span></div>' +
+          '<table>' +
+            balList.map(function(b) {
+              var v = Number(b.value) || 0;
+              return '<tr><td class="acct">' + _tlmndEsc_(b.label) + '</td>' +
+                '<td class="amt">$' + Math.round(v).toLocaleString() + '</td></tr>';
+            }).join('') +
+            '<tr class="total"><td class="acct">Total on hand</td>' +
+              '<td class="amt">$' + Math.round(balTotal).toLocaleString() + '</td></tr>' +
+          '</table>' +
+        '</div>'
+      : '') +
     // Hero
     '<div class="hero">' +
       '<div class="lbl">Net Cash Flow &middot; ' + monthLabel + '</div>' +
