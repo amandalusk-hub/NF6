@@ -2104,9 +2104,15 @@ function _tlPlannerLoadBalances(d, forceRefresh) {
         asofEl.textContent = 'could not load balances: ' + ((res && res.error) || 'unknown');
         return;
       }
-      // Build one row per account.
+      // Build one row per PRIMARY account. Passthrough accounts (e.g.
+      // NF USA CA ···2086, where Ellison Medical deposits land before being
+      // journaled to TLMND) are hidden from the planner — their income
+      // already flows into TLMND's recurring-income baseline via the
+      // categorization rules, so double-tracking their balance would
+      // inflate the "cash on hand" number.
+      var primaryBalances = res.balances.filter(function(b) { return b.role !== 'passthrough'; });
       var rowsHtml = '<div style="font-size:11px;color:#5f6368;margin-bottom:2px">Current Balances <button class="tl-planner-refresh" id="tl-planner-refresh">↻ from Assets</button></div>';
-      res.balances.forEach(function(b, i) {
+      primaryBalances.forEach(function(b, i) {
         // Prefer user's saved override (localStorage) over auto-loaded value —
         // unless force-refresh, which overwrites the override.
         var key = STORAGE_PREFIX + 'bal_' + b.label;

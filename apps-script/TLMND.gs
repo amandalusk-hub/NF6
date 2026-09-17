@@ -1090,32 +1090,31 @@ function getTLMNDAccountBalances() {
   var balances = [];
   var latestUpdate = null;
 
-  function pushFromRow(i, label, source) {
+  function pushFromRow(i, label, source, role) {
     var val = Number(rows[i][iUsd]) || 0;
     var lu  = rows[i][iLU];
-    balances.push({ label: label, value: val, source: source });
+    balances.push({ label: label, value: val, source: source, role: role || 'primary' });
     if (lu && (!latestUpdate || new Date(lu) > new Date(latestUpdate))) latestUpdate = lu;
   }
 
   (cfg.plaidAccounts || []).forEach(function(a) {
     for (var i = 1; i < rows.length; i++) {
       if (iPlaid >= 0 && String(rows[i][iPlaid]) === a.accountId) {
-        pushFromRow(i, a.label, 'Plaid');
+        pushFromRow(i, a.label, 'Plaid', a.role);
         return;
       }
     }
-    // Not found → surface as zero with a NOTE so the UI can prompt the user.
-    balances.push({ label: a.label, value: 0, source: 'Plaid', notFound: true });
+    balances.push({ label: a.label, value: 0, source: 'Plaid', role: a.role || 'primary', notFound: true });
   });
 
   (cfg.snapTradeAccounts || []).forEach(function(a) {
     for (var i = 1; i < rows.length; i++) {
       if (iSnap >= 0 && String(rows[i][iSnap]) === a.accountId) {
-        pushFromRow(i, a.label, 'SnapTrade');
+        pushFromRow(i, a.label, 'SnapTrade', a.role);
         return;
       }
     }
-    balances.push({ label: a.label, value: 0, source: 'SnapTrade', notFound: true });
+    balances.push({ label: a.label, value: 0, source: 'SnapTrade', role: a.role || 'primary', notFound: true });
   });
 
   return {
