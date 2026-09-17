@@ -53,7 +53,7 @@ function initTLMNDConfigDefaults() {
         role:       'primary'
       }
     ],
-    lookbackMonths: 3
+    lookbackMonths: 6
   };
   setTLMNDConfig(cfg);
   SpreadsheetApp.getUi().alert('TLMND config initialized.\n\n' +
@@ -605,18 +605,22 @@ function seedTLMNDRules() {
   // Rule schema: [Priority, Match Field, Match Type, Pattern, Amt Min, Amt Max, Category, Recurring, Entity Tag, Exclude, Enabled, Notes]
   var rules = [
     // ── MONEY IN — recurring ─────────────────────────────────────────────
-    [10, 'Name', 'contains', 'SOLARIS-FL HOLDI',                  '', '', 'Solaris-Fl Holding LLC Loan Repayment Income', 'Yes', 'TLM',        '', 'Yes', 'Monthly ~$16,656'],
-    [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'NF USA CA',  '', 'Yes', 'Lands on NF USA CA ···2086'],
-    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'No',  'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'SOLARIS-FL HOLDI',                  '', '', 'Solaris-Fl Holding LLC Loan Repayment Income', 'Yes', 'TLMND',      '', 'Yes', 'Monthly ~$16,656'],
+    // ELLISON MEDICAL: raw deposit lands on NF USA CA ···2086 — NOT TLMND's
+    // cash flow directly. What TLMND actually receives is the internal
+    // journal from NF USA CA (see priority-90 rule below). Exclude the
+    // deposit here so we count the transferred amount, not the deposit.
+    [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', '(Ellison deposit on NF USA CA — pre-transfer)', '',   'NF USA CA',  'Yes', 'Yes', 'Excluded — see the transfer from ···2086 for the TLMND-side amount'],
+    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'No',  'TLMND',      '', 'Yes', ''],
 
     // ── MONEY OUT — recurring ────────────────────────────────────────────
-    [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLM',        '', 'Yes', 'Monthly ~$9,764'],
-    [10, 'Name', 'contains', 'THE GUARDIAN',                      '', '', 'The Guardian Insurance',                        'Yes', 'TLM',        '', 'Yes', 'Monthly ~$625'],
-    [10, 'Name', 'contains', 'EWALLET - Divvy',                   '', '', 'Divvy Bill (Grand Total)',                      'Yes', 'TLM',        '', 'Yes', ''],
-    [10, 'Name', 'contains', 'BSCAccountingLLC',                  '', '', 'BSC Accounting LLC (Accounting Fees)',          'Yes', 'TLM',        '', 'Yes', 'Monthly -$3,500'],
-    [10, 'Name', 'contains', 'PENN MUTUAL LIFE INS',              '', '', 'Life Insurance (Waskar Tejeda / Penn Mutual)',  'Yes', 'TLM',        '', 'Yes', ''],
-    [10, 'Name', 'contains', 'To ManuEstrada',                    '', '', 'Manuela Estrada - Legal Fees',                  'Yes', 'TLM',        '', 'Yes', ''],
-    [10, 'Name', 'contains', 'To LynnNguyen',                     '', '', 'Lynn Repayment',                                'Yes', 'TLM',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],
+    [10, 'Name', 'contains', 'THE GUARDIAN',                      '', '', 'The Guardian Insurance',                        'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$625'],
+    [10, 'Name', 'contains', 'EWALLET - Divvy',                   '', '', 'Divvy Bill (Grand Total)',                      'Yes', 'TLMND',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'BSCAccountingLLC',                  '', '', 'BSC Accounting LLC (Accounting Fees)',          'Yes', 'TLMND',        '', 'Yes', 'Monthly -$3,500'],
+    [10, 'Name', 'contains', 'PENN MUTUAL LIFE INS',              '', '', 'Life Insurance (Waskar Tejeda / Penn Mutual)',  'No',  'TLMND',      '', 'Yes', 'One-time yearly payment — not monthly recurring'],
+    [10, 'Name', 'contains', 'To ManuEstrada',                    '', '', 'Manuela Estrada - Legal Fees',                  'Yes', 'TLMND',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'To LynnNguyen',                     '', '', 'Lynn Repayment',                                'Yes', 'TLMND',        '', 'Yes', ''],
     // NOTE: We do NOT categorize the "MANUELA VALLEJO" international wire
     // here — that was a one-off business expense (Vietnam criminal record
     // certificate fees) that happened to reference her name, not her
@@ -629,33 +633,36 @@ function seedTLMNDRules() {
     // (monthly recurring). Higher-dollar or oddly-sized wires to NF Europe
     // are inter-entity transfers proper. Split by amount range with the
     // Paris rule at higher priority (15) so it wins the match first.
-    [15, 'Name', 'contains', 'NF EUROPE HOLDINGS',                -1750, -1500, 'Paris Thacko Apt Maintenance',                 'Yes', 'TLM',        '', 'Yes', 'Wire ~$1,600/mo to NF Europe Holdings'],
+    [15, 'Name', 'contains', 'NF EUROPE HOLDINGS',                -1750, -1500, 'Paris Thacko Apt Maintenance',                 'Yes', 'TLMND',        '', 'Yes', 'Wire ~$1,600/mo to NF Europe Holdings'],
     [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', 'Non-Paris wires'],
     [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF Medellin (Inter-Entity Transfer)',           'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
-    [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLM',        '', 'Yes', ''],
-    [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Charitable Donation - The House Project',       'No',  'TLM',        '', 'Yes', 'Donation coordinated by Manuela E; not a payment to her'],
+    [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLMND',        '', 'Yes', ''],
+    [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Charitable Donation - The House Project',       'No',  'TLMND',        '', 'Yes', 'Donation coordinated by Manuela E; not a payment to her'],
 
     // ── FIDELITY (SnapTrade) — real cash flow ────────────────────────────
-    // Consultant-specific GUSTO NET splits FIRST (priority 15 — before the
-    // generic GUSTO NET catch-all at 30). Amount ranges are how we
-    // distinguish who was paid.
+    // Consultant-specific GUSTO splits FIRST (priority 15 — before the
+    // generic GUSTO catch-alls at 30). Amount ranges are how we distinguish
+    // who was paid. Contractors typically come through as GUSTO CND
+    // (Contractor Non-Deposit) or GUSTO ICD (Contractor Deposit), not
+    // GUSTO NET — matching on plain "GUSTO" catches whichever it is.
     //   Manuela Vallejo: exactly $1,155
     //   Mint Lusk:       exactly $2,000
-    //   Amanda Lusk:     variable $2,001-$5,000 (per user, "ranges 2-5k")
+    //   Amanda Lusk:     variable $2,001-$10,000 (per user, "usually 2-5k,
+    //                    had an 8k payment once")
     // Anything else via GUSTO NET is W-2 team payroll (~$38k and ~$13k
     // per pay run, aggregating to ~$48k/mo).
-    [15, 'Name', 'contains', 'GUSTO NET',                         -1160, -1150, 'Consulting - Manuela Vallejo (Gusto)',        'Yes', 'TLM',        '', 'Yes', 'Fixed $1,155 via Gusto'],
-    [15, 'Name', 'contains', 'GUSTO NET',                         -2025, -1975, 'Mint Lusk (Consulting)',                       'Yes', 'TLM',        '', 'Yes', 'Fixed $2,000 via Gusto'],
-    [15, 'Name', 'contains', 'GUSTO NET',                         -5000, -2001, 'Consulting - Amanda Lusk',                     'Yes', 'TLM',        '', 'Yes', 'Range $2,001-$5,000 via Gusto'],
+    [15, 'Name', 'contains', 'GUSTO',                             -1160, -1150,  'Consulting - Manuela Vallejo (Gusto)',        'Yes', 'TLMND',      '', 'Yes', 'Fixed $1,155 via Gusto CND/ICD/NET'],
+    [15, 'Name', 'contains', 'GUSTO',                             -2025, -1975,  'Mint Lusk (Consulting)',                       'Yes', 'TLMND',      '', 'Yes', 'Fixed $2,000 via Gusto CND/ICD/NET'],
+    [15, 'Name', 'contains', 'GUSTO',                             -10000, -2001, 'Consulting - Amanda Lusk',                     'Yes', 'TLMND',      '', 'Yes', 'Range $2,001-$10,000 via Gusto CND/ICD/NET'],
     // Team payroll (W-2 employees) — everything else in the GUSTO NET
     // bucket. Usually two withdrawals per pay run (~$38k and ~$13k).
-    [30, 'Name', 'contains', 'GUSTO NET',                         '', '', 'Payroll (Team W-2)',                            'Yes', 'TLM',        '', 'Yes', 'Rest of team payroll, ~$48k/mo'],
-    [30, 'Name', 'contains', 'GUSTO TAX',                         '', '', 'Payroll (Employer Taxes)',                      'Yes', 'TLM',        '', 'Yes', ''],
-    [30, 'Name', 'contains', 'GUSTO ICD',                         '', '', 'Payroll (Contractor Deposits)',                 'Yes', 'TLM',        '', 'Yes', ''],
-    [30, 'Name', 'contains', 'GUSTO FEE',                         '', '', 'Payroll (Gusto Fees)',                          'Yes', 'TLM',        '', 'Yes', ''],
-    [30, 'Name', 'contains', 'GUSTO CND',                         '', '', 'Payroll (Contractor Non-Deposit)',              'Yes', 'TLM',        '', 'Yes', ''],
-    [30, 'Name', 'contains', 'NEXT INSUR',                        '', '', 'Business Insurance (Next Insurance)',           'Yes', 'TLM',        '', 'Yes', ''],
-    [30, 'Name', 'contains', 'DIVIDEND SPAXX',                    '', '', 'Fidelity Money Market Interest',                'Yes', 'TLM',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO NET',                         '', '', 'Payroll (Team W-2)',                            'Yes', 'TLMND',        '', 'Yes', 'Rest of team payroll, ~$48k/mo'],
+    [30, 'Name', 'contains', 'GUSTO TAX',                         '', '', 'Payroll (Employer Taxes)',                      'Yes', 'TLMND',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO ICD',                         '', '', 'Payroll (Contractor Deposits)',                 'Yes', 'TLMND',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO FEE',                         '', '', 'Payroll (Gusto Fees)',                          'Yes', 'TLMND',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'GUSTO CND',                         '', '', 'Payroll (Contractor Non-Deposit)',              'Yes', 'TLMND',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'NEXT INSUR',                        '', '', 'Business Insurance (Next Insurance)',           'Yes', 'TLMND',        '', 'Yes', ''],
+    [30, 'Name', 'contains', 'DIVIDEND SPAXX',                    '', '', 'Fidelity Money Market Interest',                'Yes', 'TLMND',        '', 'Yes', ''],
 
     // ── EXCLUDE — internal cash mgmt / would double-count ────────────────
     // Fidelity SPAXX buy/sell/reinvest — internal cash sweep, not real flow.
@@ -667,20 +674,22 @@ function seedTLMNDRules() {
     [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
 
     // ── Bank noise ───────────────────────────────────────────────────────
-    [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
-    [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
+    [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
+    [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
 
     // ── Inter-account journal transfers ──────────────────────────────────
-    // NF USA CA ↔ TLMND: these are Ellison Medical proceeds being moved from
-    // where they land (NF USA CA ···2086) to where they belong (TLMND ···2001).
-    // We already count the ELLISON MEDICAL deposit as income, so exclude the
-    // internal journal to avoid double-counting.
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison Medical'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison Medical'],
+    // NF USA CA ↔ TLMND: money originating on NF USA CA (from Ellison Medical
+    // and possibly other customers) that gets journaled INTO TLMND. Per the
+    // user's accounting convention, we count what actually moved to TLMND,
+    // NOT the raw deposit on NF USA CA's side. So:
+    //   * TLMND-side INBOUND ("from CHK ...2086") → COUNT as Ellison income
+    //   * NF USA CA-side OUTBOUND ("to CHK ...2001") → EXCLUDE (mirror of above)
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Ellison proceeds moved from NF USA CA to TLMND'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(NF USA CA outbound mirror of transfer)',       '',   'NF USA CA',  'Yes', 'Yes', 'Excluded — mirror of TLMND inbound'],
     // Blue Panda Family ···8686 → TLMND: real inter-entity funding, COUNT it.
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLM',        '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',        '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding'],
     // TLMND → NF USA TX ···5155: real inter-entity outflow, COUNT it.
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to NF USA TX',                         'No',  'TLM',        '', 'Yes', 'TLMND → NF USA TX ···5155']
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to NF USA TX',                         'No',  'TLMND',        '', 'Yes', 'TLMND → NF USA TX ···5155']
   ];
 
   sheet.getRange(2, 1, rules.length, TLMND_RULES_HEADERS.length).setValues(rules);

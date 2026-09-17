@@ -2032,18 +2032,29 @@ function _tlHtmlCategoryMatrix(d) {
   var months = d.monthKeys, mat = d.categoryMatrix;
   if (!mat.length) return '<div class="tl-empty">No transactions in this window.</div>';
 
-  // Group by (recurring, direction)
-  var recIn  = [], recOut  = [];
-  var nonIn  = [], nonOut  = [];
+  // Group by (recurring, direction, inter-entity).
+  // Inter-entity is identified by "Transfer" in the category name
+  // (Blue Panda, NF USA TX, NF Europe, NF Medellin) — these are movements
+  // between related entities and get their own section, separate from
+  // operational recurring and non-recurring lines.
+  var recIn = [], recOut = [];
+  var nonIn = [], nonOut = [];
+  var ieIn  = [], ieOut  = [];
   mat.forEach(function(c) {
     var totalIn = 0, totalOut = 0;
     months.forEach(function(ym) {
       var v = c.months[ym] || 0;
       if (v >= 0) totalIn += v; else totalOut += v;
     });
-    // Classify direction by the sign of the majority of dollars.
     var dir = Math.abs(totalIn) > Math.abs(totalOut) ? 'in' : 'out';
-    (c.recurring ? (dir === 'in' ? recIn : recOut) : (dir === 'in' ? nonIn : nonOut)).push(c);
+    var isInterEntity = /transfer/i.test(c.category);
+    if (isInterEntity) {
+      (dir === 'in' ? ieIn : ieOut).push(c);
+    } else if (c.recurring) {
+      (dir === 'in' ? recIn : recOut).push(c);
+    } else {
+      (dir === 'in' ? nonIn : nonOut).push(c);
+    }
   });
 
   function fmt(v) {
@@ -2088,6 +2099,13 @@ function _tlHtmlCategoryMatrix(d) {
     sectionRow('Non-Recurring — Money Out') +
     nonOut.map(catRow).join('') +
     totalRow('Total Non-Recurring Out', nonOut) +
+    sectionRow('Inter-Entity Transfers — In') +
+    ieIn.map(catRow).join('') +
+    totalRow('Total Inter-Entity In', ieIn) +
+    sectionRow('Inter-Entity Transfers — Out') +
+    ieOut.map(catRow).join('') +
+    totalRow('Total Inter-Entity Out', ieOut) +
+    totalRow('Net Inter-Entity', ieIn.concat(ieOut)) +
     totalRow('NET ALL', mat) +
     '</tbody>';
 
