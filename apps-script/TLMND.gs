@@ -611,7 +611,7 @@ function seedTLMNDRules() {
     // journal from NF USA CA (see priority-90 rule below). Exclude the
     // deposit here so we count the transferred amount, not the deposit.
     [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', '(Ellison deposit on NF USA CA — pre-transfer)', '',   'NF USA CA',  'Yes', 'Yes', 'Excluded — see the transfer from ···2086 for the TLMND-side amount'],
-    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'No',  'TLMND',      '', 'Yes', ''],
+    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
 
     // ── MONEY OUT — recurring ────────────────────────────────────────────
     [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],

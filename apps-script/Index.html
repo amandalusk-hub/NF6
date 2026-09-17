@@ -485,6 +485,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd table.tl-matrix .row-total{background:#f5f7fa;font-weight:700}
       #tab-tlmnd table.tl-matrix .row-total td{background:#f5f7fa;border-top:2px solid #dadce0}
       #tab-tlmnd table.tl-matrix .row-total td:first-child{background:#f5f7fa}
+      #tab-tlmnd table.tl-matrix .row-group{background:#fafbfc;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.4px}
+      #tab-tlmnd table.tl-matrix .row-group td{background:#fafbfc;padding-top:10px;padding-bottom:4px}
+      #tab-tlmnd table.tl-matrix .row-group td:first-child{background:#fafbfc;padding-left:24px}
+      #tab-tlmnd table.tl-matrix .tl-cat-row td:first-child{padding-left:24px}
       #tab-tlmnd .amt-pos{color:#137333}
       #tab-tlmnd .amt-neg{color:#a50e0e}
       #tab-tlmnd .amt-zero{color:#bbb}
@@ -2028,6 +2032,43 @@ function _tlHtmlChart(series) {
     '</div>';
 }
 
+// Assign a display group to a category so related lines cluster together
+// under a subheader (People, Insurance, Operations, etc.). Order of the
+// tests matters — first match wins.
+function _tlGroupOf(cat) {
+  var c = String(cat || '').toLowerCase();
+  if (/consulting|payroll|lusk|estrada|nguyen|vallejo|mint|lynn/.test(c))       return 'People & Payroll';
+  if (/insurance|guardian|healthcar|life ins|next insur/.test(c))               return 'Insurance';
+  if (/divvy|accounting|bank fees|paris|apt maintenance|charity|donation/.test(c)) return 'Operations & Facilities';
+  if (/legal|law|roetzel/.test(c))                                              return 'Legal';
+  if (/ellison|solaris|wasica|book credit|money market|interest|dividend/.test(c)) return 'Customers & Investment Income';
+  if (/inter-entity|transfer|blue panda|nf europe|nf medellin|nf usa tx/.test(c))  return 'Inter-Entity';
+  return 'Other';
+}
+
+// Renders one section (e.g. "Recurring — Money Out") with rows grouped by
+// subgroup. Each subgroup gets a mini header row inside the section.
+function _tlRenderGroupedSection(sectionLabel, items, months, catRowFn, sectionRowFn, groupHeaderRowFn) {
+  var out = sectionRowFn(sectionLabel);
+  if (!items.length) return out;
+  var byGroup = {};
+  items.forEach(function(c) {
+    var g = _tlGroupOf(c.category);
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(c);
+  });
+  // Stable group order — matches the priorities in _tlGroupOf.
+  var order = ['People & Payroll','Insurance','Operations & Facilities','Legal','Customers & Investment Income','Inter-Entity','Other'];
+  order.forEach(function(g) {
+    if (!byGroup[g] || !byGroup[g].length) return;
+    // Sort within group by abs total desc so biggest lines lead.
+    byGroup[g].sort(function(a, b) { return Math.abs(b.total) - Math.abs(a.total); });
+    out += groupHeaderRowFn(g);
+    byGroup[g].forEach(function(c) { out += catRowFn(c); });
+  });
+  return out;
+}
+
 function _tlHtmlCategoryMatrix(d) {
   var months = d.monthKeys, mat = d.categoryMatrix;
   if (!mat.length) return '<div class="tl-empty">No transactions in this window.</div>';
@@ -2072,6 +2113,10 @@ function _tlHtmlCategoryMatrix(d) {
     var tds = months.map(function() { return '<td></td>'; }).join('');
     return '<tr class="row-section"><td>' + label + '</td>' + tds + '<td></td></tr>';
   }
+  function groupHeaderRow(label) {
+    var tds = months.map(function() { return '<td></td>'; }).join('');
+    return '<tr class="row-group"><td>' + label + '</td>' + tds + '<td></td></tr>';
+  }
   function totalRow(label, arr) {
     var perMonth = months.map(function(ym) {
       return arr.reduce(function(s, c) { return s + (c.months[ym] || 0); }, 0);
@@ -2086,24 +2131,18 @@ function _tlHtmlCategoryMatrix(d) {
   }).join('') + '<th>Total</th></tr></thead>';
 
   var body = '<tbody>' +
-    sectionRow('Recurring — Money In') +
-    recIn.map(catRow).join('') +
+    _tlRenderGroupedSection('Recurring — Money In',  recIn,  months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Recurring In', recIn) +
-    sectionRow('Recurring — Money Out') +
-    recOut.map(catRow).join('') +
+    _tlRenderGroupedSection('Recurring — Money Out', recOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Recurring Out', recOut) +
     totalRow('Net Recurring', recIn.concat(recOut)) +
-    sectionRow('Non-Recurring — Money In') +
-    nonIn.map(catRow).join('') +
+    _tlRenderGroupedSection('Non-Recurring — Money In',  nonIn,  months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Non-Recurring In', nonIn) +
-    sectionRow('Non-Recurring — Money Out') +
-    nonOut.map(catRow).join('') +
+    _tlRenderGroupedSection('Non-Recurring — Money Out', nonOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Non-Recurring Out', nonOut) +
-    sectionRow('Inter-Entity Transfers — In') +
-    ieIn.map(catRow).join('') +
+    _tlRenderGroupedSection('Inter-Entity Transfers — In',  ieIn,  months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Inter-Entity In', ieIn) +
-    sectionRow('Inter-Entity Transfers — Out') +
-    ieOut.map(catRow).join('') +
+    _tlRenderGroupedSection('Inter-Entity Transfers — Out', ieOut, months, catRow, sectionRow, groupHeaderRow) +
     totalRow('Total Inter-Entity Out', ieOut) +
     totalRow('Net Inter-Entity', ieIn.concat(ieOut)) +
     totalRow('NET ALL', mat) +
