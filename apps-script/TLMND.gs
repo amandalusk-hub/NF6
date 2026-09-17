@@ -1481,8 +1481,8 @@ function _tlmndBuildWeeklyPdfHtml_() {
       'table.matrix th{background:#f8f9fa;padding:5px 6px;text-align:right;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:8px;letter-spacing:.4px;border-bottom:2px solid #dadce0;white-space:nowrap}' +
       'table.matrix th.catname,table.matrix td.catname{text-align:left}' +
       'table.matrix td{padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap}' +
-      'table.matrix tr.section td{background:#0d2137;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.5px;padding:6px 8px}' +
-      'table.matrix tr.grp td{background:#dfe4ea;color:#2c3e50;font-weight:700;text-transform:uppercase;font-size:8px;letter-spacing:.5px;padding:4px 8px 4px 20px}' +
+      'table.matrix tr.section td{background:#0d2137;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.5px;padding:6px 8px;text-align:left}' +
+      'table.matrix tr.grp td{background:#dfe4ea;color:#2c3e50;font-weight:700;text-transform:uppercase;font-size:8px;letter-spacing:.5px;padding:4px 8px 4px 20px;text-align:left}' +
       'table.matrix tr.total td{background:#dae5ee;font-weight:700;color:#0d2137;border-top:1px solid #b8c7d4}' +
       'table.matrix tr.net td{background:#c8d8e5;font-weight:800;font-size:10.5px;color:#0d2137;border-top:2px solid #0d2137;border-bottom:2px solid #0d2137;padding:6px 8px}' +
       'table.matrix tr.grand td{background:#0d2137;color:#fff;font-weight:800;font-size:11px;border-top:3px double #0d2137;padding:8px}' +
