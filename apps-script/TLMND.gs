@@ -236,8 +236,15 @@ function _tlmndFetchPlaidRecords(plaidAccts, start, end, results) {
         batch.forEach(function(tx) {
           var w = wanted[tx.account_id];
           if (!w) return;
+          // Key by pending_transaction_id when Plaid provides one — that's
+          // the stable identifier across the pending → posted lifecycle.
+          // When a pending tx becomes posted, Plaid issues a NEW
+          // transaction_id but the pending_transaction_id stays the same,
+          // so this key lets the upsert replace the pending row rather
+          // than spawn a duplicate posted row.
+          var stableId = tx.pending_transaction_id || tx.transaction_id;
           records.push({
-            key:        'plaid:' + tx.transaction_id,
+            key:        'plaid:' + stableId,
             date:       tx.date,
             source:     'Plaid',
             account:    w.label,
@@ -715,9 +722,16 @@ function seedTLMNDRules() {
     [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison deposit'],
     [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — mirror of above'],
     // Blue Panda Family ···8686 → TLMND: real inter-entity funding, COUNT it.
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',        '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding'],
-    // TLMND → NF USA TX ···5155: real inter-entity outflow, COUNT it.
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to NF USA TX',                         'No',  'TLMND',        '', 'Yes', 'TLMND → NF USA TX ···5155']
+    // Match both by account-mask (internal Chase transfer) AND by name
+    // substring in case Blue Panda money arrives via a different mechanism
+    // (wire, ACH) with a different name format.
+    [15, 'Name', 'contains', 'BLUE PANDA',                        '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Any Blue Panda inbound — catches wires/ACH by name'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding (Chase internal transfer)'],
+    // TLMND ↔ NF USA TX: real inter-entity movement, COUNT it. Match by
+    // name substring first (catches wires/ACH) then by the internal
+    // Chase transfer format as a fallback.
+    [15, 'Name', 'contains', 'NF USA TX',                         '', '', 'Transfer to/from NF USA TX',                    'No',  'TLMND',      '', 'Yes', 'Any NF USA TX movement — catches wires/ACH by name'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to/from NF USA TX',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)']
   ];
 
   sheet.getRange(2, 1, rules.length, TLMND_RULES_HEADERS.length).setValues(rules);
@@ -997,6 +1011,36 @@ function getTLMNDCashFlowData(opts) {
 // Client-callable sync trigger for the dashboard's Refresh button.
 function refreshTLMNDCashFlow() {
   return syncTLMNDCashFlow();
+}
+
+// Nuclear option — deletes every data row in TLMND_TRANSACTIONS then
+// runs a fresh sync. Useful after changing the sync keying (e.g. the
+// pending_transaction_id fix) so old duplicates get flushed. Loses any
+// manual Category/Notes edits since rules are re-applied after resync.
+function clearAndResyncTLMND() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert('Clear & Resync TLMND',
+    'This will DELETE every row in TLMND_TRANSACTIONS, then pull a fresh copy from Plaid/SnapTrade. ' +
+    'Any manual Category / Notes edits will be lost (rules re-apply automatically after the pull).\n\n' +
+    'Use this to flush pending/posted duplicates from earlier syncs. Continue?',
+    ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  if (sheet && sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+  }
+
+  var r = syncTLMNDCashFlow();
+  var msg = 'Plaid transactions:       ' + (r.plaidCount || 0) +
+            '\nSnapTrade activities:  ' + (r.snapTradeCount || 0) +
+            '\nNew rows:                     ' + (r.newRows || 0) +
+            '\nCategorized:                 ' + (r.categorized || 0) +
+            '\n  of which [EXCLUDED]: ' + (r.excluded || 0) +
+            '\nStill uncategorized:      ' + (r.uncategorized || 0) +
+            '\nErrors:                           ' + (r.errorCount || 0);
+  if (r.errors && r.errors.length) msg += '\n\nErrors:\n  • ' + r.errors.slice(0, 5).join('\n  • ');
+  ui.alert('Clear & Resync complete', msg, ui.ButtonSet.OK);
 }
 
 function installTLMNDCashFlowTrigger() {
