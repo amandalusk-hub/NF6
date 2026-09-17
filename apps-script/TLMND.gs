@@ -655,8 +655,8 @@ function seedTLMNDRules() {
     // are inter-entity transfers proper. Split by amount range with the
     // Paris rule at higher priority (15) so it wins the match first.
     [15, 'Name', 'contains', 'NF EUROPE HOLDINGS',                -1750, -1500, 'Paris Thacko Apt Maintenance',                 'Yes', 'TLMND',        '', 'Yes', 'Wire ~$1,600/mo to NF Europe Holdings'],
-    [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', 'Non-Paris wires'],
-    [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF Medellin (Inter-Entity Transfer)',           'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
+    [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe',                                     'No',  'NF',         '', 'Yes', 'Non-Paris wires to NF Europe'],
+    [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF MDE CO',                                     'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
     [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLMND',        '', 'Yes', ''],
     [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Charitable Donation - The House Project',       'No',  'TLMND',        '', 'Yes', 'Donation coordinated by Manuela E; not a payment to her'],
 
@@ -749,14 +749,14 @@ function seedTLMNDRules() {
     // Match both by account-mask (internal Chase transfer) AND by name
     // substring in case Blue Panda money arrives via a different mechanism
     // (wire, ACH) with a different name format.
-    [15, 'Name', 'contains', 'BLUE PANDA',                        '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Any Blue Panda inbound — catches wires/ACH by name'],
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Blue Panda Family ···8686 → TLMND (inbound Chase internal transfer)'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...8686',    '', '', 'Transfer to/from Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'TLMND → Blue Panda Family ···8686 (outbound Chase internal transfer)'],
+    [15, 'Name', 'contains', 'BLUE PANDA',                        '', '', 'Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Any Blue Panda inbound — catches wires/ACH by name'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'Blue Panda Family ···8686 → TLMND (inbound Chase internal transfer)'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...8686',    '', '', 'Blue Panda Family',               'No',  'TLMND',      '', 'Yes', 'TLMND → Blue Panda Family ···8686 (outbound Chase internal transfer)'],
     // TLMND ↔ NF USA TX: real inter-entity movement, COUNT it. Match by
     // name substring first (catches wires/ACH) then by the internal
     // Chase transfer format as a fallback.
-    [15, 'Name', 'contains', 'NF USA TX',                         '', '', 'Transfer to/from NF USA TX',                    'No',  'TLMND',      '', 'Yes', 'Any NF USA TX movement — catches wires/ACH by name'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to/from NF USA TX',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)']
+    [15, 'Name', 'contains', 'NF USA TX',                         '', '', 'NF Texas',                    'No',  'TLMND',      '', 'Yes', 'Any NF USA TX movement — catches wires/ACH by name'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'NF Texas',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)']
   ];
 
   // Pad every rule to the full header width so setValues stays rectangular.
@@ -1239,7 +1239,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var now = new Date();
   var currentYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var completeMonths = series.filter(function(m) { return m.ym !== currentYm; });
-  function isIE(c) { return /transfer|blue panda|nf europe|nf medellin|nf usa tx|inter-entity/i.test(c); }
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
   var opIn = {}, opOut = {};
   completeMonths.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
   mat.forEach(function(c) {
@@ -1270,7 +1270,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
     if (/legal|law|roetzel/.test(c))                                                      return 'Legal';
     if (/ellison|solaris|wasica|book credit|macdonald|cherry valley|sa nj|realty/.test(c))return 'Customers & Loan Repayments';
     if (/fidelity|money market|dividend|interest/.test(c))                                return 'Fidelity Investments';
-    if (/inter-entity|blue panda|nf europe|nf medellin|nf usa tx/.test(c))                return 'Inter-Entity';
+    if (/inter-entity|blue panda|nf europe|nf mde co|nf texas/.test(c))                    return 'Inter-Entity';
     if (/wire|ach payment|book transfer|deposit|other/.test(c))                           return 'Uncategorized / Catch-all';
     return 'Other';
   }
@@ -1282,7 +1282,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
       if (v >= 0) tIn += v; else tOut += v;
     });
     var dir = Math.abs(tIn) > Math.abs(tOut) ? 'in' : 'out';
-    var isIEcat = /transfer/i.test(c.category);
+    var isIEcat = /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c.category);
     if (isIEcat) (dir === 'in' ? ieIn : ieOut).push(c);
     else if (c.recurring) (dir === 'in' ? recIn : recOut).push(c);
     else (dir === 'in' ? nonIn : nonOut).push(c);
