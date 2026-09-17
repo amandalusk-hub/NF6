@@ -647,11 +647,17 @@ function seedTLMNDRules() {
     [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
     [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLM',        '', 'Yes', ''],
 
-    // ── Inter-account journal transfers (Chase-internal, exclude) ─────────
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — internal Chase transfer'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — internal Chase transfer'],
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', '(Journal from other Chase acct)',               '',   '',           'Yes', 'Yes', 'Excluded — investigate ···8686'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', '(Journal to Chase ···5155)',                    '',   '',           'Yes', 'Yes', 'Excluded — investigate ···5155']
+    // ── Inter-account journal transfers ──────────────────────────────────
+    // NF USA CA ↔ TLMND: these are Ellison Medical proceeds being moved from
+    // where they land (NF USA CA ···2086) to where they belong (TLMND ···2001).
+    // We already count the ELLISON MEDICAL deposit as income, so exclude the
+    // internal journal to avoid double-counting.
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison Medical'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison Medical'],
+    // Blue Panda Family ···8686 → TLMND: real inter-entity funding, COUNT it.
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLM',        '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding'],
+    // TLMND → NF USA TX ···5155: real inter-entity outflow, COUNT it.
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'Transfer to NF USA TX',                         'No',  'TLM',        '', 'Yes', 'TLMND → NF USA TX ···5155']
   ];
 
   sheet.getRange(2, 1, rules.length, TLMND_RULES_HEADERS.length).setValues(rules);
