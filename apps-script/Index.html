@@ -2057,6 +2057,7 @@ function _tlHtmlPlanner(d) {
         '</div>' +
         '<div>' +
           '<div class="tl-planner-months">Cover&nbsp;<input type="number" id="tl-planner-months" min="1" max="24" step="1" value="2">&nbsp;months of typical recurring expenses</div>' +
+          '<div class="tl-planner-months">Plus&nbsp;<input type="number" id="tl-planner-buffer" min="0" step="500" value="0">&nbsp;buffer for one-offs / known upcoming expenses</div>' +
           '<div id="tl-planner-result"></div>' +
         '</div>' +
       '</div>' +
@@ -2073,12 +2074,19 @@ function _tlPlannerInit(d) {
   var refreshBtn   = document.getElementById('tl-planner-refresh');
   var resultEl     = document.getElementById('tl-planner-result');
 
-  // Restore months preference.
+  // Restore months + buffer preferences.
   var savedMonths = localStorage.getItem(STORAGE_PREFIX + 'months');
   if (savedMonths) monthsInput.value = savedMonths;
+  var bufferInput = document.getElementById('tl-planner-buffer');
+  var savedBuffer = localStorage.getItem(STORAGE_PREFIX + 'buffer');
+  if (savedBuffer && bufferInput) bufferInput.value = savedBuffer;
 
   monthsInput.addEventListener('input', function() {
     localStorage.setItem(STORAGE_PREFIX + 'months', monthsInput.value);
+    _tlPlannerRecompute(d);
+  });
+  if (bufferInput) bufferInput.addEventListener('input', function() {
+    localStorage.setItem(STORAGE_PREFIX + 'buffer', bufferInput.value);
     _tlPlannerRecompute(d);
   });
 
@@ -2163,11 +2171,13 @@ function _tlPlannerLoadBalances(d, forceRefresh) {
 function _tlPlannerRecompute(d) {
   var inputsEl   = document.getElementById('tl-planner-inputs');
   var monthsInput= document.getElementById('tl-planner-months');
+  var bufferInput= document.getElementById('tl-planner-buffer');
   var totalEl    = document.getElementById('tl-planner-total');
   var resultEl   = document.getElementById('tl-planner-result');
   if (!inputsEl || !monthsInput || !resultEl) return;
 
   var months = Math.max(1, Number(monthsInput.value) || 2);
+  var buffer = Math.max(0, Number(bufferInput && bufferInput.value) || 0);
 
   // Sum current balances from all input fields.
   var total = 0;
@@ -2203,35 +2213,37 @@ function _tlPlannerRecompute(d) {
   var avgIn  = avgN(opIn,  6);
   var avgOut = Math.abs(avgN(opOut, 6));   // magnitude
 
-  // Over N months:
+  // Over N months + user-defined buffer for one-offs / upcoming expenses:
   var expectedSpend  = avgOut * months;
   var expectedIncome = avgIn  * months;
-  var netNeed        = expectedSpend - expectedIncome;   // cash needed from reserves
-  var endingCash     = total + expectedIncome - expectedSpend;
-  var toMoveIn       = -endingCash;                       // positive = need to fund
+  var totalNeed      = expectedSpend + buffer;            // spend + buffer = what we need to have covered
+  var endingCash     = total + expectedIncome - totalNeed;
+  var toMoveIn       = -endingCash;                        // positive = need to fund
 
   function fmt(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
 
+  var bufferBlurb = buffer > 0 ? ' (including ' + fmt(buffer) + ' buffer)' : '';
+
   var html;
   if (toMoveIn > 0) {
-    // Need to move money in.
     html = '<div class="tl-planner-result need">' +
-      '<div class="tl-planner-result-label">Move Into TLMND to Cover ' + months + ' Month' + (months === 1 ? '' : 's') + '</div>' +
+      '<div class="tl-planner-result-label">Move Into TLMND to Cover ' + months + ' Month' + (months === 1 ? '' : 's') + bufferBlurb + '</div>' +
       '<div class="tl-planner-result-value">' + fmt(toMoveIn) + '</div>' +
       '<div class="tl-planner-result-sub">' +
         'Ending cash after ' + months + ' month' + (months === 1 ? '' : 's') + ' would be −' + fmt(toMoveIn) + ' without new inflows. ' +
-        'Move in ~' + fmt(toMoveIn) + ' from Blue Panda or other entities to end at $0. ' +
-        'To keep a buffer, add whatever you want on top.' +
+        'Move in ~' + fmt(toMoveIn) + ' from Blue Panda or other entities to end at $0' +
+        (buffer > 0 ? ' with the ' + fmt(buffer) + ' buffer covered' : '') + '.' +
       '</div>' +
     '</div>';
   } else {
-    // Safe — surplus.
     html = '<div class="tl-planner-result safe">' +
-      '<div class="tl-planner-result-label">' + months + '-Month Cash Position</div>' +
+      '<div class="tl-planner-result-label">' + months + '-Month Cash Position' + bufferBlurb + '</div>' +
       '<div class="tl-planner-result-value">+' + fmt(endingCash) + '</div>' +
       '<div class="tl-planner-result-sub">' +
         'Current cash of ' + fmt(total) + ' + expected income of ' + fmt(expectedIncome) + ' covers ' +
-        fmt(expectedSpend) + ' of expenses with ' + fmt(endingCash) + ' left over. No transfer needed.' +
+        fmt(expectedSpend) + ' of expenses' +
+        (buffer > 0 ? ' + ' + fmt(buffer) + ' buffer' : '') +
+        ' with ' + fmt(endingCash) + ' left over. No transfer needed.' +
       '</div>' +
     '</div>';
   }
@@ -2240,6 +2252,7 @@ function _tlPlannerRecompute(d) {
     '<div class="row"><span>Current cash on hand</span><span>' + fmt(total) + '</span></div>' +
     '<div class="row"><span>Expected recurring income over ' + months + ' mo</span><span>+' + fmt(expectedIncome) + '</span></div>' +
     '<div class="row"><span>Expected recurring spend over ' + months + ' mo</span><span>−' + fmt(expectedSpend) + '</span></div>' +
+    (buffer > 0 ? '<div class="row"><span>Buffer for one-offs</span><span>−' + fmt(buffer) + '</span></div>' : '') +
     '<div class="row" style="border-top:1px solid #d0dae5;padding-top:4px;margin-top:4px;font-weight:600"><span>Ending cash at ' + months + '-mo mark</span><span>' + (endingCash < 0 ? '−' : '') + fmt(endingCash) + '</span></div>' +
   '</div>';
 
