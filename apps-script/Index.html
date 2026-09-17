@@ -2129,8 +2129,16 @@ function _tlHtmlBurnForecast(d) {
     });
   });
 
+  // Exclude the current (partial) month from averages so the baseline
+  // reflects fully-recorded months only. Mid-September with only 2 of 3
+  // payroll runs posted would otherwise drag the average down and
+  // understate the true monthly need.
+  var now = new Date();
+  var currentYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var completeMonths = months.filter(function(m) { return m.ym !== currentYm; });
+
   function avgLastN(dict, n) {
-    var vals = months.slice(-n).map(function(m) { return dict[m.ym] || 0; });
+    var vals = completeMonths.slice(-n).map(function(m) { return dict[m.ym] || 0; });
     if (!vals.length) return 0;
     return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
   }
@@ -2171,9 +2179,10 @@ function _tlHtmlBurnForecast(d) {
   return '' +
     '<div class="tl-forecast">' +
       '<div class="tl-forecast-title">Cash Needs & Forecast</div>' +
-      '<div class="tl-forecast-sub">Based on trailing 6 months of <strong>recurring</strong> activity only (Solaris, Ellison, ' +
-        'UHC, Guardian, Divvy, payroll, etc.). One-off items like legal fees, charitable donations, ' +
-        'and occasional wires are excluded so the baseline reflects your typical month, not the outliers.</div>' +
+      '<div class="tl-forecast-sub">Based on trailing 6 <strong>completed</strong> months of <strong>recurring</strong> activity only ' +
+        '(Solaris, Ellison, UHC, Guardian, Divvy, payroll, etc.). One-off items like legal fees, charitable donations, and occasional wires ' +
+        'are excluded so the baseline reflects your typical month. The current partial month is skipped so mid-month sync data ' +
+        'doesn\'t drag the average down.</div>' +
       '<div class="tl-forecast-flow">' +
         '<div class="tl-forecast-flow-item">' +
           '<div class="tl-forecast-flow-label">Avg Recurring Money In</div>' +
