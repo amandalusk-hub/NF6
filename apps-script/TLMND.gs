@@ -1064,6 +1064,63 @@ function refreshTLMNDCashFlow() {
   return syncTLMNDCashFlow();
 }
 
+// Read current balances for TLMND-tracked accounts from the Assets sheet.
+// The Assets sheet is refreshed by syncPlaidAccounts / syncSnapTradeAccounts
+// (both scheduled). Returns one entry per configured Plaid + SnapTrade
+// account with its label, USD balance, and the freshest Last Updated
+// timestamp across them all so the dashboard can show "as of ...".
+function getTLMNDAccountBalances() {
+  var cfg = getTLMNDConfig_();
+  if (!cfg) return { success: false, error: 'TLMND config not initialized.' };
+
+  var sheet = getSheet_('ASSETS');
+  var rows  = sheet.getDataRange().getValues();
+  var hdr   = rows[0];
+  function ci(name) { return hdr.indexOf(name); }
+  var iPlaid = ci('Plaid Account ID');
+  var iSnap  = ci('SnapTrade ID');
+  var iName  = ci('Name');
+  var iUsd   = ci('USD Value');
+  var iLU    = ci('Last Updated');
+
+  var balances = [];
+  var latestUpdate = null;
+
+  function pushFromRow(i, label, source) {
+    var val = Number(rows[i][iUsd]) || 0;
+    var lu  = rows[i][iLU];
+    balances.push({ label: label, value: val, source: source });
+    if (lu && (!latestUpdate || new Date(lu) > new Date(latestUpdate))) latestUpdate = lu;
+  }
+
+  (cfg.plaidAccounts || []).forEach(function(a) {
+    for (var i = 1; i < rows.length; i++) {
+      if (iPlaid >= 0 && String(rows[i][iPlaid]) === a.accountId) {
+        pushFromRow(i, a.label, 'Plaid');
+        return;
+      }
+    }
+    // Not found → surface as zero with a NOTE so the UI can prompt the user.
+    balances.push({ label: a.label, value: 0, source: 'Plaid', notFound: true });
+  });
+
+  (cfg.snapTradeAccounts || []).forEach(function(a) {
+    for (var i = 1; i < rows.length; i++) {
+      if (iSnap >= 0 && String(rows[i][iSnap]) === a.accountId) {
+        pushFromRow(i, a.label, 'SnapTrade');
+        return;
+      }
+    }
+    balances.push({ label: a.label, value: 0, source: 'SnapTrade', notFound: true });
+  });
+
+  return {
+    success: true,
+    balances: balances,
+    latestUpdate: latestUpdate ? new Date(latestUpdate).toISOString() : null
+  };
+}
+
 // Nuclear option — deletes every data row in TLMND_TRANSACTIONS then
 // runs a fresh sync. Useful after changing the sync keying (e.g. the
 // pending_transaction_id fix) so old duplicates get flushed. Loses any

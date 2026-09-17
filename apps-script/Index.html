@@ -459,6 +459,34 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-controls button{padding:7px 14px;background:#0d2137;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
       #tab-tlmnd .tl-controls button:hover{background:#1a3a5c}
       #tab-tlmnd .tl-controls button:disabled{background:#999;cursor:not-allowed}
+      /* ── Funding Planner (top of tab) ── */
+      #tab-tlmnd .tl-planner{background:linear-gradient(135deg,#f4f8fc 0%,#eaf1f8 100%);border-radius:10px;padding:18px 22px;margin-bottom:14px;border:1px solid #d0dae5;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+      #tab-tlmnd .tl-planner-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+      #tab-tlmnd .tl-planner-title{font-size:12px;color:#0d2137;text-transform:uppercase;letter-spacing:.6px;font-weight:700}
+      #tab-tlmnd .tl-planner-asof{font-size:11px;color:#5f6368;font-style:italic}
+      #tab-tlmnd .tl-planner-body{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+      @media(max-width:820px){#tab-tlmnd .tl-planner-body{grid-template-columns:1fr}}
+      #tab-tlmnd .tl-planner-inputs{display:flex;flex-direction:column;gap:8px}
+      #tab-tlmnd .tl-planner-input-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
+      #tab-tlmnd .tl-planner-input-row label{color:#3c4858;font-weight:500;flex:1}
+      #tab-tlmnd .tl-planner-input-row input{width:130px;padding:6px 10px;border:1px solid #c0ccd8;border-radius:6px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;background:#fff}
+      #tab-tlmnd .tl-planner-input-row input:focus{outline:2px solid #4fc3f7;outline-offset:-1px}
+      #tab-tlmnd .tl-planner-refresh{background:none;border:none;color:#4a90d9;cursor:pointer;font-size:11px;padding:2px 6px}
+      #tab-tlmnd .tl-planner-refresh:hover{text-decoration:underline}
+      #tab-tlmnd .tl-planner-total{padding-top:8px;border-top:1px solid #c0ccd8;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:#0d2137}
+      #tab-tlmnd .tl-planner-total .val{font-variant-numeric:tabular-nums;font-size:15px}
+      #tab-tlmnd .tl-planner-months{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px}
+      #tab-tlmnd .tl-planner-months input{width:60px;padding:6px 8px;border:1px solid #c0ccd8;border-radius:6px;text-align:center;font-weight:700;font-size:14px}
+      #tab-tlmnd .tl-planner-result{padding:14px 16px;border-radius:8px;font-size:13px}
+      #tab-tlmnd .tl-planner-result.need{background:#fee7e7;border:1px solid #f5b5b5}
+      #tab-tlmnd .tl-planner-result.safe{background:#e6f4ea;border:1px solid #a8d5b5}
+      #tab-tlmnd .tl-planner-result-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#5f6368;font-weight:600;margin-bottom:4px}
+      #tab-tlmnd .tl-planner-result-value{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
+      #tab-tlmnd .tl-planner-result.need .tl-planner-result-value{color:#a50e0e}
+      #tab-tlmnd .tl-planner-result.safe .tl-planner-result-value{color:#137333}
+      #tab-tlmnd .tl-planner-result-sub{font-size:11px;color:#3c4858;margin-top:6px;line-height:1.5}
+      #tab-tlmnd .tl-planner-breakdown{margin-top:10px;font-size:11px;color:#5f6368;line-height:1.6}
+      #tab-tlmnd .tl-planner-breakdown .row{display:flex;justify-content:space-between}
       /* ── Hero + top-mover layout (redesigned) ── */
       #tab-tlmnd .tl-hero-row{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:14px}
       @media(max-width:900px){#tab-tlmnd .tl-hero-row{grid-template-columns:1fr}}
@@ -1993,10 +2021,12 @@ function renderTLMNDCashFlow() {
     });
   }
 
-  var html = _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
+  var html = _tlHtmlPlanner(d) + _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
              _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
              _tlHtmlCategoryMatrix(d) + _tlHtmlInternalMovements(d);
   content.innerHTML = html;
+  // Wire up planner after DOM is in place.
+  _tlPlannerInit(d);
 
   // Wire up click-to-drill on category rows.
   content.querySelectorAll('.tl-cat-row').forEach(function(row) {
@@ -2005,6 +2035,211 @@ function renderTLMNDCashFlow() {
       _tlOpenDrilldown(row.dataset.category);
     });
   });
+}
+
+// ─── Funding Planner ───────────────────────────────────────────────────
+// Interactive widget at the very top of the tab. Auto-loads current
+// balances from the Assets sheet, lets the user edit them manually if
+// needed, and calculates how much to move IN from Blue Panda / other
+// entities to cover N months of typical recurring expenses.
+//
+// Persistence: user edits to balances + months preference save to
+// localStorage so they survive page reloads.
+function _tlHtmlPlanner(d) {
+  return '' +
+    '<div class="tl-planner">' +
+      '<div class="tl-planner-head">' +
+        '<div class="tl-planner-title">💰 Funding Planner</div>' +
+        '<div class="tl-planner-asof" id="tl-planner-asof">Loading balances…</div>' +
+      '</div>' +
+      '<div class="tl-planner-body">' +
+        '<div class="tl-planner-inputs" id="tl-planner-inputs">' +
+          '<div style="font-size:11px;color:#5f6368;margin-bottom:2px">Current Balances <button class="tl-planner-refresh" id="tl-planner-refresh">↻ from Assets</button></div>' +
+          // Populated dynamically by _tlPlannerInit
+        '</div>' +
+        '<div>' +
+          '<div class="tl-planner-months">Cover&nbsp;<input type="number" id="tl-planner-months" min="1" max="24" step="1" value="2">&nbsp;months of typical recurring expenses</div>' +
+          '<div id="tl-planner-result"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+// Called after the planner HTML is inserted. Auto-loads balances from
+// the Assets sheet, wires up inputs, and does the initial calculation.
+function _tlPlannerInit(d) {
+  var STORAGE_PREFIX = 'tlmnd_planner_';
+  var monthsInput  = document.getElementById('tl-planner-months');
+  var inputsEl     = document.getElementById('tl-planner-inputs');
+  var asofEl       = document.getElementById('tl-planner-asof');
+  var refreshBtn   = document.getElementById('tl-planner-refresh');
+  var resultEl     = document.getElementById('tl-planner-result');
+
+  // Restore months preference.
+  var savedMonths = localStorage.getItem(STORAGE_PREFIX + 'months');
+  if (savedMonths) monthsInput.value = savedMonths;
+
+  monthsInput.addEventListener('input', function() {
+    localStorage.setItem(STORAGE_PREFIX + 'months', monthsInput.value);
+    _tlPlannerRecompute(d);
+  });
+
+  refreshBtn.addEventListener('click', function() {
+    refreshBtn.disabled = true; refreshBtn.textContent = 'loading…';
+    _tlPlannerLoadBalances(d, true);
+  });
+
+  // Kick off initial balance load.
+  _tlPlannerLoadBalances(d, false);
+}
+
+function _tlPlannerLoadBalances(d, forceRefresh) {
+  var STORAGE_PREFIX = 'tlmnd_planner_';
+  var inputsEl = document.getElementById('tl-planner-inputs');
+  var asofEl   = document.getElementById('tl-planner-asof');
+  var refreshBtn = document.getElementById('tl-planner-refresh');
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = '↻ from Assets'; }
+      if (!res || !res.success) {
+        asofEl.textContent = 'could not load balances: ' + ((res && res.error) || 'unknown');
+        return;
+      }
+      // Build one row per account.
+      var rowsHtml = '<div style="font-size:11px;color:#5f6368;margin-bottom:2px">Current Balances <button class="tl-planner-refresh" id="tl-planner-refresh">↻ from Assets</button></div>';
+      res.balances.forEach(function(b, i) {
+        // Prefer user's saved override (localStorage) over auto-loaded value —
+        // unless force-refresh, which overwrites the override.
+        var key = STORAGE_PREFIX + 'bal_' + b.label;
+        var savedVal = localStorage.getItem(key);
+        var val = (savedVal != null && !forceRefresh) ? Number(savedVal) : b.value;
+        if (forceRefresh) localStorage.removeItem(key);   // reset override
+        rowsHtml += '' +
+          '<div class="tl-planner-input-row">' +
+            '<label>' + b.label + (b.notFound ? ' <span style="color:#a50e0e">(not found)</span>' : '') + '</label>' +
+            '<input type="number" step="0.01" data-label="' + b.label + '" value="' + val.toFixed(2) + '">' +
+          '</div>';
+      });
+      rowsHtml += '<div class="tl-planner-total"><span>Total on hand</span><span class="val" id="tl-planner-total">$0</span></div>';
+      inputsEl.innerHTML = rowsHtml;
+
+      // Rewire the refresh button (was replaced by innerHTML overwrite).
+      var newRefresh = document.getElementById('tl-planner-refresh');
+      if (newRefresh) newRefresh.addEventListener('click', function() {
+        newRefresh.disabled = true; newRefresh.textContent = 'loading…';
+        _tlPlannerLoadBalances(d, true);
+      });
+
+      // Wire balance inputs — persist edits + recompute on change.
+      inputsEl.querySelectorAll('input[data-label]').forEach(function(inp) {
+        inp.addEventListener('input', function() {
+          localStorage.setItem(STORAGE_PREFIX + 'bal_' + inp.dataset.label, inp.value);
+          _tlPlannerRecompute(d);
+        });
+      });
+
+      // As-of line.
+      if (res.latestUpdate) {
+        var dt = new Date(res.latestUpdate);
+        asofEl.textContent = 'Balances synced ' + dt.toLocaleString();
+      } else {
+        asofEl.textContent = 'Balances not yet synced';
+      }
+
+      _tlPlannerRecompute(d);
+    })
+    .withFailureHandler(function(err) {
+      if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.textContent = '↻ from Assets'; }
+      asofEl.textContent = 'load failed: ' + (err.message || err);
+    })
+    .getTLMNDAccountBalances();
+}
+
+function _tlPlannerRecompute(d) {
+  var inputsEl   = document.getElementById('tl-planner-inputs');
+  var monthsInput= document.getElementById('tl-planner-months');
+  var totalEl    = document.getElementById('tl-planner-total');
+  var resultEl   = document.getElementById('tl-planner-result');
+  if (!inputsEl || !monthsInput || !resultEl) return;
+
+  var months = Math.max(1, Number(monthsInput.value) || 2);
+
+  // Sum current balances from all input fields.
+  var total = 0;
+  inputsEl.querySelectorAll('input[data-label]').forEach(function(inp) {
+    total += Number(inp.value) || 0;
+  });
+  if (totalEl) totalEl.textContent = '$' + Math.round(total).toLocaleString();
+
+  // Compute recurring in/out averages (same method as Burn & Forecast — exclude
+  // current partial month + inter-entity).
+  var series = d.monthlySeries || [];
+  var mat    = d.categoryMatrix || [];
+  var now = new Date();
+  var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var complete = series.filter(function(m) { return m.ym !== curYm; });
+  function isInterEntity(c) { return /transfer|blue panda|nf europe|nf medellin|nf usa tx|inter-entity/i.test(c); }
+  var opIn = {}, opOut = {};
+  complete.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
+  mat.forEach(function(c) {
+    if (isInterEntity(c.category)) return;
+    if (!c.recurring) return;
+    Object.keys(c.months).forEach(function(ym) {
+      if (opIn[ym] === undefined) return;
+      var v = c.months[ym] || 0;
+      if (v >= 0) opIn[ym]  += v; else opOut[ym] += v;
+    });
+  });
+  function avgN(dict, n) {
+    var vals = complete.slice(-n).map(function(m) { return dict[m.ym] || 0; });
+    if (!vals.length) return 0;
+    return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
+  }
+  var avgIn  = avgN(opIn,  6);
+  var avgOut = Math.abs(avgN(opOut, 6));   // magnitude
+
+  // Over N months:
+  var expectedSpend  = avgOut * months;
+  var expectedIncome = avgIn  * months;
+  var netNeed        = expectedSpend - expectedIncome;   // cash needed from reserves
+  var endingCash     = total + expectedIncome - expectedSpend;
+  var toMoveIn       = -endingCash;                       // positive = need to fund
+
+  function fmt(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+
+  var html;
+  if (toMoveIn > 0) {
+    // Need to move money in.
+    html = '<div class="tl-planner-result need">' +
+      '<div class="tl-planner-result-label">Move Into TLMND to Cover ' + months + ' Month' + (months === 1 ? '' : 's') + '</div>' +
+      '<div class="tl-planner-result-value">' + fmt(toMoveIn) + '</div>' +
+      '<div class="tl-planner-result-sub">' +
+        'Ending cash after ' + months + ' month' + (months === 1 ? '' : 's') + ' would be −' + fmt(toMoveIn) + ' without new inflows. ' +
+        'Move in ~' + fmt(toMoveIn) + ' from Blue Panda or other entities to end at $0. ' +
+        'To keep a buffer, add whatever you want on top.' +
+      '</div>' +
+    '</div>';
+  } else {
+    // Safe — surplus.
+    html = '<div class="tl-planner-result safe">' +
+      '<div class="tl-planner-result-label">' + months + '-Month Cash Position</div>' +
+      '<div class="tl-planner-result-value">+' + fmt(endingCash) + '</div>' +
+      '<div class="tl-planner-result-sub">' +
+        'Current cash of ' + fmt(total) + ' + expected income of ' + fmt(expectedIncome) + ' covers ' +
+        fmt(expectedSpend) + ' of expenses with ' + fmt(endingCash) + ' left over. No transfer needed.' +
+      '</div>' +
+    '</div>';
+  }
+
+  html += '<div class="tl-planner-breakdown">' +
+    '<div class="row"><span>Current cash on hand</span><span>' + fmt(total) + '</span></div>' +
+    '<div class="row"><span>Expected recurring income over ' + months + ' mo</span><span>+' + fmt(expectedIncome) + '</span></div>' +
+    '<div class="row"><span>Expected recurring spend over ' + months + ' mo</span><span>−' + fmt(expectedSpend) + '</span></div>' +
+    '<div class="row" style="border-top:1px solid #d0dae5;padding-top:4px;margin-top:4px;font-weight:600"><span>Ending cash at ' + months + '-mo mark</span><span>' + (endingCash < 0 ? '−' : '') + fmt(endingCash) + '</span></div>' +
+  '</div>';
+
+  resultEl.innerHTML = html;
 }
 
 // ─── Redesigned top block ──────────────────────────────────────────────
