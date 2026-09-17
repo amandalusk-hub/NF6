@@ -832,12 +832,17 @@ function applyTLMNDRules() {
       row[idxCat] = matched.category;
       if (matched.recurring) row[idxRec] = matched.recurring;
       if (matched.entityTag) row[idxEnt] = matched.entityTag;
+      // Always strip any prior [EXCLUDED] marker before re-applying — this
+      // is what keeps rows from being permanently stuck as excluded when a
+      // rule is later flipped from exclude=Yes to exclude=blank (Ellison
+      // Medical is the canonical case). Then re-add the marker only if
+      // the CURRENT matched rule is still excluded.
+      var n = String(row[idxNotes] || '').replace(/^\[EXCLUDED\]\s*/, '');
       if (matched.exclude) {
-        // Prepend [EXCLUDED] marker in Notes so users see it in the sheet at a glance.
-        var n = String(row[idxNotes] || '');
-        if (n.indexOf('[EXCLUDED]') < 0) row[idxNotes] = ('[EXCLUDED] ' + n).trim();
+        n = '[EXCLUDED] ' + n;
         excluded++;
       }
+      row[idxNotes] = n.trim();
       categorized++;
     } else if (!existing) {
       uncategorized++;
