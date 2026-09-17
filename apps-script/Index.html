@@ -2090,21 +2090,26 @@ function _tlHtmlTopMovers(d) {
 
 // ─── Burn & Forecast ──────────────────────────────────────────────────
 // Answers "how much cash does TLMND need per month, and how much should
-// we keep on hand?" Excludes inter-entity transfers from the burn math
-// since those are discretionary movements (funded by other entities to
-// cover the shortfall) — the real operational picture is customers/loans
-// coming in vs. payroll/insurance/ops going out.
+// we keep on hand?" Uses RECURRING categories only — so the numbers match
+// what the user plans against ($75,816/mo per her spreadsheet) rather
+// than getting inflated by non-recurring one-offs (legal fees, donations,
+// occasional wires). Non-recurring items are shown separately in the
+// category matrix, not in the forecast baseline.
+//
+// Also excludes inter-entity transfers from the operational picture —
+// those are the funding mechanism, not the underlying need.
 function _tlHtmlBurnForecast(d) {
   var months = d.monthlySeries || [];
   var mat    = d.categoryMatrix || [];
   if (!months.length) return '';
 
-  // Bucket monthly totals into operational vs inter-entity.
+  // Bucket recurring-only monthly totals.
   function isInterEntity(c) { return /transfer|blue panda|nf europe|nf medellin|nf usa tx|inter-entity/i.test(c); }
   var opIn = {}, opOut = {};
   months.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
   mat.forEach(function(c) {
     if (isInterEntity(c.category)) return;
+    if (!c.recurring) return;   // recurring only — matches user's planning baseline
     Object.keys(c.months).forEach(function(ym) {
       if (opIn[ym] === undefined) return;
       var v = c.months[ym] || 0;
@@ -2142,34 +2147,35 @@ function _tlHtmlBurnForecast(d) {
     ? '<div class="tl-forecast-callout">' +
         '<div class="tl-forecast-callout-label">Monthly transfer needed into TLMND</div>' +
         '<div class="tl-forecast-callout-value">' + fmt(monthlyNeed) + '</div>' +
-        '<div class="tl-forecast-callout-sub">Operational money out exceeds money in by this much on average. To break even each month, ' +
-          'roughly ' + fmt(monthlyNeed) + ' needs to move into TLMND from Blue Panda or other entities.</div>' +
+        '<div class="tl-forecast-callout-sub">Recurring money out exceeds recurring money in by this much on average. To keep TLMND self-funding on the recurring baseline, ' +
+          'roughly ' + fmt(monthlyNeed) + ' needs to move into TLMND from Blue Panda or other entities each month.</div>' +
       '</div>'
     : '<div class="tl-forecast-callout">' +
-        '<div class="tl-forecast-callout-label">Monthly operational surplus</div>' +
+        '<div class="tl-forecast-callout-label">Monthly recurring surplus</div>' +
         '<div class="tl-forecast-callout-value" style="color:#137333">+' + fmt(-monthlyNeed) + '</div>' +
-        '<div class="tl-forecast-callout-sub">Operational money in exceeds money out. TLMND is self-funding on average and can hold excess ' +
-          'or send it out to other entities.</div>' +
+        '<div class="tl-forecast-callout-sub">Recurring money in exceeds recurring money out. TLMND is self-funding on the recurring baseline ' +
+          'and can hold excess or send it out to other entities.</div>' +
       '</div>';
 
   return '' +
     '<div class="tl-forecast">' +
       '<div class="tl-forecast-title">Cash Needs & Forecast</div>' +
-      '<div class="tl-forecast-sub">Based on trailing 6 months of operational activity (customers, loans, payroll, ' +
-        'insurance, ops — excludes inter-entity transfers which are the funding mechanism, not the need).</div>' +
+      '<div class="tl-forecast-sub">Based on trailing 6 months of <strong>recurring</strong> activity only (Solaris, Ellison, ' +
+        'UHC, Guardian, Divvy, payroll, etc.). One-off items like legal fees, charitable donations, ' +
+        'and occasional wires are excluded so the baseline reflects your typical month, not the outliers.</div>' +
       '<div class="tl-forecast-flow">' +
         '<div class="tl-forecast-flow-item">' +
-          '<div class="tl-forecast-flow-label">Avg Operational Money In</div>' +
+          '<div class="tl-forecast-flow-label">Avg Recurring Money In</div>' +
           '<div class="tl-forecast-flow-value amt-pos">+' + fmt(avgIn6) + '</div>' +
-          '<div class="tl-forecast-flow-detail">Customers, loans, investment income · T3M avg ' + fmtSigned(avgIn3) + '</div>' +
+          '<div class="tl-forecast-flow-detail">Solaris, Ellison, Wasica, MacDonald, dividends · T3M avg ' + fmtSigned(avgIn3) + '</div>' +
         '</div>' +
         '<div class="tl-forecast-flow-item">' +
-          '<div class="tl-forecast-flow-label">Avg Operational Money Out</div>' +
+          '<div class="tl-forecast-flow-label">Avg Recurring Money Out</div>' +
           '<div class="tl-forecast-flow-value amt-neg">' + fmtSigned(avgOut6) + '</div>' +
-          '<div class="tl-forecast-flow-detail">Payroll, insurance, ops · T3M avg ' + fmtSigned(avgOut3) + '</div>' +
+          '<div class="tl-forecast-flow-detail">Payroll, insurance, consultants, ops · T3M avg ' + fmtSigned(avgOut3) + '</div>' +
         '</div>' +
         '<div class="tl-forecast-flow-item">' +
-          '<div class="tl-forecast-flow-label">Net Monthly Operational</div>' +
+          '<div class="tl-forecast-flow-label">Net Monthly Recurring</div>' +
           '<div class="tl-forecast-flow-value ' + (netMonthly6 >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmtSigned(netMonthly6) + '</div>' +
           '<div class="tl-forecast-flow-detail">T3M avg ' + fmtSigned(netMonthly3) + '</div>' +
         '</div>' +

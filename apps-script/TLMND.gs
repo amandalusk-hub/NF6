@@ -684,9 +684,12 @@ function seedTLMNDRules() {
     [40, 'Name', 'contains', 'BUY SPAXX',                         '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     [40, 'Name', 'contains', 'SELL SPAXX',                        '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     [40, 'Name', 'contains', 'REI SPAXX',                         '', '', '(Fidelity SPAXX reinvestment)',                  '',   '',           'Yes', 'Yes', 'Excluded — internal'],
-    // TLMND → Fidelity transfer, both sides.
+    // TLMND ↔ Fidelity internal transfers — both directions excluded.
     [40, 'Name', 'contains', 'FidelityTLM',                       '', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION; loose match catches "FidelityTLM" and "FidelityTLMND"'],
     [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+    // Fidelity clearing broker (NFS = National Financial Services) returning
+    // money to TLMND — internal move, exclude to avoid inflating income.
+    [40, 'Name', 'contains', 'NATIONAL FINANCIAL SERVICES',       '', '', '(Transfer Fidelity → TLMND)',                    '',   '',           'Yes', 'Yes', 'Excluded — Fidelity NFS book credit, internal move back to TLMND'],
 
     // ── Bank noise ───────────────────────────────────────────────────────
     [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
