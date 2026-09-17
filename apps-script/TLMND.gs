@@ -633,7 +633,7 @@ function seedTLMNDRules() {
     [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', 'Non-Paris wires'],
     [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF Medellin (Inter-Entity Transfer)',           'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
     [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLM',        '', 'Yes', ''],
-    [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Consulting - Manuela Estrada (House Project)',  'No',  'TLM',        '', 'Yes', ''],
+    [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Charitable Donation - The House Project',       'No',  'TLM',        '', 'Yes', 'Donation coordinated by Manuela E; not a payment to her'],
 
     // ── FIDELITY (SnapTrade) — real cash flow ────────────────────────────
     // Consultant-specific GUSTO NET splits FIRST (priority 15 — before the
