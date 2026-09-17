@@ -691,15 +691,15 @@ function seedTLMNDRules() {
     [40, 'Name', 'contains', 'SELL SPAXX',                        '', '', '(Fidelity SPAXX cash mgmt)',                     '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     [40, 'Name', 'contains', 'REI SPAXX',                         '', '', '(Fidelity SPAXX reinvestment)',                  '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     // TLMND ↔ Fidelity internal transfers — both directions excluded.
-    [40, 'Name', 'contains', 'FidelityTLM',                       '', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION; loose match catches "FidelityTLM" and "FidelityTLMND"'],
-    [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', '(Transfer TLMND → Fidelity)',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
+    [40, 'Name', 'contains', 'FidelityTLM',                       '', '', 'TLMND ···2001 → Fidelity ···6454',                    '',   '',           'Yes', 'Yes', 'Excluded — paired w/ Fidelity CONTRIBUTION; loose match catches "FidelityTLM" and "FidelityTLMND"'],
+    [40, 'Name', 'contains', 'CONTRIBUTION — DIRECT DEPOSIT TLMND','', '', 'TLMND ···2001 → Fidelity ···6454',                    '',   '',           'Yes', 'Yes', 'Excluded — internal'],
     // Fidelity clearing broker (NFS = National Financial Services) returning
     // money to TLMND — internal move, exclude to avoid inflating income.
-    [40, 'Name', 'contains', 'NATIONAL FINANCIAL SERVICES',       '', '', '(Transfer Fidelity → TLMND)',                    '',   '',           'Yes', 'Yes', 'Excluded — Fidelity NFS book credit, internal move back to TLMND'],
+    [40, 'Name', 'contains', 'NATIONAL FINANCIAL SERVICES',       '', '', 'Fidelity ···6454 → TLMND ···2001',                '',   '',           'Yes', 'Yes', 'Excluded — Fidelity NFS book credit, internal move back to TLMND (Plaid side of pair)'],
     // Fidelity side of the same outbound wire back to TLMND checking —
     // pairs with the NFS book credit above (Plaid sees the credit, we
     // exclude that; SnapTrade sees the withdrawal, we exclude that too).
-    [40, 'Name', 'contains', 'WITHDRAWAL — WIRE TRANSFER',        '', '', '(Transfer Fidelity → TLMND checking)',           '',   '',           'Yes', 'Yes', 'Excluded — Fidelity wire out to TLMND Chase (funds payroll); pairs with NFS book credit'],
+    [40, 'Name', 'contains', 'WITHDRAWAL — WIRE TRANSFER',        '', '', 'Fidelity ···6454 → TLMND ···2001',                '',   '',           'Yes', 'Yes', 'Excluded — Fidelity wire out to TLMND Chase (SnapTrade side of pair, funds payroll)'],
 
     // ── Bank noise ───────────────────────────────────────────────────────
     [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
@@ -739,8 +739,12 @@ function seedTLMNDRules() {
     // NF USA CA ↔ TLMND internal journals: paired with the Ellison deposit
     // we already count as income. Excluding both sides prevents triple-count
     // (deposit + inbound + outbound = 3× the actual income).
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison deposit'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — mirror of above'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', 'NF USA CA ···2086 → TLMND ···2001',              '',   '',           'Yes', 'Yes', 'Excluded — TLMND-side inbound (paired with Ellison deposit already counted)'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', 'NF USA CA ···2086 → TLMND ···2001',              '',   '',           'Yes', 'Yes', 'Excluded — NF USA CA-side outbound (mirror of above)'],
+    // The reverse direction (TLMND → NF USA CA) — added for completeness if
+    // she moves money back that way. Same pair concept, other direction.
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2086',    '', '', 'TLMND ···2001 → NF USA CA ···2086',              '',   '',           'Yes', 'Yes', 'Excluded — TLMND-side outbound to NF USA CA'],
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2001',  '', '', 'TLMND ···2001 → NF USA CA ···2086',              '',   '',           'Yes', 'Yes', 'Excluded — NF USA CA-side inbound (mirror of above)'],
     // Blue Panda Family ···8686 → TLMND: real inter-entity funding, COUNT it.
     // Match both by account-mask (internal Chase transfer) AND by name
     // substring in case Blue Panda money arrives via a different mechanism

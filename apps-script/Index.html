@@ -585,10 +585,8 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-internal-table{width:100%;border-collapse:collapse;font-size:12px}
       #tab-tlmnd .tl-internal-table th{text-align:right;padding:6px 10px;background:#f8f9fa;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.4px;white-space:nowrap;border-bottom:1px solid #e0e0e0}
       #tab-tlmnd .tl-internal-table th:first-child{text-align:left}
-      #tab-tlmnd .tl-internal-table td{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap;color:#5f6368}
+      #tab-tlmnd .tl-internal-table td{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap;color:#0d2137}
       #tab-tlmnd .tl-internal-table td:first-child{text-align:left;font-weight:500;color:#333}
-      #tab-tlmnd .tl-internal-table .flow-out{color:#a50e0e}
-      #tab-tlmnd .tl-internal-table .flow-in{color:#137333}
       #tab-tlmnd .tl-internal-empty{color:#9aa0a6;font-style:italic;padding:12px 0}
       #tab-tlmnd .amt-pos{color:#137333}
       #tab-tlmnd .amt-neg{color:#a50e0e}
@@ -2787,25 +2785,33 @@ function _tlHtmlInternalMovements(d) {
   var txns   = d.transactions || [];
   if (!months.length || !txns.length) return '';
 
-  // Group excluded transactions by category, but only keep the ones that
-  // represent a real account-to-account movement (Transfer / Journal).
-  // Skip Fidelity SPAXX cash sweep, reinvestments, and investment buys/sells
-  // — those are internal Fidelity plumbing, not cross-account moves the
-  // user cares about.
+  // Group excluded transactions by category → an account-to-account
+  // movement (e.g. "TLMND ···2001 → Fidelity ···6454"). Only categories
+  // whose name contains the "→" arrow qualify — that's how we tagged
+  // real movement flows in the rules. Filters out Fidelity SPAXX cash
+  // sweep, reinvestments, and investment buys/sells since those are
+  // internal Fidelity plumbing.
+  //
+  // Both sides of each transfer live in our data (source account shows
+  // it outbound, destination account shows it inbound). To count each
+  // movement exactly ONCE and avoid the two sides cancelling to $0,
+  // we only sum OUTBOUND (negative) transactions and display them as
+  // absolute values — the source-side view of the move.
   var byCategory = {};
   txns.forEach(function(t) {
     if (!t.excluded) return;
-    var cat = t.category || '(Uncategorized)';
-    var lower = cat.toLowerCase();
-    if (/spaxx|reinvestment|purchase|sale|contribution/.test(lower)) return;
-    if (!/transfer|journal/.test(lower)) return;
+    var cat = t.category || '';
+    if (cat.indexOf('→') < 0) return;              // must be a directed flow
+    if (/spaxx|reinvestment|purchase|sale/i.test(cat)) return;
+    if (t.amount >= 0) return;                     // outbound only (source side)
     if (!byCategory[cat]) byCategory[cat] = { category: cat, months: {}, total: 0 };
-    byCategory[cat].months[t.ym] = (byCategory[cat].months[t.ym] || 0) + t.amount;
-    byCategory[cat].total += t.amount;
+    var abs = Math.abs(t.amount);
+    byCategory[cat].months[t.ym] = (byCategory[cat].months[t.ym] || 0) + abs;
+    byCategory[cat].total += abs;
   });
 
   var groups = Object.keys(byCategory).map(function(k) { return byCategory[k]; })
-    .sort(function(a, b) { return Math.abs(b.total) - Math.abs(a.total); });
+    .sort(function(a, b) { return b.total - a.total; });
 
   if (!groups.length) {
     return '' +
@@ -2824,20 +2830,19 @@ function _tlHtmlInternalMovements(d) {
     }).join('') +
     '<th>Total</th></tr></thead>';
 
-  // Body rows: one per grouped movement
+  // Body rows: one per grouped movement. Values are ABSOLUTE amounts
+  // moved (direction is already in the label like "TLMND ···2001 →
+  // Fidelity ···6454") — so no green/red coloring needed, all cells
+  // are "amount moved" in a neutral dark tone.
   var body = '<tbody>' + groups.map(function(g) {
     var tds = months.map(function(ym) {
       var v = g.months[ym] || 0;
       if (!v) return '<td>·</td>';
-      var cls = v >= 0 ? 'flow-in' : 'flow-out';
-      var sign = v >= 0 ? '+' : '−';
-      return '<td class="' + cls + '">' + sign + '$' + Math.abs(Math.round(v)).toLocaleString() + '</td>';
+      return '<td>$' + Math.round(v).toLocaleString() + '</td>';
     }).join('');
     var total = g.total || 0;
-    var totalCls = total >= 0 ? 'flow-in' : 'flow-out';
-    var totalSign = total >= 0 ? '+' : '−';
     return '<tr><td>' + g.category + '</td>' + tds +
-      '<td class="' + totalCls + '"><strong>' + totalSign + '$' + Math.abs(Math.round(total)).toLocaleString() + '</strong></td></tr>';
+      '<td><strong>$' + Math.round(total).toLocaleString() + '</strong></td></tr>';
   }).join('') + '</tbody>';
 
   return '' +
