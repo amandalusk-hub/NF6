@@ -36,13 +36,13 @@ function initTLMNDConfigDefaults() {
   var cfg = {
     plaidAccounts: [
       {
-        accountId:  'ZYkPYZr7P3CKpn5YoQr6HgnVKVbXdVsVEpBmA',
+        accountId:  'q7XnKYAAxKs1eXmRZZrAupZNM9REbEC1MbAzb',
         label:      'TLMND ···2001',
         role:       'primary'    // this is TLMND's own account — money in/out counts directly
       },
       {
-        accountId:  '5PvRPZg8Res95MzpZdKAUa87Z7k3e7s6R5Pvk',
-        label:      'NF California',
+        accountId:  'Bv9mLEzzVLhwxM5v66XRSX1P3Qr989HvXAOz1',
+        label:      'NF USA CA ···2086',
         role:       'passthrough' // money hits here first, then journals to TLMND
       }
     ],
