@@ -617,10 +617,20 @@ function seedTLMNDRules() {
     [10, 'Name', 'contains', 'PENN MUTUAL LIFE INS',              '', '', 'Life Insurance (Waskar Tejeda / Penn Mutual)',  'Yes', 'TLM',        '', 'Yes', ''],
     [10, 'Name', 'contains', 'To ManuEstrada',                    '', '', 'Manuela Estrada - Legal Fees',                  'Yes', 'TLM',        '', 'Yes', ''],
     [10, 'Name', 'contains', 'To LynnNguyen',                     '', '', 'Lynn Repayment',                                'Yes', 'TLM',        '', 'Yes', ''],
-    [10, 'Name', 'contains', 'MANUELA VALLEJO',                   '', '', 'Consulting - Manuela Vallejo',                  'Yes', 'TLM',        '', 'Yes', 'International wire, Vietnam'],
+    // NOTE: We do NOT categorize the "MANUELA VALLEJO" international wire
+    // here — that was a one-off business expense (Vietnam criminal record
+    // certificate fees) that happened to reference her name, not her
+    // recurring consulting pay. Her recurring $1,155/mo comes through Gusto
+    // (see priority-15 rules below). International wires like that Vietnam
+    // one land uncategorized so you can classify them per instance.
 
     // ── MONEY OUT — non-recurring / one-offs ─────────────────────────────
-    [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', ''],
+    // NF Europe wires around $1,600 are Paris Thacko apartment maintenance
+    // (monthly recurring). Higher-dollar or oddly-sized wires to NF Europe
+    // are inter-entity transfers proper. Split by amount range with the
+    // Paris rule at higher priority (15) so it wins the match first.
+    [15, 'Name', 'contains', 'NF EUROPE HOLDINGS',                -1750, -1500, 'Paris Thacko Apt Maintenance',                 'Yes', 'TLM',        '', 'Yes', 'Wire ~$1,600/mo to NF Europe Holdings'],
+    [20, 'Name', 'contains', 'NF EUROPE HOLDINGS',                '', '', 'NF Europe Holdings (Inter-Entity Transfer)',    'No',  'NF',         '', 'Yes', 'Non-Paris wires'],
     [20, 'Name', 'contains', 'NF MDECO SAS',                      '', '', 'NF Medellin (Inter-Entity Transfer)',           'No',  'NF',         '', 'Yes', 'Via BTG Pactual'],
     [20, 'Name', 'contains', 'ROETZEL AND ANDRESS',               '', '', 'Legal Fees - Roetzel and Andress',              'No',  'TLM',        '', 'Yes', ''],
     [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Consulting - Manuela Estrada (House Project)',  'No',  'TLM',        '', 'Yes', ''],
