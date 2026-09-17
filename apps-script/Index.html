@@ -547,9 +547,6 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <label>Entity
           <select id="tl-entity"><option value="">All</option></select>
         </label>
-        <label style="display:flex;align-items:center;gap:5px">
-          <input type="checkbox" id="tl-include-excluded"> Show excluded
-        </label>
         <button id="tl-refresh-btn">↻ Refresh</button>
       </div>
     </div>
@@ -1912,7 +1909,6 @@ function loadTLMNDCashFlow(opts) {
   opts = opts || {};
   var monthsSel = document.getElementById('tl-months');
   var entSel    = document.getElementById('tl-entity');
-  var incChk    = document.getElementById('tl-include-excluded');
   var content   = document.getElementById('tl-content');
 
   content.innerHTML = '<div class="tl-empty">Loading TLMND cash flow…</div>';
@@ -1920,7 +1916,6 @@ function loadTLMNDCashFlow(opts) {
 
   var months = Number(monthsSel && monthsSel.value) || 6;
   var entity = (entSel && entSel.value) || '';
-  var includeExcluded = !!(incChk && incChk.checked);
 
   google.script.run
     .withSuccessHandler(function(res) {
@@ -1936,7 +1931,7 @@ function loadTLMNDCashFlow(opts) {
       _tlmndState.loading = false;
       content.innerHTML = '<div class="tl-empty">Error: ' + (err.message || err) + '</div>';
     })
-    .getTLMNDCashFlowData({ months: months, entityTag: entity, includeExcluded: includeExcluded });
+    .getTLMNDCashFlowData({ months: months, entityTag: entity });
 }
 
 function renderTLMNDCashFlow() {
@@ -2287,8 +2282,12 @@ function _tlHtmlCategoryMatrix(d) {
   }
   function catRow(c) {
     var tds = months.map(function(ym) { return '<td>' + fmt(c.months[ym] || 0) + '</td>'; }).join('');
+    // Hide the TLMND entity tag since the whole tab is about TLMND —
+    // only show a tag when it differs from the default (e.g. "NF USA CA"
+    // for passthrough rows, or "NF" for inter-entity movements).
+    var showTag = c.entityTag && c.entityTag !== 'TLMND';
     return '<tr class="tl-cat-row" data-category="' + c.category.replace(/"/g, '&quot;') + '"><td>' + c.category +
-      (c.entityTag ? ' <span style="color:#999;font-weight:400">· ' + c.entityTag + '</span>' : '') +
+      (showTag ? ' <span style="color:#999;font-weight:400">· ' + c.entityTag + '</span>' : '') +
       '</td>' + tds + '<td><strong>' + fmt(c.total) + '</strong></td></tr>';
   }
   function sectionRow(label) {

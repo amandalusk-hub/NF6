@@ -606,11 +606,12 @@ function seedTLMNDRules() {
   var rules = [
     // ── MONEY IN — recurring ─────────────────────────────────────────────
     [10, 'Name', 'contains', 'SOLARIS-FL HOLDI',                  '', '', 'Solaris-Fl Holding LLC Loan Repayment Income', 'Yes', 'TLMND',      '', 'Yes', 'Monthly ~$16,656'],
-    // ELLISON MEDICAL: raw deposit lands on NF USA CA ···2086 — NOT TLMND's
-    // cash flow directly. What TLMND actually receives is the internal
-    // journal from NF USA CA (see priority-90 rule below). Exclude the
-    // deposit here so we count the transferred amount, not the deposit.
-    [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', '(Ellison deposit on NF USA CA — pre-transfer)', '',   'NF USA CA',  'Yes', 'Yes', 'Excluded — see the transfer from ···2086 for the TLMND-side amount'],
+    // ELLISON MEDICAL: raw deposit lands on NF USA CA ···2086 but is
+    // economically TLMND income (per user direction — the money is
+    // earmarked for TLMND). Count the deposit itself as recurring
+    // Money In; the internal transfer from NF USA CA to TLMND is
+    // excluded below to prevent double-counting.
+    [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Deposit lands on NF USA CA ···2086, counted as TLMND income'],
     [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
     [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction'],
 
@@ -679,14 +680,11 @@ function seedTLMNDRules() {
     [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
 
     // ── Inter-account journal transfers ──────────────────────────────────
-    // NF USA CA ↔ TLMND: money originating on NF USA CA (from Ellison Medical
-    // and possibly other customers) that gets journaled INTO TLMND. Per the
-    // user's accounting convention, we count what actually moved to TLMND,
-    // NOT the raw deposit on NF USA CA's side. So:
-    //   * TLMND-side INBOUND ("from CHK ...2086") → COUNT as Ellison income
-    //   * NF USA CA-side OUTBOUND ("to CHK ...2001") → EXCLUDE (mirror of above)
-    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Ellison proceeds moved from NF USA CA to TLMND'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(NF USA CA outbound mirror of transfer)',       '',   'NF USA CA',  'Yes', 'Yes', 'Excluded — mirror of TLMND inbound'],
+    // NF USA CA ↔ TLMND internal journals: paired with the Ellison deposit
+    // we already count as income. Excluding both sides prevents triple-count
+    // (deposit + inbound + outbound = 3× the actual income).
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...2086',  '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — paired with Ellison deposit'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...2001',    '', '', '(Journal from NF USA CA → TLMND)',              '',   '',           'Yes', 'Yes', 'Excluded — mirror of above'],
     // Blue Panda Family ···8686 → TLMND: real inter-entity funding, COUNT it.
     [90, 'Name', 'contains', 'Online Transfer from CHK ...8686',  '', '', 'Transfer from Blue Panda Family',               'No',  'TLMND',        '', 'Yes', 'Blue Panda Family ···8686 → TLMND funding'],
     // TLMND → NF USA TX ···5155: real inter-entity outflow, COUNT it.
@@ -843,8 +841,12 @@ function applyTLMNDRulesMenu() {
 function getTLMNDCashFlowData(opts) {
   opts = opts || {};
   var months        = Number(opts.months) || 6;             // window to render
-  var includeExcluded = opts.includeExcluded === true;      // audit toggle
   var entityFilter  = opts.entityTag || '';                 // '' = all
+  // NOTE: excluded rows (NF USA CA deposits, Fidelity SPAXX cash mgmt,
+  // internal transfer mirrors) are ALWAYS returned. Frontend routes them
+  // into a dedicated "Reference — Related Account Activity" section that
+  // does not roll into the main totals. This makes the passthrough
+  // account visible without inflating TLMND's cash-flow numbers.
 
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
   if (!sheet || sheet.getLastRow() < 2) {
@@ -878,7 +880,6 @@ function getTLMNDCashFlowData(opts) {
     if (ym < earliestYm) return;
     var notes = String(r[iNotes] || '');
     var isExcluded = notes.indexOf('[EXCLUDED]') >= 0;
-    if (!includeExcluded && isExcluded) return;
     if (entityFilter && String(r[iEnt] || '') !== entityFilter) return;
     filtered.push({
       ym:        ym,
@@ -893,18 +894,22 @@ function getTLMNDCashFlowData(opts) {
     });
   });
 
-  // Aggregate per (category, ym).
-  var catMap = {};   // category → { recurring, entityTag, months:{ym→amt}, total }
-  var series = {};   // ym → { in, out, netRec, netAll }
+  // Aggregate per (category, ym). Excluded transactions (Fidelity SPAXX
+  // cash mgmt, TLMND↔Fidelity funding pairs, NF USA CA↔TLMND internal
+  // journals) are filtered OUT entirely — the top-of-tab totals only
+  // reflect actual TLMND income and expense flows, not internal mirrors
+  // that would double-count.
+  var catMap = {};
+  var series = {};
   monthKeys.forEach(function(ym) { series[ym] = { ym: ym, in: 0, out: 0, netRec: 0, netAll: 0 }; });
 
   filtered.forEach(function(t) {
+    if (t.excluded) return;
     if (!catMap[t.category]) {
       catMap[t.category] = { category: t.category, recurring: t.recurring, entityTag: t.entityTag, months: {}, total: 0 };
     }
     catMap[t.category].months[t.ym] = (catMap[t.category].months[t.ym] || 0) + t.amount;
     catMap[t.category].total += t.amount;
-    // Prefer "Yes" recurring flag over blank — one true row makes the category recurring.
     if (t.recurring) catMap[t.category].recurring = true;
 
     var s = series[t.ym];
@@ -916,7 +921,6 @@ function getTLMNDCashFlowData(opts) {
 
   var categoryMatrix = Object.keys(catMap).map(function(k) { return catMap[k]; })
     .sort(function(a, b) {
-      // Recurring first, then by absolute total desc.
       if (a.recurring !== b.recurring) return a.recurring ? -1 : 1;
       return Math.abs(b.total) - Math.abs(a.total);
     });
