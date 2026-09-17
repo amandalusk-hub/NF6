@@ -2218,8 +2218,10 @@ function _tlGroupOf(cat) {
   if (/insurance|guardian|healthcar|life ins|next insur/.test(c))               return 'Insurance';
   if (/divvy|accounting|bank fees|paris|apt maintenance|charity|donation/.test(c)) return 'Operations & Facilities';
   if (/legal|law|roetzel/.test(c))                                              return 'Legal';
-  if (/ellison|solaris|wasica|book credit|money market|interest|dividend/.test(c)) return 'Customers & Investment Income';
-  if (/inter-entity|transfer|blue panda|nf europe|nf medellin|nf usa tx/.test(c))  return 'Inter-Entity';
+  if (/ellison|solaris|wasica|book credit|macdonald|cherry valley/.test(c))     return 'Customers & Loan Repayments';
+  if (/fidelity|money market|dividend|interest/.test(c))                        return 'Fidelity Investments';
+  if (/inter-entity|blue panda|nf europe|nf medellin|nf usa tx/.test(c))        return 'Inter-Entity';
+  if (/wire|ach payment|book transfer|deposit|other/.test(c))                   return 'Uncategorized / Catch-all';
   return 'Other';
 }
 
@@ -2235,7 +2237,9 @@ function _tlRenderGroupedSection(sectionLabel, items, months, catRowFn, sectionR
     byGroup[g].push(c);
   });
   // Stable group order — matches the priorities in _tlGroupOf.
-  var order = ['People & Payroll','Insurance','Operations & Facilities','Legal','Customers & Investment Income','Inter-Entity','Other'];
+  var order = ['People & Payroll','Insurance','Operations & Facilities','Legal',
+               'Customers & Loan Repayments','Fidelity Investments','Inter-Entity',
+               'Uncategorized / Catch-all','Other'];
   order.forEach(function(g) {
     if (!byGroup[g] || !byGroup[g].length) return;
     // Sort within group by abs total desc so biggest lines lead.

@@ -679,6 +679,35 @@ function seedTLMNDRules() {
     [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
     [50, 'Name', 'contains', 'ACCOUNT ANALYSIS SETTLEMENT',       '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
 
+    // ── FIDELITY (SnapTrade) — CATCH-ALLS for non-SPAXX, non-Gusto activity
+    // These match at priority 200 so specific rules above always win. They
+    // group unfamiliar Fidelity activity into sensible buckets rather than
+    // leaving them uncategorized. Names come from _tlmndFetchSnapTradeRecords
+    // as "<ACTTYPE> [<symbol>] [— description]" so starts_with is reliable.
+    [200, 'Name', 'starts_with', 'BUY ',                          '', '', '(Fidelity Investment Purchase)',           '',    '',      'Yes', 'Yes', 'Excluded — non-SPAXX buy (position change, not cash flow)'],
+    [200, 'Name', 'starts_with', 'SELL ',                         '', '', '(Fidelity Investment Sale)',               '',    '',      'Yes', 'Yes', 'Excluded — non-SPAXX sell (position change, not cash flow)'],
+    [200, 'Name', 'starts_with', 'DIVIDEND',                      '', '', 'Fidelity Investment Income (Dividends)',   'Yes', 'TLMND', '', 'Yes', 'Non-SPAXX dividends'],
+    [200, 'Name', 'starts_with', 'INTEREST',                      '', '', 'Fidelity Investment Income (Interest)',    'Yes', 'TLMND', '', 'Yes', ''],
+    [200, 'Name', 'starts_with', 'WITHDRAWAL',                    '', '', 'Fidelity Other Withdrawal',                'No',  'TLMND', '', 'Yes', 'Withdrawals not matched by Gusto/Next Insur'],
+    [200, 'Name', 'starts_with', 'DEPOSIT',                       '', '', 'Fidelity Other Deposit',                   'No',  'TLMND', '', 'Yes', 'Deposits not matched by Contribution rule'],
+    [200, 'Name', 'starts_with', 'TRANSFER',                      '', '', '(Fidelity Internal Transfer)',             '',    '',      'Yes', 'Yes', 'Excluded — internal Fidelity move'],
+    [200, 'Name', 'starts_with', 'FEE',                           '', '', 'Fidelity Account Fees',                    'No',  'TLMND', '', 'Yes', ''],
+    [200, 'Name', 'starts_with', 'TAX',                           '', '', 'Fidelity Tax Withholding',                 'No',  'TLMND', '', 'Yes', ''],
+    [200, 'Name', 'starts_with', 'CONTRIBUTION',                  '', '', '(Fidelity Contribution — Other)',          '',    '',      'Yes', 'Yes', 'Excluded — non-TLMND contribution'],
+    [200, 'Name', 'starts_with', 'REI ',                          '', '', '(Fidelity Reinvestment)',                  '',    '',      'Yes', 'Yes', 'Excluded — reinvested dividends'],
+
+    // ── PLAID catch-alls — anything not matched by a specific rule above
+    // gets a generic bucket so it lands in Non-Recurring but stays visible.
+    // These match at priority 200 so the specific vendor/counterparty rules
+    // (Solaris, Ellison, UHC, Divvy, etc.) always win.
+    [200, 'Name', 'contains',    'DOMESTIC WIRE TRANSFER',        '', '', 'Other Wire Transfer (Domestic)',           'No',  'TLMND', '', 'Yes', 'Catch-all — add a specific rule if recurring'],
+    [200, 'Name', 'contains',    'INTERNATIONAL WIRE',            '', '', 'Other Wire Transfer (International)',      'No',  'TLMND', '', 'Yes', 'Catch-all — add a specific rule if recurring'],
+    [200, 'Name', 'contains',    'BOOK TRANSFER',                 '', '', 'Other Book Transfer',                      'No',  'TLMND', '', 'Yes', 'Catch-all'],
+    [200, 'Name', 'contains',    'Online ACH Payment',            '', '', 'Other ACH Payment',                        'No',  'TLMND', '', 'Yes', 'Catch-all'],
+    [200, 'Name', 'contains',    'ORIG CO NAME:',                 '', '', 'Other ACH (Deposit or Debit)',             'No',  'TLMND', '', 'Yes', 'Catch-all — inbound or outbound ACH not matched'],
+    [200, 'Name', 'contains',    'REMOTE ONLINE DEPOSIT',         '', '', 'Remote Check Deposit',                     'No',  'TLMND', '', 'Yes', 'Deposited check via app/scanner'],
+    [200, 'Name', 'contains',    'DEPOSIT ID NUMBER',             '', '', 'Branch Deposit',                           'No',  'TLMND', '', 'Yes', 'Cash/check deposit at branch'],
+
     // ── Inter-account journal transfers ──────────────────────────────────
     // NF USA CA ↔ TLMND internal journals: paired with the Ellison deposit
     // we already count as income. Excluding both sides prevents triple-count
