@@ -627,6 +627,7 @@ function seedTLMNDRules() {
     [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Deposit lands on NF USA CA ···2086, counted as TLMND income'],
     [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
     [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction'],
+    [10, 'Name', 'contains', 'SA NJ REALTY',                      '', '', 'ASC Rental Income - TLMND Share (SA NJ Realty)', 'Yes', 'TLMND',   '', 'Yes', 'Recurring — Mike\'s real estate rent (comes in every so often)'],
 
     // ── MONEY OUT — recurring ────────────────────────────────────────────
     [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],
