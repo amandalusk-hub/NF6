@@ -819,6 +819,143 @@ function applyTLMNDRulesMenu() {
     ui.ButtonSet.OK);
 }
 
+// ============================================================================
+// PHASE 3 — DASHBOARD DATA ENDPOINT
+//
+// Called from the web app's TLMND Cash Flow tab. Reads TLMND_TRANSACTIONS,
+// applies filters, and returns everything the dashboard needs to render in
+// one round-trip:
+//   - kpis: current-month In/Out/NetRecurring/NetAll + T3M/T6M/T12M averages
+//   - monthlySeries: array of {ym, in, out, netRec, netAll} for the chart
+//   - categoryMatrix: array of {category, entityTag, recurring, months:{ym→amt}, total}
+//   - transactions: filtered raw rows for drill-down
+// ============================================================================
+function getTLMNDCashFlowData(opts) {
+  opts = opts || {};
+  var months        = Number(opts.months) || 6;             // window to render
+  var includeExcluded = opts.includeExcluded === true;      // audit toggle
+  var entityFilter  = opts.entityTag || '';                 // '' = all
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { success: false, error: 'TLMND_TRANSACTIONS sheet is empty. Run Sync TLMND Cash Flow first.' };
+  }
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  function ci(name) { return headers.indexOf(name); }
+  var iDate    = ci('Date'),   iAccount = ci('Account'), iName = ci('Name');
+  var iAmount  = ci('Amount USD'), iCat  = ci('Category'), iRec = ci('Recurring');
+  var iEnt     = ci('Entity Tag'), iNotes = ci('Notes');
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+
+  // Build the month window: last N months including current.
+  var now = new Date();
+  var monthKeys = [];
+  for (var m = months - 1; m >= 0; m--) {
+    var d = new Date(now.getFullYear(), now.getMonth() - m, 1);
+    monthKeys.push(d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2));
+  }
+  var earliestYm = monthKeys[0];
+
+  // Filter + normalize rows.
+  var filtered = [];
+  rows.forEach(function(r) {
+    if (!r[iDate]) return;
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (isNaN(d.getTime())) return;
+    var ym = d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2);
+    if (ym < earliestYm) return;
+    var notes = String(r[iNotes] || '');
+    var isExcluded = notes.indexOf('[EXCLUDED]') >= 0;
+    if (!includeExcluded && isExcluded) return;
+    if (entityFilter && String(r[iEnt] || '') !== entityFilter) return;
+    filtered.push({
+      ym:        ym,
+      date:      Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      account:   String(r[iAccount] || ''),
+      name:      String(r[iName] || ''),
+      amount:    Number(r[iAmount] || 0),
+      category:  String(r[iCat] || '(Uncategorized)') || '(Uncategorized)',
+      recurring: String(r[iRec] || '') === 'Yes',
+      entityTag: String(r[iEnt] || ''),
+      excluded:  isExcluded
+    });
+  });
+
+  // Aggregate per (category, ym).
+  var catMap = {};   // category → { recurring, entityTag, months:{ym→amt}, total }
+  var series = {};   // ym → { in, out, netRec, netAll }
+  monthKeys.forEach(function(ym) { series[ym] = { ym: ym, in: 0, out: 0, netRec: 0, netAll: 0 }; });
+
+  filtered.forEach(function(t) {
+    if (!catMap[t.category]) {
+      catMap[t.category] = { category: t.category, recurring: t.recurring, entityTag: t.entityTag, months: {}, total: 0 };
+    }
+    catMap[t.category].months[t.ym] = (catMap[t.category].months[t.ym] || 0) + t.amount;
+    catMap[t.category].total += t.amount;
+    // Prefer "Yes" recurring flag over blank — one true row makes the category recurring.
+    if (t.recurring) catMap[t.category].recurring = true;
+
+    var s = series[t.ym];
+    if (!s) return;
+    if (t.amount >= 0) s.in += t.amount; else s.out += t.amount;
+    s.netAll += t.amount;
+    if (t.recurring) s.netRec += t.amount;
+  });
+
+  var categoryMatrix = Object.keys(catMap).map(function(k) { return catMap[k]; })
+    .sort(function(a, b) {
+      // Recurring first, then by absolute total desc.
+      if (a.recurring !== b.recurring) return a.recurring ? -1 : 1;
+      return Math.abs(b.total) - Math.abs(a.total);
+    });
+
+  var monthlySeries = monthKeys.map(function(ym) { return series[ym]; });
+
+  // KPIs: current month + trailing averages.
+  var curYm = monthKeys[monthKeys.length - 1];
+  var curr  = series[curYm] || { in: 0, out: 0, netRec: 0, netAll: 0 };
+  function avg(nBack) {
+    var total = 0, count = 0;
+    for (var i = 0; i < nBack && i < monthlySeries.length; i++) {
+      var s = monthlySeries[monthlySeries.length - 1 - i];
+      total += s.netAll; count++;
+    }
+    return count ? total / count : 0;
+  }
+  var kpis = {
+    ym:          curYm,
+    monthIn:     curr.in,
+    monthOut:    curr.out,
+    monthNetRec: curr.netRec,
+    monthNetAll: curr.netAll,
+    avgT3M:      avg(3),
+    avgT6M:      avg(6),
+    avgT12M:     avg(12)
+  };
+
+  // Distinct entity tags for the filter dropdown.
+  var entTagSet = {};
+  rows.forEach(function(r) { var e = String(r[iEnt] || ''); if (e) entTagSet[e] = true; });
+
+  return {
+    success: true,
+    kpis: kpis,
+    monthlySeries: monthlySeries,
+    categoryMatrix: categoryMatrix,
+    transactions: filtered,
+    monthKeys: monthKeys,
+    entityTags: Object.keys(entTagSet).sort(),
+    generatedAt: new Date().toISOString()
+  };
+}
+
+// Client-callable sync trigger for the dashboard's Refresh button.
+function refreshTLMNDCashFlow() {
+  return syncTLMNDCashFlow();
+}
+
 function installTLMNDCashFlowTrigger() {
   var ui = SpreadsheetApp.getUi();
   var existing = ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === '_tlmndDailySync'; });

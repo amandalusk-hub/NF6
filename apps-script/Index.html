@@ -143,6 +143,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   </div>
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn" data-tab="tlmnd">TLMND Cash Flow</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="summary">Summary</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
@@ -442,6 +443,86 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(0.8)" style="font-size:16px;line-height:1;padding:4px 10px">-</button>
       </div>
       <div style="position:absolute;top:10px;left:12px;font-size:11px;color:#4a90d9;opacity:0.6">Drag canvas to pan  |  Scroll to zoom  |  Drag nodes to reposition  |  Click node to edit</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--   TLMND CASH FLOW TAB                                            -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-tlmnd">
+    <style>
+      #tab-tlmnd .tl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+      #tab-tlmnd .tl-header h2{font-size:20px;color:#0d2137;margin:0}
+      #tab-tlmnd .tl-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+      #tab-tlmnd .tl-controls select,#tab-tlmnd .tl-controls label{font-size:13px}
+      #tab-tlmnd .tl-controls select{padding:6px 10px;border:1px solid #ddd;border-radius:6px;background:#fff}
+      #tab-tlmnd .tl-controls button{padding:7px 14px;background:#0d2137;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer}
+      #tab-tlmnd .tl-controls button:hover{background:#1a3a5c}
+      #tab-tlmnd .tl-controls button:disabled{background:#999;cursor:not-allowed}
+      #tab-tlmnd .tl-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:18px}
+      #tab-tlmnd .tl-kpi{background:#fff;border-radius:8px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.08);border-left:3px solid #4fc3f7}
+      #tab-tlmnd .tl-kpi.in{border-left-color:#137333}
+      #tab-tlmnd .tl-kpi.out{border-left-color:#a50e0e}
+      #tab-tlmnd .tl-kpi.net{border-left-color:#0d2137}
+      #tab-tlmnd .tl-kpi-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+      #tab-tlmnd .tl-kpi-value{font-size:22px;font-weight:700;color:#0d2137;font-variant-numeric:tabular-nums}
+      #tab-tlmnd .tl-kpi-sub{font-size:11px;color:#666;margin-top:6px;line-height:1.5}
+      #tab-tlmnd .tl-kpi-sub .delta{font-weight:600}
+      #tab-tlmnd .tl-chart-wrap{background:#fff;border-radius:8px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px}
+      #tab-tlmnd .tl-chart-title{font-size:14px;font-weight:600;color:#0d2137;margin-bottom:12px}
+      #tab-tlmnd .tl-chart{width:100%;height:220px}
+      #tab-tlmnd .tl-cat-table{background:#fff;border-radius:8px;padding:0;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:18px;overflow:auto}
+      #tab-tlmnd table.tl-matrix{width:100%;border-collapse:collapse;font-size:12px}
+      #tab-tlmnd table.tl-matrix th{position:sticky;top:0;background:#f8f9fa;text-align:right;padding:10px 12px;border-bottom:2px solid #dadce0;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.5px;white-space:nowrap;z-index:1}
+      #tab-tlmnd table.tl-matrix th:first-child{text-align:left;position:sticky;left:0;background:#f8f9fa;z-index:2}
+      #tab-tlmnd table.tl-matrix td{padding:8px 12px;border-bottom:1px solid #f1f3f4;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+      #tab-tlmnd table.tl-matrix td:first-child{text-align:left;position:sticky;left:0;background:#fff;font-weight:500}
+      #tab-tlmnd table.tl-matrix tr:hover td{background:#f8fbff}
+      #tab-tlmnd table.tl-matrix tr:hover td:first-child{background:#f8fbff}
+      #tab-tlmnd table.tl-matrix .row-section{background:#eef4fa;font-weight:600;color:#0d2137}
+      #tab-tlmnd table.tl-matrix .row-section td{background:#eef4fa}
+      #tab-tlmnd table.tl-matrix .row-section td:first-child{background:#eef4fa}
+      #tab-tlmnd table.tl-matrix .row-total{background:#f5f7fa;font-weight:700}
+      #tab-tlmnd table.tl-matrix .row-total td{background:#f5f7fa;border-top:2px solid #dadce0}
+      #tab-tlmnd table.tl-matrix .row-total td:first-child{background:#f5f7fa}
+      #tab-tlmnd .amt-pos{color:#137333}
+      #tab-tlmnd .amt-neg{color:#a50e0e}
+      #tab-tlmnd .amt-zero{color:#bbb}
+      #tab-tlmnd .tl-empty{text-align:center;color:#5f6368;padding:60px 20px}
+      #tab-tlmnd .tl-tx-modal{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:500}
+      #tab-tlmnd .tl-tx-modal.active{display:flex}
+      #tab-tlmnd .tl-tx-box{background:#fff;border-radius:8px;width:90%;max-width:900px;max-height:80vh;display:flex;flex-direction:column}
+      #tab-tlmnd .tl-tx-hdr{padding:14px 18px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;align-items:center}
+      #tab-tlmnd .tl-tx-hdr h3{margin:0;font-size:15px;color:#0d2137}
+      #tab-tlmnd .tl-tx-hdr .close{background:none;border:none;font-size:22px;cursor:pointer;color:#666;padding:0 6px}
+      #tab-tlmnd .tl-tx-list{overflow:auto;padding:0}
+      #tab-tlmnd .tl-tx-list table{width:100%;border-collapse:collapse;font-size:12px}
+      #tab-tlmnd .tl-tx-list th{background:#f8f9fa;padding:8px 12px;text-align:left;border-bottom:1px solid #dadce0;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px}
+      #tab-tlmnd .tl-tx-list td{padding:8px 12px;border-bottom:1px solid #f1f3f4}
+    </style>
+
+    <div class="tl-header">
+      <h2>TLMND Cash Flow</h2>
+      <div class="tl-controls">
+        <label>Window
+          <select id="tl-months">
+            <option value="3">3 months</option>
+            <option value="6" selected>6 months</option>
+            <option value="12">12 months</option>
+          </select>
+        </label>
+        <label>Entity
+          <select id="tl-entity"><option value="">All</option></select>
+        </label>
+        <label style="display:flex;align-items:center;gap:5px">
+          <input type="checkbox" id="tl-include-excluded"> Show excluded
+        </label>
+        <button id="tl-refresh-btn">↻ Refresh</button>
+      </div>
+    </div>
+
+    <div id="tl-content">
+      <div class="tl-empty">Loading TLMND cash flow…</div>
     </div>
   </div>
 </main>
@@ -1788,7 +1869,281 @@ function switchTab(name){
   if(name==='orgchart') loadAndRenderOrgChart();
   if(name==='history')  ensureHistoryLoaded();
   if(name==='summary')  renderSummary();
+  if(name==='tlmnd')    loadTLMNDCashFlow();
 }
+
+// ─── TLMND CASH FLOW TAB ────────────────────────────────────────────────
+var _tlmndState = { data: null, loading: false };
+
+function loadTLMNDCashFlow(opts) {
+  opts = opts || {};
+  var monthsSel = document.getElementById('tl-months');
+  var entSel    = document.getElementById('tl-entity');
+  var incChk    = document.getElementById('tl-include-excluded');
+  var content   = document.getElementById('tl-content');
+
+  content.innerHTML = '<div class="tl-empty">Loading TLMND cash flow…</div>';
+  _tlmndState.loading = true;
+
+  var months = Number(monthsSel && monthsSel.value) || 6;
+  var entity = (entSel && entSel.value) || '';
+  var includeExcluded = !!(incChk && incChk.checked);
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      _tlmndState.loading = false;
+      if (!res || !res.success) {
+        content.innerHTML = '<div class="tl-empty">Failed: ' + ((res && res.error) || 'no response') + '</div>';
+        return;
+      }
+      _tlmndState.data = res;
+      renderTLMNDCashFlow();
+    })
+    .withFailureHandler(function(err) {
+      _tlmndState.loading = false;
+      content.innerHTML = '<div class="tl-empty">Error: ' + (err.message || err) + '</div>';
+    })
+    .getTLMNDCashFlowData({ months: months, entityTag: entity, includeExcluded: includeExcluded });
+}
+
+function renderTLMNDCashFlow() {
+  var d = _tlmndState.data;
+  if (!d) return;
+  var content = document.getElementById('tl-content');
+
+  // Populate entity dropdown if empty.
+  var entSel = document.getElementById('tl-entity');
+  if (entSel && entSel.options.length <= 1 && d.entityTags) {
+    d.entityTags.forEach(function(t) {
+      var opt = document.createElement('option');
+      opt.value = t; opt.textContent = t;
+      entSel.appendChild(opt);
+    });
+  }
+
+  var html = _tlHtmlKpis(d.kpis) + _tlHtmlChart(d.monthlySeries) + _tlHtmlCategoryMatrix(d);
+  content.innerHTML = html;
+
+  // Wire up click-to-drill on category rows.
+  content.querySelectorAll('.tl-cat-row').forEach(function(row) {
+    row.style.cursor = 'pointer';
+    row.addEventListener('click', function() {
+      _tlOpenDrilldown(row.dataset.category);
+    });
+  });
+}
+
+function _tlHtmlKpis(k) {
+  function fmt(v) { return (v < 0 ? '−$' : '$') + Math.abs(v || 0).toLocaleString('en-US', {maximumFractionDigits:0}); }
+  function delta(cur, avg) {
+    if (!avg) return '';
+    var d = cur - avg;
+    var cls = d >= 0 ? 'amt-pos' : 'amt-neg';
+    var sign = d >= 0 ? '+' : '−';
+    return ' <span class="delta ' + cls + '">' + sign + '$' + Math.abs(d).toLocaleString('en-US',{maximumFractionDigits:0}) + '</span>';
+  }
+  return '' +
+    '<div class="tl-kpis">' +
+      '<div class="tl-kpi in">' +
+        '<div class="tl-kpi-label">Money In · ' + k.ym + '</div>' +
+        '<div class="tl-kpi-value amt-pos">+' + fmt(k.monthIn) + '</div>' +
+        '<div class="tl-kpi-sub">Recurring + one-off</div>' +
+      '</div>' +
+      '<div class="tl-kpi out">' +
+        '<div class="tl-kpi-label">Money Out · ' + k.ym + '</div>' +
+        '<div class="tl-kpi-value amt-neg">' + fmt(k.monthOut) + '</div>' +
+        '<div class="tl-kpi-sub">Payroll, insurance, ops</div>' +
+      '</div>' +
+      '<div class="tl-kpi net">' +
+        '<div class="tl-kpi-label">Net Recurring · ' + k.ym + '</div>' +
+        '<div class="tl-kpi-value ' + (k.monthNetRec >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmt(k.monthNetRec) + '</div>' +
+        '<div class="tl-kpi-sub">vs T3M ' + delta(k.monthNetRec, k.avgT3M) + '</div>' +
+      '</div>' +
+      '<div class="tl-kpi net">' +
+        '<div class="tl-kpi-label">Net All · ' + k.ym + '</div>' +
+        '<div class="tl-kpi-value ' + (k.monthNetAll >= 0 ? 'amt-pos' : 'amt-neg') + '">' + fmt(k.monthNetAll) + '</div>' +
+        '<div class="tl-kpi-sub">' +
+          'T3M avg ' + fmt(k.avgT3M) + ' &nbsp;·&nbsp; T6M ' + fmt(k.avgT6M) + ' &nbsp;·&nbsp; T12M ' + fmt(k.avgT12M) +
+        '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function _tlHtmlChart(series) {
+  if (!series || !series.length) return '';
+  // Simple SVG bar chart: In (green) + Out (red) + Net line (dark blue).
+  var w = 780, h = 220, padL = 60, padR = 12, padT = 14, padB = 34;
+  var innerW = w - padL - padR, innerH = h - padT - padB;
+  var maxAbs = 0;
+  series.forEach(function(s) {
+    if (Math.abs(s.in)     > maxAbs) maxAbs = Math.abs(s.in);
+    if (Math.abs(s.out)    > maxAbs) maxAbs = Math.abs(s.out);
+    if (Math.abs(s.netAll) > maxAbs) maxAbs = Math.abs(s.netAll);
+  });
+  if (!maxAbs) maxAbs = 1;
+  var yZero = padT + innerH / 2;
+  var scale = (innerH / 2) / maxAbs * 0.9;
+  var groupW = innerW / series.length;
+  var barW   = Math.min(28, groupW * 0.28);
+
+  var bars = '', labels = '', netPts = [];
+  series.forEach(function(s, i) {
+    var cx = padL + groupW * (i + 0.5);
+    var inH  = s.in  * scale;
+    var outH = -s.out * scale;   // out is negative, invert for bar height
+    var netY = yZero - s.netAll * scale;
+    bars += '<rect x="' + (cx - barW - 2) + '" y="' + (yZero - inH)  + '" width="' + barW + '" height="' + inH  + '" fill="#137333" opacity="0.85"/>';
+    bars += '<rect x="' + (cx + 2)        + '" y="' + yZero          + '" width="' + barW + '" height="' + outH + '" fill="#a50e0e" opacity="0.85"/>';
+    netPts.push(cx + ',' + netY);
+    var lbl = s.ym.split('-'); lbl = lbl[1] + '/' + lbl[0].slice(2);
+    labels += '<text x="' + cx + '" y="' + (h - 12) + '" text-anchor="middle" font-size="11" fill="#5f6368">' + lbl + '</text>';
+  });
+  // Zero baseline + net line.
+  var netLine = '<polyline points="' + netPts.join(' ') + '" fill="none" stroke="#0d2137" stroke-width="2"/>';
+  netPts.forEach(function(p) {
+    var xy = p.split(',');
+    netLine += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="3.5" fill="#0d2137"/>';
+  });
+
+  // Y-axis ticks (rough): -maxAbs, 0, +maxAbs
+  var ticks = '' +
+    '<line x1="' + padL + '" y1="' + yZero + '" x2="' + (w - padR) + '" y2="' + yZero + '" stroke="#dadce0"/>' +
+    '<text x="' + (padL - 6) + '" y="' + (yZero + 4) + '" text-anchor="end" font-size="10" fill="#5f6368">$0</text>' +
+    '<text x="' + (padL - 6) + '" y="' + (padT + 10) + '" text-anchor="end" font-size="10" fill="#5f6368">+' + Math.round(maxAbs/1000) + 'k</text>' +
+    '<text x="' + (padL - 6) + '" y="' + (padT + innerH - 4) + '" text-anchor="end" font-size="10" fill="#5f6368">−' + Math.round(maxAbs/1000) + 'k</text>';
+
+  var legend = '' +
+    '<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12px"><span style="width:12px;height:12px;background:#137333;border-radius:2px"></span>In</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:6px;margin-right:14px;font-size:12px"><span style="width:12px;height:12px;background:#a50e0e;border-radius:2px"></span>Out</span>' +
+    '<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px"><span style="width:14px;height:2px;background:#0d2137"></span>Net</span>';
+
+  return '' +
+    '<div class="tl-chart-wrap">' +
+      '<div class="tl-chart-title" style="display:flex;justify-content:space-between;align-items:center">' +
+        '<span>Monthly Cash Flow</span><span>' + legend + '</span>' +
+      '</div>' +
+      '<svg class="tl-chart" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">' +
+        ticks + bars + netLine + labels +
+      '</svg>' +
+    '</div>';
+}
+
+function _tlHtmlCategoryMatrix(d) {
+  var months = d.monthKeys, mat = d.categoryMatrix;
+  if (!mat.length) return '<div class="tl-empty">No transactions in this window.</div>';
+
+  // Group by (recurring, direction)
+  var recIn  = [], recOut  = [];
+  var nonIn  = [], nonOut  = [];
+  mat.forEach(function(c) {
+    var totalIn = 0, totalOut = 0;
+    months.forEach(function(ym) {
+      var v = c.months[ym] || 0;
+      if (v >= 0) totalIn += v; else totalOut += v;
+    });
+    // Classify direction by the sign of the majority of dollars.
+    var dir = Math.abs(totalIn) > Math.abs(totalOut) ? 'in' : 'out';
+    (c.recurring ? (dir === 'in' ? recIn : recOut) : (dir === 'in' ? nonIn : nonOut)).push(c);
+  });
+
+  function fmt(v) {
+    if (!v) return '<span class="amt-zero">·</span>';
+    return (v < 0 ? '<span class="amt-neg">−$' : '<span class="amt-pos">$') +
+      Math.abs(v).toLocaleString('en-US', {maximumFractionDigits:0}) + '</span>';
+  }
+  function catRow(c) {
+    var tds = months.map(function(ym) { return '<td>' + fmt(c.months[ym] || 0) + '</td>'; }).join('');
+    return '<tr class="tl-cat-row" data-category="' + c.category.replace(/"/g, '&quot;') + '"><td>' + c.category +
+      (c.entityTag ? ' <span style="color:#999;font-weight:400">· ' + c.entityTag + '</span>' : '') +
+      '</td>' + tds + '<td><strong>' + fmt(c.total) + '</strong></td></tr>';
+  }
+  function sectionRow(label) {
+    var tds = months.map(function() { return '<td></td>'; }).join('');
+    return '<tr class="row-section"><td>' + label + '</td>' + tds + '<td></td></tr>';
+  }
+  function totalRow(label, arr) {
+    var perMonth = months.map(function(ym) {
+      return arr.reduce(function(s, c) { return s + (c.months[ym] || 0); }, 0);
+    });
+    var grand = perMonth.reduce(function(s, v) { return s + v; }, 0);
+    var tds = perMonth.map(function(v) { return '<td>' + fmt(v) + '</td>'; }).join('');
+    return '<tr class="row-total"><td>' + label + '</td>' + tds + '<td>' + fmt(grand) + '</td></tr>';
+  }
+
+  var thead = '<thead><tr><th>Category</th>' + months.map(function(m) {
+    var p = m.split('-'); return '<th>' + p[1] + '/' + p[0].slice(2) + '</th>';
+  }).join('') + '<th>Total</th></tr></thead>';
+
+  var body = '<tbody>' +
+    sectionRow('Recurring — Money In') +
+    recIn.map(catRow).join('') +
+    totalRow('Total Recurring In', recIn) +
+    sectionRow('Recurring — Money Out') +
+    recOut.map(catRow).join('') +
+    totalRow('Total Recurring Out', recOut) +
+    totalRow('Net Recurring', recIn.concat(recOut)) +
+    sectionRow('Non-Recurring — Money In') +
+    nonIn.map(catRow).join('') +
+    totalRow('Total Non-Recurring In', nonIn) +
+    sectionRow('Non-Recurring — Money Out') +
+    nonOut.map(catRow).join('') +
+    totalRow('Total Non-Recurring Out', nonOut) +
+    totalRow('NET ALL', mat) +
+    '</tbody>';
+
+  return '<div class="tl-cat-table"><table class="tl-matrix">' + thead + body + '</table></div>' +
+    '<div style="text-align:center;color:#5f6368;font-size:11px;margin-top:6px">' +
+      'Click any row to see the underlying transactions. Data as of ' + (d.generatedAt || '') +
+    '</div>' +
+    _tlHtmlDrilldownModal();
+}
+
+function _tlHtmlDrilldownModal() {
+  return '<div class="tl-tx-modal" id="tl-tx-modal"><div class="tl-tx-box">' +
+    '<div class="tl-tx-hdr"><h3 id="tl-tx-title">Transactions</h3>' +
+    '<button class="close" onclick="document.getElementById(\'tl-tx-modal\').classList.remove(\'active\')">&times;</button></div>' +
+    '<div class="tl-tx-list" id="tl-tx-list"></div>' +
+    '</div></div>';
+}
+
+function _tlOpenDrilldown(category) {
+  var d = _tlmndState.data; if (!d) return;
+  var rows = d.transactions.filter(function(t) { return t.category === category; })
+    .sort(function(a, b) { return b.date.localeCompare(a.date); });
+  var body = '<table><thead><tr><th>Date</th><th>Account</th><th>Name</th><th style="text-align:right">Amount</th></tr></thead><tbody>' +
+    rows.map(function(t) {
+      var cls = t.amount >= 0 ? 'amt-pos' : 'amt-neg';
+      return '<tr><td>' + t.date + '</td><td>' + t.account + '</td><td>' + (t.name || '').replace(/</g,'&lt;') +
+        '</td><td style="text-align:right" class="' + cls + '"><strong>' +
+        (t.amount < 0 ? '−$' : '+$') + Math.abs(t.amount).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) +
+        '</strong></td></tr>';
+    }).join('') + '</tbody></table>';
+  document.getElementById('tl-tx-title').textContent = category + ' — ' + rows.length + ' transaction' + (rows.length === 1 ? '' : 's');
+  document.getElementById('tl-tx-list').innerHTML = body;
+  document.getElementById('tl-tx-modal').classList.add('active');
+}
+
+// Wire up TLMND controls once DOM is ready.
+document.addEventListener('DOMContentLoaded', function() {
+  ['tl-months','tl-entity','tl-include-excluded'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', function() { loadTLMNDCashFlow(); });
+  });
+  var btn = document.getElementById('tl-refresh-btn');
+  if (btn) btn.addEventListener('click', function() {
+    btn.disabled = true; btn.textContent = 'Syncing…';
+    google.script.run
+      .withSuccessHandler(function(r) {
+        btn.disabled = false; btn.textContent = '↻ Refresh';
+        loadTLMNDCashFlow();
+      })
+      .withFailureHandler(function(e) {
+        btn.disabled = false; btn.textContent = '↻ Refresh';
+        alert('Refresh failed: ' + (e.message || e));
+      })
+      .refreshTLMNDCashFlow();
+  });
+});
 
 // -- History lazy-load -----------------------------------------------------
 let _histLoaded = false;
