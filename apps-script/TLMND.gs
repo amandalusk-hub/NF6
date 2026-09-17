@@ -637,7 +637,7 @@ function seedTLMNDRules() {
     // ── MONEY OUT — recurring ────────────────────────────────────────────
     [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],
     [10, 'Name', 'contains', 'THE GUARDIAN',                      '', '', 'The Guardian Insurance',                        'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$625'],
-    [10, 'Name', 'contains', 'EWALLET - Divvy',                   '', '', 'Divvy Bill (Grand Total)',                      'Yes', 'TLMND',        '', 'Yes', ''],
+    [10, 'Name', 'contains', 'DIVVY',                             '', '', 'Divvy Bill (Grand Total)',                      'Yes', 'TLMND',        '', 'Yes', 'Broad match — catches EWALLET Divvy ACH, DIVVY PEACH LLC wire payments, etc.'],
     [10, 'Name', 'contains', 'BSCAccountingLLC',                  '', '', 'BSC Accounting LLC (Accounting Fees)',          'Yes', 'TLMND',        '', 'Yes', 'Monthly -$3,500'],
     [10, 'Name', 'contains', 'PENN MUTUAL LIFE INS',              '', '', 'Life Insurance (Waskar Tejeda / Penn Mutual)',  'No',  'TLMND',      '', 'Yes', 'One-time yearly payment — not monthly recurring'],
     [10, 'Name', 'contains', 'To ManuEstrada',                    '', '', 'Manuela Estrada - Legal Fees',                  'Yes', 'TLMND',        '', 'Yes', ''],
@@ -696,6 +696,10 @@ function seedTLMNDRules() {
     // Fidelity clearing broker (NFS = National Financial Services) returning
     // money to TLMND — internal move, exclude to avoid inflating income.
     [40, 'Name', 'contains', 'NATIONAL FINANCIAL SERVICES',       '', '', '(Transfer Fidelity → TLMND)',                    '',   '',           'Yes', 'Yes', 'Excluded — Fidelity NFS book credit, internal move back to TLMND'],
+    // Fidelity side of the same outbound wire back to TLMND checking —
+    // pairs with the NFS book credit above (Plaid sees the credit, we
+    // exclude that; SnapTrade sees the withdrawal, we exclude that too).
+    [40, 'Name', 'contains', 'WITHDRAWAL — WIRE TRANSFER',        '', '', '(Transfer Fidelity → TLMND checking)',           '',   '',           'Yes', 'Yes', 'Excluded — Fidelity wire out to TLMND Chase (funds payroll); pairs with NFS book credit'],
 
     // ── Bank noise ───────────────────────────────────────────────────────
     [50, 'Name', 'contains', 'SERVICE CHARGES FOR THE MONTH',     '', '', 'Bank Fees',                                     'Yes', 'TLMND',        '', 'Yes', ''],
