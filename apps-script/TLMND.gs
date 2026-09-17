@@ -626,7 +626,20 @@ function seedTLMNDRules() {
     [20, 'Name', 'contains', 'THE HOUSE PROJECT FOUNDATION',      '', '', 'Consulting - Manuela Estrada (House Project)',  'No',  'TLM',        '', 'Yes', ''],
 
     // ── FIDELITY (SnapTrade) — real cash flow ────────────────────────────
-    [30, 'Name', 'contains', 'GUSTO NET',                         '', '', 'Payroll (Net Wages)',                           'Yes', 'TLM',        '', 'Yes', ''],
+    // Consultant-specific GUSTO NET splits FIRST (priority 15 — before the
+    // generic GUSTO NET catch-all at 30). Amount ranges are how we
+    // distinguish who was paid.
+    //   Manuela Vallejo: exactly $1,155
+    //   Mint Lusk:       exactly $2,000
+    //   Amanda Lusk:     variable $2,001-$5,000 (per user, "ranges 2-5k")
+    // Anything else via GUSTO NET is W-2 team payroll (~$38k and ~$13k
+    // per pay run, aggregating to ~$48k/mo).
+    [15, 'Name', 'contains', 'GUSTO NET',                         -1160, -1150, 'Consulting - Manuela Vallejo (Gusto)',        'Yes', 'TLM',        '', 'Yes', 'Fixed $1,155 via Gusto'],
+    [15, 'Name', 'contains', 'GUSTO NET',                         -2025, -1975, 'Mint Lusk (Consulting)',                       'Yes', 'TLM',        '', 'Yes', 'Fixed $2,000 via Gusto'],
+    [15, 'Name', 'contains', 'GUSTO NET',                         -5000, -2001, 'Consulting - Amanda Lusk',                     'Yes', 'TLM',        '', 'Yes', 'Range $2,001-$5,000 via Gusto'],
+    // Team payroll (W-2 employees) — everything else in the GUSTO NET
+    // bucket. Usually two withdrawals per pay run (~$38k and ~$13k).
+    [30, 'Name', 'contains', 'GUSTO NET',                         '', '', 'Payroll (Team W-2)',                            'Yes', 'TLM',        '', 'Yes', 'Rest of team payroll, ~$48k/mo'],
     [30, 'Name', 'contains', 'GUSTO TAX',                         '', '', 'Payroll (Employer Taxes)',                      'Yes', 'TLM',        '', 'Yes', ''],
     [30, 'Name', 'contains', 'GUSTO ICD',                         '', '', 'Payroll (Contractor Deposits)',                 'Yes', 'TLM',        '', 'Yes', ''],
     [30, 'Name', 'contains', 'GUSTO FEE',                         '', '', 'Payroll (Gusto Fees)',                          'Yes', 'TLM',        '', 'Yes', ''],
