@@ -475,8 +475,15 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-planner-refresh:hover{text-decoration:underline}
       #tab-tlmnd .tl-planner-total{padding-top:8px;border-top:1px solid #c0ccd8;display:flex;justify-content:space-between;align-items:center;font-weight:700;color:#0d2137}
       #tab-tlmnd .tl-planner-total .val{font-variant-numeric:tabular-nums;font-size:15px}
-      #tab-tlmnd .tl-planner-months{display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:12px}
-      #tab-tlmnd .tl-planner-months input{width:60px;padding:6px 8px;border:1px solid #c0ccd8;border-radius:6px;text-align:center;font-weight:700;font-size:14px}
+      /* Planner "Cover N months / Plus $X buffer" rows — grid so labels+inputs line up */
+      #tab-tlmnd .tl-planner-line{display:grid;grid-template-columns:60px 130px 1fr;align-items:center;gap:10px;font-size:13px;margin-bottom:10px;color:#3c4858}
+      #tab-tlmnd .tl-planner-line .tl-planner-prefix{text-align:right;font-weight:500}
+      #tab-tlmnd .tl-planner-line .tl-planner-input-wrap{position:relative}
+      #tab-tlmnd .tl-planner-line input{width:100%;padding:7px 10px;border:1px solid #c0ccd8;border-radius:6px;text-align:right;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;background:#fff;box-sizing:border-box}
+      #tab-tlmnd .tl-planner-line input:focus{outline:2px solid #4fc3f7;outline-offset:-1px}
+      #tab-tlmnd .tl-planner-line .tl-planner-money{padding-left:22px;text-align:right}
+      #tab-tlmnd .tl-planner-line .tl-planner-dollar{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#5f6368;font-weight:700;font-size:14px;pointer-events:none}
+      #tab-tlmnd .tl-planner-line .tl-planner-suffix{color:#5f6368}
       #tab-tlmnd .tl-planner-result{padding:14px 16px;border-radius:8px;font-size:13px}
       #tab-tlmnd .tl-planner-result.need{background:#fee7e7;border:1px solid #f5b5b5}
       #tab-tlmnd .tl-planner-result.safe{background:#e6f4ea;border:1px solid #a8d5b5}
@@ -2056,8 +2063,16 @@ function _tlHtmlPlanner(d) {
           // Populated dynamically by _tlPlannerInit
         '</div>' +
         '<div>' +
-          '<div class="tl-planner-months">Cover&nbsp;<input type="number" id="tl-planner-months" min="1" max="24" step="1" value="2">&nbsp;months of typical recurring expenses</div>' +
-          '<div class="tl-planner-months">Plus&nbsp;<input type="number" id="tl-planner-buffer" min="0" step="500" value="0">&nbsp;buffer for one-offs / known upcoming expenses</div>' +
+          '<div class="tl-planner-line">' +
+            '<span class="tl-planner-prefix">Cover</span>' +
+            '<div class="tl-planner-input-wrap"><input type="number" id="tl-planner-months" min="1" max="24" step="1" value="2"></div>' +
+            '<span class="tl-planner-suffix">months of typical recurring expenses</span>' +
+          '</div>' +
+          '<div class="tl-planner-line">' +
+            '<span class="tl-planner-prefix">Plus</span>' +
+            '<div class="tl-planner-input-wrap"><span class="tl-planner-dollar">$</span><input type="text" id="tl-planner-buffer" inputmode="numeric" class="tl-planner-money" value="0"></div>' +
+            '<span class="tl-planner-suffix">buffer for one-offs / known upcoming expenses</span>' +
+          '</div>' +
           '<div id="tl-planner-result"></div>' +
         '</div>' +
       '</div>' +
@@ -2077,18 +2092,37 @@ function _tlPlannerInit(d) {
   // Restore months + buffer preferences.
   var savedMonths = localStorage.getItem(STORAGE_PREFIX + 'months');
   if (savedMonths) monthsInput.value = savedMonths;
+
   var bufferInput = document.getElementById('tl-planner-buffer');
   var savedBuffer = localStorage.getItem(STORAGE_PREFIX + 'buffer');
-  if (savedBuffer && bufferInput) bufferInput.value = savedBuffer;
+  if (bufferInput) {
+    var initVal = savedBuffer != null ? Number(savedBuffer) : 0;
+    bufferInput.value = _tlPlannerFormatMoney(initVal);
+  }
 
   monthsInput.addEventListener('input', function() {
     localStorage.setItem(STORAGE_PREFIX + 'months', monthsInput.value);
     _tlPlannerRecompute(d);
   });
-  if (bufferInput) bufferInput.addEventListener('input', function() {
-    localStorage.setItem(STORAGE_PREFIX + 'buffer', bufferInput.value);
-    _tlPlannerRecompute(d);
-  });
+  if (bufferInput) {
+    // As user types, strip everything but digits + decimal for parsing,
+    // save the numeric value, and recompute. Don't reformat mid-type
+    // (that would jump the caret) — reformat on blur only.
+    bufferInput.addEventListener('input', function() {
+      var raw = _tlPlannerParseMoney(bufferInput.value);
+      localStorage.setItem(STORAGE_PREFIX + 'buffer', raw.toString());
+      _tlPlannerRecompute(d);
+    });
+    bufferInput.addEventListener('focus', function() {
+      // Strip commas so the user can edit cleanly.
+      bufferInput.value = String(_tlPlannerParseMoney(bufferInput.value) || 0);
+      bufferInput.select();
+    });
+    bufferInput.addEventListener('blur', function() {
+      // Re-format with thousands separators.
+      bufferInput.value = _tlPlannerFormatMoney(_tlPlannerParseMoney(bufferInput.value));
+    });
+  }
 
   refreshBtn.addEventListener('click', function() {
     refreshBtn.disabled = true; refreshBtn.textContent = 'loading…';
@@ -2168,6 +2202,19 @@ function _tlPlannerLoadBalances(d, forceRefresh) {
     .getTLMNDAccountBalances();
 }
 
+// Format a raw number as "$1,234" style money string.
+function _tlPlannerFormatMoney(v) {
+  var n = Math.max(0, Math.round(Number(v) || 0));
+  return n.toLocaleString('en-US');
+}
+// Strip commas / $ / non-numeric junk and return a plain number.
+function _tlPlannerParseMoney(s) {
+  if (s == null) return 0;
+  var cleaned = String(s).replace(/[^0-9.]/g, '');
+  var n = Number(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
 function _tlPlannerRecompute(d) {
   var inputsEl   = document.getElementById('tl-planner-inputs');
   var monthsInput= document.getElementById('tl-planner-months');
@@ -2177,7 +2224,7 @@ function _tlPlannerRecompute(d) {
   if (!inputsEl || !monthsInput || !resultEl) return;
 
   var months = Math.max(1, Number(monthsInput.value) || 2);
-  var buffer = Math.max(0, Number(bufferInput && bufferInput.value) || 0);
+  var buffer = Math.max(0, _tlPlannerParseMoney(bufferInput && bufferInput.value));
 
   // Sum current balances from all input fields.
   var total = 0;

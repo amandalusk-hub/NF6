@@ -171,6 +171,8 @@ function onOpen() {
     .addItem('Clear & Resync TLMND (flush duplicates)', 'clearAndResyncTLMND')
     .addItem('Diagnose TLMND Cash Flow Config', 'diagnoseTLMNDConfig')
     .addItem('Install TLMND Cash Flow Daily Trigger (4:30 AM)', 'installTLMNDCashFlowTrigger')
+    .addItem('Send TLMND Weekly PDF (test to me)', 'sendTLMNDWeeklyPdfTest')
+    .addItem('Install TLMND Weekly PDF Trigger (Mondays 8 AM)', 'installTLMNDWeeklyPdfTrigger')
     .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
     .addItem('Connect Bank for Statements (Plaid)', 'openPlaidStatementsLink')

@@ -1097,14 +1097,22 @@ function getTLMNDAccountBalances() {
     if (lu && (!latestUpdate || new Date(lu) > new Date(latestUpdate))) latestUpdate = lu;
   }
 
+  // Belt-and-suspenders: hardcode known passthrough accountIds so even if
+  // the stored config predates the role field, NF USA CA is never surfaced
+  // as a reserve balance. Its income already flows into TLMND's recurring
+  // income baseline via categorization rules.
+  var HARDCODED_PASSTHROUGH = { 'Bv9mLEzzVLhwxM5v66XRSX1P3Qr989HvXAOz1': true };
+
   (cfg.plaidAccounts || []).forEach(function(a) {
+    var isPassthrough = a.role === 'passthrough' || HARDCODED_PASSTHROUGH[a.accountId];
+    if (isPassthrough) return;  // don't return passthrough accounts at all
     for (var i = 1; i < rows.length; i++) {
       if (iPlaid >= 0 && String(rows[i][iPlaid]) === a.accountId) {
-        pushFromRow(i, a.label, 'Plaid', a.role);
+        pushFromRow(i, a.label, 'Plaid', 'primary');
         return;
       }
     }
-    balances.push({ label: a.label, value: 0, source: 'Plaid', role: a.role || 'primary', notFound: true });
+    balances.push({ label: a.label, value: 0, source: 'Plaid', role: 'primary', notFound: true });
   });
 
   (cfg.snapTradeAccounts || []).forEach(function(a) {
@@ -1152,6 +1160,405 @@ function clearAndResyncTLMND() {
             '\nErrors:                           ' + (r.errorCount || 0);
   if (r.errors && r.errors.length) msg += '\n\nErrors:\n  • ' + r.errors.slice(0, 5).join('\n  • ');
   ui.alert('Clear & Resync complete', msg, ui.ButtonSet.OK);
+}
+
+// ============================================================================
+// WEEKLY PDF REPORT — sent every Monday to the same distribution as the
+// net worth weekly email (script property WEEKLY_PDF_RECIPIENT).
+//
+// Content is a static 2-page snapshot of the TLMND dashboard's key numbers
+// (Funding Planner is intentionally excluded per user). Layout:
+//   Page 1: hero net cash flow, top movers, comparison table, burn/forecast
+//   Page 2: full category matrix (recurring / non-recurring / inter-entity)
+// ============================================================================
+
+// Server-side month label helper for PDF rendering.
+function _tlmndMonthLabelSvr_(ym) {
+  var names = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  if (!ym) return '';
+  var p = String(ym).split('-');
+  return (names[Number(p[1]) - 1] || '?') + ' ' + p[0];
+}
+function _tlmndFmtSvr_(v) {
+  if (Math.abs(v || 0) < 0.5) return '$0';
+  return (v < 0 ? '-$' : '+$') + Math.abs(Math.round(v)).toLocaleString();
+}
+function _tlmndFmtPos_(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+function _tlmndEsc_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function _tlmndBuildWeeklyPdfHtml_() {
+  var d = getTLMNDCashFlowData({ months: 6 });
+  if (!d || !d.success) return null;
+
+  var kpis    = d.kpis;
+  var months  = d.monthKeys || [];
+  var mat     = d.categoryMatrix || [];
+  var series  = d.monthlySeries || [];
+  var monthLabel = _tlmndMonthLabelSvr_(kpis.ym);
+  var reportDate = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
+
+  // Delta vs 6-mo avg for the hero subtitle.
+  var cur = series.length ? series[series.length - 1] : { in: 0, out: 0, netAll: 0 };
+  var delta6 = cur.netAll - kpis.avgT6M;
+  var deltaTxt;
+  if (Math.abs(delta6) < 500) deltaTxt = 'about in line with the 6-month average';
+  else if (delta6 > 0) deltaTxt = _tlmndFmtPos_(delta6) + ' better than 6-month average';
+  else                 deltaTxt = _tlmndFmtPos_(delta6) + ' worse than 6-month average';
+
+  // Top In / Out for current month.
+  var curYm = kpis.ym;
+  var inItems = [], outItems = [];
+  mat.forEach(function(c) {
+    var v = c.months[curYm] || 0;
+    if (v > 0) inItems.push({ name: c.category, val: v });
+    else if (v < 0) outItems.push({ name: c.category, val: v });
+  });
+  inItems.sort(function(a, b) { return b.val - a.val; });
+  outItems.sort(function(a, b) { return a.val - b.val; });
+  var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
+  var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
+
+  // Comparison table — This month / Last / T3M / T6M / T12M.
+  var prev = series.length > 1 ? series[series.length - 2] : { in: 0, out: 0, netAll: 0 };
+  function avgField(field, n) {
+    var arr = series.slice(-n);
+    if (!arr.length) return 0;
+    return arr.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / arr.length;
+  }
+  var compareRows = [
+    { label: 'Money In',  cur: cur.in,     prev: prev.in,     t3: avgField('in',3),     t6: avgField('in',6),     t12: avgField('in',12) },
+    { label: 'Money Out', cur: cur.out,    prev: prev.out,    t3: avgField('out',3),    t6: avgField('out',6),    t12: avgField('out',12) },
+    { label: 'Net',       cur: cur.netAll, prev: prev.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), t12: avgField('netAll',12), isNet: true }
+  ];
+
+  // Burn & Forecast (recurring only, exclude current partial month).
+  var now = new Date();
+  var currentYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var completeMonths = series.filter(function(m) { return m.ym !== currentYm; });
+  function isIE(c) { return /transfer|blue panda|nf europe|nf medellin|nf usa tx|inter-entity/i.test(c); }
+  var opIn = {}, opOut = {};
+  completeMonths.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
+  mat.forEach(function(c) {
+    if (isIE(c.category)) return;
+    if (!c.recurring) return;
+    Object.keys(c.months).forEach(function(ym) {
+      if (opIn[ym] === undefined) return;
+      var v = c.months[ym] || 0;
+      if (v >= 0) opIn[ym]  += v; else opOut[ym] += v;
+    });
+  });
+  function avgN(dict, n) {
+    var vals = completeMonths.slice(-n).map(function(m) { return dict[m.ym] || 0; });
+    if (!vals.length) return 0;
+    return vals.reduce(function(a, b) { return a + b; }, 0) / vals.length;
+  }
+  var avgRecIn  = avgN(opIn, 6);
+  var avgRecOut = avgN(opOut, 6);
+  var netRec    = avgRecIn + avgRecOut;
+  var monthlyNeed = -netRec;
+
+  // Category matrix — group by direction like the dashboard, with subgroups.
+  function _grpOf(cat) {
+    var c = String(cat || '').toLowerCase();
+    if (/consulting|payroll|lusk|estrada|nguyen|vallejo|mint|lynn|bsc|accounting/.test(c)) return 'People & Payroll';
+    if (/insurance|guardian|healthcar|life ins|next insur/.test(c))                       return 'Insurance';
+    if (/divvy|bank fees|paris|apt maintenance|charity|donation/.test(c))                 return 'Operations & Facilities';
+    if (/legal|law|roetzel/.test(c))                                                      return 'Legal';
+    if (/ellison|solaris|wasica|book credit|macdonald|cherry valley|sa nj|realty/.test(c))return 'Customers & Loan Repayments';
+    if (/fidelity|money market|dividend|interest/.test(c))                                return 'Fidelity Investments';
+    if (/inter-entity|blue panda|nf europe|nf medellin|nf usa tx/.test(c))                return 'Inter-Entity';
+    if (/wire|ach payment|book transfer|deposit|other/.test(c))                           return 'Uncategorized / Catch-all';
+    return 'Other';
+  }
+  var recIn = [], recOut = [], nonIn = [], nonOut = [], ieIn = [], ieOut = [];
+  mat.forEach(function(c) {
+    var tIn = 0, tOut = 0;
+    months.forEach(function(ym) {
+      var v = c.months[ym] || 0;
+      if (v >= 0) tIn += v; else tOut += v;
+    });
+    var dir = Math.abs(tIn) > Math.abs(tOut) ? 'in' : 'out';
+    var isIEcat = /transfer/i.test(c.category);
+    if (isIEcat) (dir === 'in' ? ieIn : ieOut).push(c);
+    else if (c.recurring) (dir === 'in' ? recIn : recOut).push(c);
+    else (dir === 'in' ? nonIn : nonOut).push(c);
+  });
+
+  function fmtCell(v) {
+    if (!v) return '<td>&middot;</td>';
+    var cls = v < 0 ? 'neg' : 'pos';
+    var sign = v < 0 ? '-$' : '$';
+    return '<td class="' + cls + '">' + sign + Math.abs(Math.round(v)).toLocaleString() + '</td>';
+  }
+  function catRowHtml(c) {
+    var tds = months.map(function(ym) { return fmtCell(c.months[ym] || 0); }).join('');
+    return '<tr><td class="catname">' + _tlmndEsc_(c.category) + '</td>' + tds +
+      '<td><strong>' + fmtCell(c.total).replace('<td class="', '').replace('">','">').replace('</td>','') + '</strong></td></tr>';
+  }
+  function catRowSimple(c) {
+    var tds = months.map(function(ym) { return fmtCell(c.months[ym] || 0); }).join('');
+    var totalCls = c.total < 0 ? 'neg' : 'pos';
+    var totalSign = c.total < 0 ? '-$' : '$';
+    return '<tr><td class="catname">' + _tlmndEsc_(c.category) + '</td>' + tds +
+      '<td class="' + totalCls + '"><strong>' + totalSign + Math.abs(Math.round(c.total)).toLocaleString() + '</strong></td></tr>';
+  }
+  function totalRowHtml(label, arr, cls) {
+    var perMonth = months.map(function(ym) {
+      return arr.reduce(function(s, c) { return s + (c.months[ym] || 0); }, 0);
+    });
+    var grand = perMonth.reduce(function(s, v) { return s + v; }, 0);
+    var tds = perMonth.map(function(v) { return fmtCell(v); }).join('');
+    var gCls = grand < 0 ? 'neg' : 'pos';
+    var gSign = grand < 0 ? '-$' : '$';
+    return '<tr class="' + (cls || 'total') + '"><td class="catname">' + label + '</td>' + tds +
+      '<td class="' + gCls + '"><strong>' + gSign + Math.abs(Math.round(grand)).toLocaleString() + '</strong></td></tr>';
+  }
+  function sectionRowHtml(label) {
+    var span = months.length + 2;
+    return '<tr class="section"><td colspan="' + span + '">' + label + '</td></tr>';
+  }
+  function groupHdrHtml(label) {
+    var span = months.length + 2;
+    return '<tr class="grp"><td colspan="' + span + '">' + label + '</td></tr>';
+  }
+  function renderSection(sectionLbl, items) {
+    var out = sectionRowHtml(sectionLbl);
+    if (!items.length) return out;
+    var byGroup = {};
+    items.forEach(function(c) { var g = _grpOf(c.category); (byGroup[g] = byGroup[g] || []).push(c); });
+    var order = ['People & Payroll','Insurance','Operations & Facilities','Legal','Customers & Loan Repayments','Fidelity Investments','Inter-Entity','Uncategorized / Catch-all','Other'];
+    order.forEach(function(g) {
+      if (!byGroup[g] || !byGroup[g].length) return;
+      byGroup[g].sort(function(a, b) { return Math.abs(b.total) - Math.abs(a.total); });
+      out += groupHdrHtml(g);
+      byGroup[g].forEach(function(c) { out += catRowSimple(c); });
+    });
+    return out;
+  }
+
+  // Header row for the matrix.
+  var monthShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var matThead = '<thead><tr><th class="catname">Category</th>' +
+    months.map(function(ym) {
+      var p = ym.split('-'); return '<th>' + monthShort[Number(p[1])-1] + ' ' + p[0].slice(2) + '</th>';
+    }).join('') + '<th>Total</th></tr></thead>';
+
+  var matBody = '<tbody>' +
+    renderSection('Recurring &mdash; Money In', recIn) +
+    totalRowHtml('Total Recurring In', recIn) +
+    renderSection('Recurring &mdash; Money Out', recOut) +
+    totalRowHtml('Total Recurring Out', recOut) +
+    totalRowHtml('Net Recurring', recIn.concat(recOut), 'net') +
+    renderSection('Non-Recurring &mdash; Money In', nonIn) +
+    totalRowHtml('Total Non-Recurring In', nonIn) +
+    renderSection('Non-Recurring &mdash; Money Out', nonOut) +
+    totalRowHtml('Total Non-Recurring Out', nonOut) +
+    totalRowHtml('Net Non-Recurring', nonIn.concat(nonOut), 'net') +
+    renderSection('Inter-Entity Transfers &mdash; In', ieIn) +
+    totalRowHtml('Total Inter-Entity In', ieIn) +
+    renderSection('Inter-Entity Transfers &mdash; Out', ieOut) +
+    totalRowHtml('Total Inter-Entity Out', ieOut) +
+    totalRowHtml('Net Inter-Entity', ieIn.concat(ieOut), 'net') +
+    totalRowHtml('NET ALL', mat, 'grand') +
+    '</tbody>';
+
+  // Build the top movers HTML (Page 1).
+  function topMoverList(arr, max) {
+    if (!arr.length) return '<div class="empty">No activity this month</div>';
+    var shown = arr.slice(0, max);
+    return '<table class="movers">' + shown.map(function(x) {
+      var cls = x.val < 0 ? 'neg' : 'pos';
+      var sign = x.val < 0 ? '-$' : '+$';
+      return '<tr><td>' + _tlmndEsc_(x.name) + '</td><td class="' + cls + '">' + sign + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
+    }).join('') + '</table>';
+  }
+
+  // Build comparison table (Page 1).
+  var cmpBody = compareRows.map(function(r) {
+    var cls = r.isNet ? ' class="net"' : '';
+    return '<tr' + cls + '><td class="lbl">' + r.label + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.cur)  + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.prev) + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t3)   + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t6)   + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t12)  + '</td></tr>';
+  }).join('');
+
+  var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
+  var heroVal = (cur.netAll < 0 ? '-$' : '+$') + Math.abs(Math.round(cur.netAll)).toLocaleString();
+
+  return '' +
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><title>TLMND Cash Flow</title>' +
+    '<style>' +
+      '@page { size: letter; margin: 0.4in 0.4in 0.5in 0.4in; }' +
+      'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:#0d2137;margin:0;padding:0;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+      '.report-hdr{border-bottom:3px solid #0d2137;padding-bottom:8px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:baseline}' +
+      '.report-hdr h1{font-size:16px;margin:0;color:#0d2137;letter-spacing:.3px}' +
+      '.report-hdr .date{font-size:11px;color:#5f6368}' +
+      '.hero{background:#0d2137;color:#fff;padding:16px 20px;border-radius:6px;margin-bottom:12px}' +
+      '.hero .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.6px;opacity:.75;margin-bottom:4px}' +
+      '.hero .val{font-size:32px;font-weight:800;line-height:1;letter-spacing:-.5px}' +
+      '.hero .val.pos{color:#7fdba0}' +
+      '.hero .val.neg{color:#ff9d9d}' +
+      '.hero .sub{margin-top:8px;font-size:11px;opacity:.9}' +
+      '.two{display:table;width:100%;border-spacing:8px 0;margin-bottom:12px}' +
+      '.two .col{display:table-cell;width:50%;background:#f8f9fa;border-radius:6px;padding:10px 14px;vertical-align:top;border-left:3px solid #ddd}' +
+      '.two .col.in{border-left-color:#137333}' +
+      '.two .col.out{border-left-color:#a50e0e}' +
+      '.two h3{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin:0 0 4px 0;font-weight:600}' +
+      '.two .subtotal{font-size:16px;font-weight:700;margin-bottom:6px}' +
+      '.two .subtotal.pos{color:#137333}' +
+      '.two .subtotal.neg{color:#a50e0e}' +
+      '.movers{width:100%;font-size:10px;border-collapse:collapse}' +
+      '.movers td{padding:3px 0;border-bottom:1px solid #eee}' +
+      '.movers td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}' +
+      '.pos{color:#137333}.neg{color:#a50e0e}' +
+      '.compare,.forecast{background:#fff;border:1px solid #e0e5eb;border-radius:6px;padding:10px 14px;margin-bottom:12px}' +
+      '.compare h3,.forecast h3{font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px 0;font-weight:600}' +
+      '.compare table{width:100%;border-collapse:collapse;font-size:11px}' +
+      '.compare th{background:#f8f9fa;padding:5px 8px;text-align:right;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.4px;white-space:nowrap;border-bottom:1px solid #dadce0}' +
+      '.compare th:first-child,.compare td:first-child{text-align:left}' +
+      '.compare td{padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7}' +
+      '.compare tr.net td{font-weight:700;border-top:2px solid #dadce0;background:#f5f7fa}' +
+      '.forecast .tiles{display:table;width:100%;border-spacing:6px 0;margin-bottom:6px}' +
+      '.forecast .tile{display:table-cell;width:33%;background:#f8f9fa;border-radius:4px;padding:8px 12px;vertical-align:top}' +
+      '.forecast .tile .l{font-size:9px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}' +
+      '.forecast .tile .v{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}' +
+      '.forecast .call{background:#eef4fa;border-radius:4px;padding:10px 14px}' +
+      '.forecast .call .l{font-size:9px;color:#5f6368;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}' +
+      '.forecast .call .v{font-size:22px;font-weight:800;color:#0d2137;font-variant-numeric:tabular-nums}' +
+      '.forecast .call .n{font-size:10px;color:#5f6368;margin-top:3px}' +
+      'table.matrix{width:100%;border-collapse:collapse;font-size:9.5px;margin-top:6px;page-break-before:always}' +
+      'table.matrix th{background:#f8f9fa;padding:5px 6px;text-align:right;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:8px;letter-spacing:.4px;border-bottom:2px solid #dadce0;white-space:nowrap}' +
+      'table.matrix th.catname,table.matrix td.catname{text-align:left}' +
+      'table.matrix td{padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap}' +
+      'table.matrix tr.section td{background:#0d2137;color:#fff;font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.5px;padding:6px 8px}' +
+      'table.matrix tr.grp td{background:#dfe4ea;color:#2c3e50;font-weight:700;text-transform:uppercase;font-size:8px;letter-spacing:.5px;padding:4px 8px 4px 20px}' +
+      'table.matrix tr.total td{background:#dae5ee;font-weight:700;color:#0d2137;border-top:1px solid #b8c7d4}' +
+      'table.matrix tr.net td{background:#c8d8e5;font-weight:800;font-size:10.5px;color:#0d2137;border-top:2px solid #0d2137;border-bottom:2px solid #0d2137;padding:6px 8px}' +
+      'table.matrix tr.grand td{background:#0d2137;color:#fff;font-weight:800;font-size:11px;border-top:3px double #0d2137;padding:8px}' +
+      '.h2title{font-size:12px;font-weight:700;color:#0d2137;margin:0 0 4px 0;padding-top:4px}' +
+      '.footer{margin-top:10px;font-size:8px;color:#9aa0a6;font-style:italic}' +
+    '</style></head><body>' +
+    // ── PAGE 1 ────────────────────────────────────────────────
+    '<div class="report-hdr">' +
+      '<h1>TLMND Cash Flow &mdash; ' + monthLabel + '</h1>' +
+      '<div class="date">Report generated ' + _tlmndEsc_(reportDate) + '</div>' +
+    '</div>' +
+    // Hero
+    '<div class="hero">' +
+      '<div class="lbl">Net Cash Flow &middot; ' + monthLabel + '</div>' +
+      '<div class="val ' + heroCls + '">' + heroVal + '</div>' +
+      '<div class="sub">' + _tlmndEsc_(deltaTxt) + '</div>' +
+    '</div>' +
+    // Top movers (two cards side by side)
+    '<div class="two">' +
+      '<div class="col in">' +
+        '<h3>' + monthLabel + ' &middot; Top Sources of Money In</h3>' +
+        '<div class="subtotal pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
+        topMoverList(inItems, 5) +
+      '</div>' +
+      '<div class="col out">' +
+        '<h3>' + monthLabel + ' &middot; Top Expenses</h3>' +
+        '<div class="subtotal neg">-$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
+        topMoverList(outItems, 5) +
+      '</div>' +
+    '</div>' +
+    // Comparison table
+    '<div class="compare">' +
+      '<h3>' + monthLabel + ' vs benchmarks</h3>' +
+      '<table><thead><tr><th></th><th>This Month</th><th>Last Month</th><th>3-Mo Avg</th><th>6-Mo Avg</th><th>12-Mo Avg</th></tr></thead>' +
+      '<tbody>' + cmpBody + '</tbody></table>' +
+    '</div>' +
+    // Burn & Forecast
+    '<div class="forecast">' +
+      '<h3>Cash Needs &amp; Forecast (recurring, trailing 6 completed months)</h3>' +
+      '<div class="tiles">' +
+        '<div class="tile"><div class="l">Avg Recurring In</div><div class="v pos">+' + _tlmndFmtPos_(avgRecIn) + '</div></div>' +
+        '<div class="tile"><div class="l">Avg Recurring Out</div><div class="v neg">-' + _tlmndFmtPos_(Math.abs(avgRecOut)) + '</div></div>' +
+        '<div class="tile"><div class="l">Net Monthly Recurring</div><div class="v ' + (netRec >= 0 ? 'pos' : 'neg') + '">' + _tlmndFmtSvr_(netRec) + '</div></div>' +
+      '</div>' +
+      '<div class="call">' +
+        (monthlyNeed > 0
+          ? '<div class="l">Monthly transfer needed into TLMND</div><div class="v">' + _tlmndFmtPos_(monthlyNeed) + '</div>' +
+            '<div class="n">Recurring money out exceeds money in by this much on average. Move in ~' + _tlmndFmtPos_(monthlyNeed) + '/mo from Blue Panda or other entities to keep TLMND self-funding.</div>'
+          : '<div class="l">Monthly recurring surplus</div><div class="v" style="color:#137333">+' + _tlmndFmtPos_(-monthlyNeed) + '</div>' +
+            '<div class="n">TLMND is self-funding on the recurring baseline.</div>') +
+      '</div>' +
+    '</div>' +
+    // ── PAGE 2 ────────────────────────────────────────────────
+    '<h2 class="h2title">Full Category Breakdown &mdash; Last 6 Months</h2>' +
+    '<table class="matrix">' + matThead + matBody + '</table>' +
+    '<div class="footer">Data pulled from Plaid + SnapTrade &middot; excludes internal-account transfers to avoid double-counting.</div>' +
+    '</body></html>';
+}
+
+// Called by the Monday trigger. Reuses WEEKLY_PDF_RECIPIENT script property
+// so it goes to the same distribution as the net-worth weekly email.
+function weeklyTLMNDCashFlowEmail() {
+  var recipient = PropertiesService.getScriptProperties().getProperty('WEEKLY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('weeklyTLMNDCashFlowEmail: WEEKLY_PDF_RECIPIENT not set — skipping');
+    return { success: false, error: 'No recipient configured. Set via Tracker > Set Weekly PDF Email Recipient.' };
+  }
+  return _tlmndSendPdfEmail_(recipient, 'Weekly TLMND Cash Flow');
+}
+
+function _tlmndSendPdfEmail_(recipient, subjectPrefix) {
+  // Ensure a fresh sync so the PDF reflects the latest transactions.
+  try { syncTLMNDCashFlow(); } catch(e) { Logger.log('TLMND PDF: pre-sync failed: ' + e.message); }
+
+  var html = _tlmndBuildWeeklyPdfHtml_();
+  if (!html) return { success: false, error: 'Failed to generate report HTML — TLMND config may not be set.' };
+
+  var dateStr = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var pdfBlob = Utilities.newBlob(html, 'text/html', 'TLMND_Cash_Flow_' + dateStr + '.html')
+    .getAs('application/pdf').setName('TLMND_Cash_Flow_' + dateStr + '.pdf');
+
+  var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
+  MailApp.sendEmail({
+    to:          recipient,
+    subject:     subjectPrefix + ' — ' + dateLabel,
+    body:        'Your ' + subjectPrefix.toLowerCase() + ' PDF is attached.\n\n' +
+                 'Includes:\n' +
+                 '  • Net Cash Flow for the current month + comparison to averages\n' +
+                 '  • Top sources of money in and top expenses this month\n' +
+                 '  • Full category breakdown across the last 6 months (recurring, non-recurring, inter-entity)\n' +
+                 '  • Cash needs forecast based on trailing 6 completed months\n\n' +
+                 'The live dashboard is at your Family Office Tracker web app.',
+    name:        'TLMND Cash Flow',
+    attachments: [pdfBlob]
+  });
+  Logger.log('TLMND weekly PDF sent to ' + recipient);
+  return { success: true };
+}
+
+// Menu-callable test send — goes to the current spreadsheet owner so
+// you can preview the PDF before enabling the trigger.
+function sendTLMNDWeeklyPdfTest() {
+  var ui = SpreadsheetApp.getUi();
+  var me = Session.getActiveUser().getEmail();
+  if (!me) { ui.alert('Could not determine your email address.'); return; }
+  var r = _tlmndSendPdfEmail_(me, 'TEST — TLMND Cash Flow');
+  ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
+}
+
+// Install/replace the Monday 8am trigger for the weekly TLMND PDF.
+function installTLMNDWeeklyPdfTrigger() {
+  var ui = SpreadsheetApp.getUi();
+  var removed = 0;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction() === 'weeklyTLMNDCashFlowEmail') {
+      ScriptApp.deleteTrigger(t); removed++;
+    }
+  });
+  ScriptApp.newTrigger('weeklyTLMNDCashFlowEmail')
+    .timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+  ui.alert('Installed weekly TLMND PDF trigger.\n\nFires every Monday at 8 AM ET.\nReplaced ' + removed + ' prior trigger(s).\n\nEmail goes to whichever address is configured under Set Weekly PDF Email Recipient (same as the net-worth weekly email).');
 }
 
 function installTLMNDCashFlowTrigger() {
