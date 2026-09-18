@@ -2457,15 +2457,16 @@ function _tlDateShort(iso) {
   return mos[d.getMonth()] + ' ' + d.getDate();
 }
 
-// "Next 30 Days Expected" — for each RECURRING category, take avg of the
-// last 3 completed months as expected monthly amount. Excludes inter-entity.
-// Divisor is always the full window (3), NOT the number of months that
-// happened to have data — otherwise a lump-sum payment covering multiple
-// months (e.g. MacDonald paid $8,333 once for 4 months at $2,083/mo)
-// shows as "$8,333 expected" instead of being spread across the window.
+// "Next 30 Days Expected" — for each RECURRING category, use the manual
+// Expected Monthly Override from the rules sheet if set; otherwise take
+// avg of the last 3 completed months. Excludes inter-entity.
+// Divisor is always the full window (3), NOT months-with-data — a lump
+// payment covering multiple months (MacDonald's $8,333 covering 4 months
+// at $2,083/mo) otherwise inflates the "expected monthly" number.
 function _tlUpcomingForecast(d) {
   var mat  = d.categoryMatrix || [];
   var months = d.monthlySeries || [];
+  var overrides = d.expectedOverrides || {};
   var now = new Date();
   var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var recentYms = months.filter(function(m) { return m.ym !== curYm; })
@@ -2478,11 +2479,14 @@ function _tlUpcomingForecast(d) {
   mat.forEach(function(c) {
     if (!c.recurring) return;
     if (isInterEntity(c.category)) return;
-    var total = 0;
-    recentYms.forEach(function(ym) {
-      total += (c.months[ym] || 0);   // missing months count as $0
-    });
-    var expected = total / windowSize;
+    var expected;
+    if (overrides[c.category] != null) {
+      expected = Number(overrides[c.category]);
+    } else {
+      var total = 0;
+      recentYms.forEach(function(ym) { total += (c.months[ym] || 0); });
+      expected = total / windowSize;
+    }
     if (Math.abs(expected) < 1) return;
     if (expected >= 0) inItems.push({ name: c.category, val: expected });
     else outItems.push({ name: c.category, val: expected });

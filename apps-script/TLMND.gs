@@ -575,12 +575,17 @@ var TLMND_RULES_HEADERS = [
   'Exclude',        // J
   'Enabled',        // K
   'Notes',          // L
-  'Source Filter'   // M — Plaid | SnapTrade | blank (any). Restricts the
+  'Source Filter',  // M — Plaid | SnapTrade | blank (any). Restricts the
                     //     rule to only match rows from a specific source.
-                    //     Fidelity catch-alls (BUY/SELL/DEPOSIT/etc.) use
-                    //     'SnapTrade' so they don't accidentally match
-                    //     Plaid rows whose Name starts with the same word
-                    //     (e.g. "DEPOSIT ID NUMBER 553083" on Chase).
+  'Expected Monthly Override'  // N — signed number (positive = income,
+                    //     negative = expense). When set, this value
+                    //     overrides the auto-calculated forecast
+                    //     average for the rule's Category in the
+                    //     "Next 30 Days Expected" / "On-Track"
+                    //     calculations. Useful when historical data
+                    //     doesn't reflect the true monthly rate
+                    //     (e.g. MacDonald paid a $8,333 lump but the
+                    //     real monthly is $2,083).
 ];
 
 function _tlmndGetOrCreateRulesSheet() {
@@ -626,7 +631,7 @@ function seedTLMNDRules() {
     // excluded below to prevent double-counting.
     [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Deposit lands on NF USA CA ···2086, counted as TLMND income'],
     [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
-    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction'],
+    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction', '', 2083.33],
     [10, 'Name', 'contains', 'SA NJ REALTY',                      '', '', 'ASC Rental Income - TLMND Share (SA NJ Realty)', 'Yes', 'TLMND',   '', 'Yes', 'Recurring — Mike\'s real estate rent (comes in every so often)'],
     // WASKAR TEJEDA payments (CHIPS credits, wires) — categorize with Wasica
     // Holdings per user. Priority 15 keeps Penn Mutual Life Insurance
@@ -792,17 +797,18 @@ function _tlmndLoadRules() {
     if (String(r[10]).toLowerCase() !== 'yes') return;   // Enabled column
     if (!r[3]) return;                                    // no Pattern → skip
     rules.push({
-      priority:     Number(r[0]) || 999,
-      field:        String(r[1] || 'Name'),
-      matchType:    String(r[2] || 'contains').toLowerCase(),
-      pattern:      String(r[3]),
-      amtMin:       r[4] === '' || r[4] == null ? null : Number(r[4]),
-      amtMax:       r[5] === '' || r[5] == null ? null : Number(r[5]),
-      category:     String(r[6] || ''),
-      recurring:    String(r[7] || ''),
-      entityTag:    String(r[8] || ''),
-      exclude:      String(r[9]).toLowerCase() === 'yes',
-      sourceFilter: String(r[12] || '').trim()   // '' = any; 'Plaid' | 'SnapTrade'
+      priority:        Number(r[0]) || 999,
+      field:           String(r[1] || 'Name'),
+      matchType:       String(r[2] || 'contains').toLowerCase(),
+      pattern:         String(r[3]),
+      amtMin:          r[4] === '' || r[4] == null ? null : Number(r[4]),
+      amtMax:          r[5] === '' || r[5] == null ? null : Number(r[5]),
+      category:        String(r[6] || ''),
+      recurring:       String(r[7] || ''),
+      entityTag:       String(r[8] || ''),
+      exclude:         String(r[9]).toLowerCase() === 'yes',
+      sourceFilter:    String(r[12] || '').trim(),
+      expectedMonthly: r[13] === '' || r[13] == null ? null : Number(r[13])
     });
   });
   rules.sort(function(a, b) { return a.priority - b.priority; });
@@ -1068,6 +1074,20 @@ function getTLMNDCashFlowData(opts) {
   var entTagSet = {};
   rows.forEach(function(r) { var e = String(r[iEnt] || ''); if (e) entTagSet[e] = true; });
 
+  // Category-level Expected Monthly overrides from the rules sheet — sent
+  // to the client so the forecast + on-track panel can pin specific
+  // categories to a known monthly rate (e.g. MacDonald = $2,083/mo)
+  // instead of relying on the historical average.
+  var overrides = {};
+  try {
+    var _r = _tlmndLoadRules();
+    _r.forEach(function(rule) {
+      if (rule.category && rule.expectedMonthly != null && !isNaN(rule.expectedMonthly)) {
+        overrides[rule.category] = rule.expectedMonthly;
+      }
+    });
+  } catch(e) {}
+
   return {
     success: true,
     kpis: kpis,
@@ -1076,6 +1096,7 @@ function getTLMNDCashFlowData(opts) {
     transactions: filtered,
     monthKeys: monthKeys,
     entityTags: Object.keys(entTagSet).sort(),
+    expectedOverrides: overrides,
     generatedAt: new Date().toISOString()
   };
 }
@@ -1287,11 +1308,12 @@ function _tlmndDateShort_(iso) {
   var mos = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return mos[d.getMonth()] + ' ' + d.getDate();
 }
-// Next 30 days expected — recurring cats, avg of last 3 completed months.
-// Divisor is always the full 3-month window so lump payments (e.g.
-// MacDonald's $8,333 covering 4 months) spread across, not shown as
-// the full lump amount.
-function _tlmndForecast_(mat, months) {
+// Next 30 days expected — recurring cats. Priority is an Expected Monthly
+// Override from the rules sheet (per-category). If none set, uses the
+// average of the last 3 completed months (divisor is always the full
+// window so lump payments don't inflate the monthly rate).
+function _tlmndForecast_(mat, months, overrides) {
+  overrides = overrides || {};
   var now = new Date();
   var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var recentYms = months.filter(function(m) { return m.ym !== curYm; })
@@ -1302,9 +1324,14 @@ function _tlmndForecast_(mat, months) {
   (mat || []).forEach(function(c) {
     if (!c.recurring) return;
     if (isIE(c.category)) return;
-    var total = 0;
-    recentYms.forEach(function(ym) { total += (c.months[ym] || 0); });
-    var expected = total / windowSize;
+    var expected;
+    if (overrides[c.category] != null) {
+      expected = Number(overrides[c.category]);
+    } else {
+      var total = 0;
+      recentYms.forEach(function(ym) { total += (c.months[ym] || 0); });
+      expected = total / windowSize;
+    }
     if (Math.abs(expected) < 1) return;
     if (expected >= 0) inItems.push({ name: c.category, val: expected });
     else outItems.push({ name: c.category, val: expected });
@@ -1376,7 +1403,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   else                   deltaTxt = _tlmndFmtPos_(actDelta) + ' worse than prior 30 days';
 
   // === Coming Up forecast (recurring, next 30 days) ===
-  var fc = _tlmndForecast_(mat, series);
+  var fc = _tlmndForecast_(mat, series, d.expectedOverrides || {});
 
   monthLabel = 'Last 30 Days · ' + _tlmndDateShort_(start30) + ' – ' + _tlmndDateShort_(yesterdayISO);
   var cur = actCur;
