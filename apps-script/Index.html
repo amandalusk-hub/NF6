@@ -512,6 +512,20 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-hero-mtd-row{display:flex;justify-content:space-between;font-size:12px;color:#3c4858;padding:3px 0;font-variant-numeric:tabular-nums}
       #tab-tlmnd .tl-hero-mtd-row span:last-child{font-weight:700}
       #tab-tlmnd .tl-spark-full{margin-bottom:14px}
+      /* On-Track Analysis panel */
+      #tab-tlmnd .tl-tracking{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:14px;border-left:4px solid #4fc3f7}
+      #tab-tlmnd .tl-tracking-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:10px}
+      #tab-tlmnd .tl-tracking-title{font-size:12px;color:#0d2137;text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+      #tab-tlmnd .tl-tracking-status{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.5px}
+      #tab-tlmnd .tl-tracking-status.ok{background:#e6f4ea;color:#137333}
+      #tab-tlmnd .tl-tracking-status.warn{background:#fce8e6;color:#a50e0e}
+      #tab-tlmnd .tl-tracking-table{width:100%;border-collapse:collapse;font-size:12px}
+      #tab-tlmnd .tl-tracking-table th{text-align:right;padding:6px 10px;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.4px;border-bottom:1px solid #dadce0}
+      #tab-tlmnd .tl-tracking-table th:first-child{text-align:left}
+      #tab-tlmnd .tl-tracking-table td{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7}
+      #tab-tlmnd .tl-tracking-table td:first-child{text-align:left;font-weight:500;color:#0d2137}
+      #tab-tlmnd .tl-tracking-table tr.net-row td{font-weight:800;font-size:13px;border-top:2px solid #dadce0;background:#f5f7fa}
+      #tab-tlmnd .tl-tracking-nonrec{margin-top:12px;padding:10px 14px;background:#fafbfc;border-radius:6px;font-size:11px;color:#3c4858}
       #tab-tlmnd .tl-spark-card{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column}
       #tab-tlmnd .tl-spark-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
       #tab-tlmnd .tl-spark-title{font-size:13px;color:#0d2137;font-weight:600;margin-bottom:4px}
@@ -2034,8 +2048,8 @@ function renderTLMNDCashFlow() {
     });
   }
 
-  var html = _tlHtmlPlanner(d) + _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
-             _tlHtmlSparkCard(d) + _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
+  var html = _tlHtmlPlanner(d) + _tlHtmlHero(d) + _tlHtmlTracking(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
+             _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
              _tlHtmlCategoryMatrix(d) + _tlHtmlInternalMovements(d);
   content.innerHTML = html;
   // Wire up planner after DOM is in place.
@@ -2419,78 +2433,198 @@ function _tlRollingWeeks(weeks, endIdx, n) {
   return out;
 }
 
-// ─── Weekly-focused top block ─────────────────────────────────────────
-// Hero card leads with LAST COMPLETED WEEK's net cash flow + week-over-
-// week delta, so Mike sees the most current news. MTD tracker sits
-// alongside for month trajectory. Sparkline of monthly Net follows for
-// long-term context.
-function _tlHtmlHero(d) {
+// Sum transactions in a date window (inclusive). Excludes [EXCLUDED] rows.
+function _tlSumDateRange(txns, startISO, endISO) {
+  var out = { in: 0, out: 0, netAll: 0, count: 0 };
+  (txns || []).forEach(function(t) {
+    if (t.excluded || !t.date) return;
+    if (t.date < startISO || t.date > endISO) return;
+    if (t.amount >= 0) out.in += t.amount; else out.out += t.amount;
+    out.netAll += t.amount;
+    out.count++;
+  });
+  return out;
+}
+function _tlDateOffset(baseISO, offsetDays) {
+  var d = new Date(baseISO + 'T12:00:00');
+  d.setDate(d.getDate() + offsetDays);
+  return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+}
+function _tlDateShort(iso) {
+  if (!iso) return '';
+  var d = new Date(iso + 'T12:00:00');
+  var mos = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mos[d.getMonth()] + ' ' + d.getDate();
+}
+
+// "Next 30 Days Expected" — for each RECURRING category, take avg of the
+// last 3 completed months as expected monthly amount. Excludes inter-entity.
+function _tlUpcomingForecast(d) {
+  var mat  = d.categoryMatrix || [];
   var months = d.monthlySeries || [];
-  var txns   = d.transactions  || [];
-  if (!months.length) return '';
+  var now = new Date();
+  var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var recentYms = months.filter(function(m) { return m.ym !== curYm; })
+    .slice(-3).map(function(m) { return m.ym; });
 
-  // Build weekly series from transactions and pick reference week.
-  var weeks = _tlBuildWeekly(txns);
-  var wkCur = _tlLastCompleteWeek(weeks);
-  if (!wkCur) wkCur = weeks[weeks.length - 1] || { weekStart: '', in: 0, out: 0, netAll: 0 };
-  var wkIdx = weeks.map(function(w) { return w.weekStart; }).indexOf(wkCur.weekStart);
-  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
-  var weekLbl = wkCur.weekStart ? _tlWeekLabel(wkCur.weekStart) : 'This Week';
+  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
 
-  // Week-over-week delta.
-  var wkDelta = wkCur.netAll - wkPrev.netAll;
-  var wkDir, wkDeltaTxt;
-  if (Math.abs(wkDelta) < 200) { wkDir = 'arrow-flat'; wkDeltaTxt = 'about the same as last week'; }
-  else if (wkDelta > 0) { wkDir = 'arrow-up';   wkDeltaTxt = '$' + Math.round(Math.abs(wkDelta)).toLocaleString() + ' <strong>better</strong> than last week'; }
-  else                  { wkDir = 'arrow-down'; wkDeltaTxt = '$' + Math.round(Math.abs(wkDelta)).toLocaleString() + ' <strong>worse</strong> than last week'; }
+  var inItems = [], outItems = [];
+  mat.forEach(function(c) {
+    if (!c.recurring) return;
+    if (isInterEntity(c.category)) return;
+    var total = 0, count = 0;
+    recentYms.forEach(function(ym) {
+      if (c.months[ym] != null) { total += c.months[ym]; count++; }
+    });
+    if (!count) return;
+    var expected = total / count;
+    if (Math.abs(expected) < 1) return;
+    if (expected >= 0) inItems.push({ name: c.category, val: expected });
+    else outItems.push({ name: c.category, val: expected });
+  });
+  inItems.sort(function(a, b) { return b.val - a.val; });
+  outItems.sort(function(a, b) { return a.val - b.val; });
+  var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
+  var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
+  return { inItems: inItems, outItems: outItems, totalIn: totalIn, totalOut: totalOut, net: totalIn + totalOut };
+}
 
-  var heroCls = wkCur.netAll >= 0 ? 'pos' : 'neg';
-  var heroVal = (wkCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(wkCur.netAll)).toLocaleString();
+// ─── On-Track Analysis ────────────────────────────────────────────────
+// Compares last 30 days ACTUAL recurring activity against the EXPECTED
+// forecast (avg of last 3 completed months for each recurring category).
+// Answers "are we on track this month, ahead of plan, or behind?"
+// Non-recurring activity is shown separately since it's unplanned.
+function _tlHtmlTracking(d) {
+  var txns = d.transactions || [];
+  if (!txns.length) return '';
+  var todayISO = (new Date()).toISOString().substring(0, 10);
+  var start30 = _tlDateOffset(todayISO, -30);
+  var yesterdayISO = _tlDateOffset(todayISO, -1);
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c || ''); }
 
-  // Rolling 4-week tracker — last 4 completed weeks vs the 4 before that.
-  var r4Cur   = _tlRollingWeeks(weeks, wkIdx, 4);
-  var r4Prior = _tlRollingWeeks(weeks, wkIdx - 4, 4);
-  var r4Delta = r4Cur.netAll - r4Prior.netAll;
-  var r4Cls   = r4Cur.netAll >= 0 ? 'pos' : 'neg';
-  var r4Val   = (r4Cur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(r4Cur.netAll)).toLocaleString();
-  var wkAvg   = r4Cur.weeksCounted ? r4Cur.netAll / r4Cur.weeksCounted : 0;
-  var r4RangeLbl = r4Cur.startWeek
-    ? _tlWeekLabel(r4Cur.startWeek).split('-')[0].split(' - ')[0] + ' – ' + _tlWeekLabel(r4Cur.endWeek).split('-').slice(-1)[0].trim()
-    : 'last 4 weeks';
+  var actRecIn = 0, actRecOut = 0, actNonRecIn = 0, actNonRecOut = 0;
+  txns.forEach(function(t) {
+    if (t.excluded || !t.date) return;
+    if (t.date < start30 || t.date > yesterdayISO) return;
+    if (isIE(t.category)) return;
+    if (t.recurring) {
+      if (t.amount >= 0) actRecIn += t.amount; else actRecOut += t.amount;
+    } else {
+      if (t.amount >= 0) actNonRecIn += t.amount; else actNonRecOut += t.amount;
+    }
+  });
+
+  var fc = _tlUpcomingForecast(d);   // expected in, out, net
+  var expNet = fc.net;
+  var actNet = actRecIn + actRecOut;
+  var netVar = actNet - expNet;      // positive = better than plan
+
+  // Variance conventions: for OUT, actual less negative than expected is GOOD.
+  // For IN, actual more positive than expected is GOOD.
+  var varIn = actRecIn - fc.totalIn;     // positive = we brought in more than expected
+  var varOut = actRecOut - fc.totalOut;  // both negative; positive = spent less
+  function varIcon(good) { return good ? '<span style="color:#137333">✓</span>' : '<span style="color:#a50e0e">▲</span>'; }
+  function varTxt(v, higherIsBetter) {
+    var sign = v >= 0 ? '+' : '−';
+    var absV = Math.abs(Math.round(v)).toLocaleString();
+    var good = higherIsBetter ? v >= 0 : v >= 0;   // for OUT, positive var = good (spent less)
+    var cls = good ? 'pos' : 'neg';
+    return '<span class="' + cls + '">' + sign + '$' + absV + '</span> ' + varIcon(good);
+  }
+
+  var status, statusCls;
+  if (Math.abs(netVar) < 3000) { status = 'ON TRACK'; statusCls = 'ok'; }
+  else if (netVar > 0)          { status = 'AHEAD OF PLAN'; statusCls = 'ok'; }
+  else                          { status = 'BEHIND PLAN'; statusCls = 'warn'; }
+
+  function fmtSigned(v) { return _tlFmtSigned(v); }
+  function fmtOnlyIn(v) { return '+$' + Math.abs(Math.round(v)).toLocaleString(); }
+  function fmtOnlyOut(v) { return '−$' + Math.abs(Math.round(v)).toLocaleString(); }
+
+  return '' +
+    '<div class="tl-tracking">' +
+      '<div class="tl-tracking-hdr">' +
+        '<div class="tl-tracking-title">Are We On Track? · Last 30 Days vs Expected Recurring</div>' +
+        '<div class="tl-tracking-status ' + statusCls + '">' + status + '</div>' +
+      '</div>' +
+      '<table class="tl-tracking-table">' +
+        '<thead><tr><th></th><th>Expected</th><th>Actual</th><th>Variance</th></tr></thead>' +
+        '<tbody>' +
+          '<tr><td>Recurring Money In</td>' +
+            '<td>' + fmtOnlyIn(fc.totalIn) + '</td>' +
+            '<td>' + fmtOnlyIn(actRecIn) + '</td>' +
+            '<td>' + varTxt(varIn, true) + '</td></tr>' +
+          '<tr><td>Recurring Money Out</td>' +
+            '<td>' + fmtOnlyOut(fc.totalOut) + '</td>' +
+            '<td>' + fmtOnlyOut(actRecOut) + '</td>' +
+            '<td>' + varTxt(varOut, false) + '</td></tr>' +
+          '<tr class="net-row"><td>Net Recurring</td>' +
+            '<td>' + fmtSigned(expNet) + '</td>' +
+            '<td>' + fmtSigned(actNet) + '</td>' +
+            '<td>' + varTxt(netVar, true) + '</td></tr>' +
+        '</tbody>' +
+      '</table>' +
+      (Math.abs(actNonRecIn) + Math.abs(actNonRecOut) > 0
+        ? '<div class="tl-tracking-nonrec">' +
+            '<strong>Plus unplanned (non-recurring):</strong> ' +
+            'Money in ' + fmtOnlyIn(actNonRecIn) + ' &nbsp;·&nbsp; ' +
+            'Money out ' + fmtOnlyOut(actNonRecOut) +
+          '</div>'
+        : '') +
+    '</div>';
+}
+
+// ─── Monthly rolling top block ────────────────────────────────────────
+// Hero = LAST 30 DAYS actual net cash flow (what already happened).
+// Right card = NEXT 30 DAYS expected net (forecast from recurring rules).
+// This gives Mike "here's what took place" alongside "here's what's coming
+// up" so he sees the trajectory in monthly-scale terms.
+function _tlHtmlHero(d) {
+  var txns = d.transactions || [];
+  if (!txns.length) return '';
+
+  // Actual rolling: last 30 days (through yesterday) and prior 30 days.
+  var todayISO = (new Date()).toISOString().substring(0, 10);
+  var yesterdayISO = _tlDateOffset(todayISO, -1);
+  var start30 = _tlDateOffset(todayISO, -30);
+  var start60 = _tlDateOffset(todayISO, -60);
+  var startPrev30 = _tlDateOffset(todayISO, -60);
+  var endPrev30   = _tlDateOffset(todayISO, -31);
+  var actCur   = _tlSumDateRange(txns, start30, yesterdayISO);
+  var actPrior = _tlSumDateRange(txns, startPrev30, endPrev30);
+  var actDelta = actCur.netAll - actPrior.netAll;
+
+  var heroCls = actCur.netAll >= 0 ? 'pos' : 'neg';
+  var heroVal = (actCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(actCur.netAll)).toLocaleString();
+
+  var dir, deltaTxt;
+  if (Math.abs(actDelta) < 500) { dir = 'arrow-flat'; deltaTxt = 'about the same as the prior 30 days'; }
+  else if (actDelta > 0) { dir = 'arrow-up';   deltaTxt = '$' + Math.round(Math.abs(actDelta)).toLocaleString() + ' <strong>better</strong> than prior 30 days'; }
+  else                   { dir = 'arrow-down'; deltaTxt = '$' + Math.round(Math.abs(actDelta)).toLocaleString() + ' <strong>worse</strong> than prior 30 days'; }
+
+  // Upcoming forecast (recurring, avg of last 3 completed months).
+  var fc = _tlUpcomingForecast(d);
+  var fcCls = fc.net >= 0 ? 'pos' : 'neg';
+  var fcVal = (fc.net < 0 ? '−$' : '+$') + Math.abs(Math.round(fc.net)).toLocaleString();
 
   return '' +
     '<div class="tl-hero-row">' +
       '<div class="tl-hero">' +
-        '<div class="tl-hero-label">Net Cash Flow · Week of ' + weekLbl + '</div>' +
+        '<div class="tl-hero-label">Net Cash Flow · Last 30 Days (' + _tlDateShort(start30) + ' – ' + _tlDateShort(yesterdayISO) + ')</div>' +
         '<div class="tl-hero-value ' + heroCls + '">' + heroVal + '</div>' +
-        '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(wkDir) + '</span> ' + wkDeltaTxt + '</div>' +
+        '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(dir) + '</span> ' + deltaTxt + '</div>' +
       '</div>' +
       '<div class="tl-hero-mtd">' +
-        '<div class="tl-hero-mtd-label">Last 4 Weeks (through ' + weekLbl + ')</div>' +
-        '<div class="tl-hero-mtd-value ' + r4Cls + '">' + r4Val + '</div>' +
+        '<div class="tl-hero-mtd-label">Next 30 Days · Expected (based on recurring items)</div>' +
+        '<div class="tl-hero-mtd-value ' + fcCls + '">' + fcVal + '</div>' +
         '<div class="tl-hero-mtd-row">' +
-          '<span>vs Prior 4 Weeks</span><span class="' + (r4Delta >= 0 ? 'pos' : 'neg') + '">' +
-          (r4Delta >= 0 ? '+' : '−') + '$' + Math.abs(Math.round(r4Delta)).toLocaleString() + '</span>' +
+          '<span>Expected money in</span><span class="pos">+$' + Math.round(fc.totalIn).toLocaleString() + '</span>' +
         '</div>' +
         '<div class="tl-hero-mtd-row">' +
-          '<span>Average per week</span><span class="' + (wkAvg >= 0 ? 'pos' : 'neg') + '">' +
-          (wkAvg < 0 ? '−$' : '+$') + Math.abs(Math.round(wkAvg)).toLocaleString() + '</span>' +
+          '<span>Expected money out</span><span class="neg">−$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</span>' +
         '</div>' +
       '</div>' +
-    '</div>';
-}
-
-// Monthly-trend sparkline card — kept as a standalone block below the
-// hero row for long-term context. Was previously inside the hero row.
-function _tlHtmlSparkCard(d) {
-  var months = d.monthlySeries || [];
-  if (!months.length) return '';
-  var spark = _tlSparkline(months, 780, 90);
-  return '' +
-    '<div class="tl-spark-card tl-spark-full">' +
-      '<div class="tl-spark-label">Monthly Net Cash Flow · last 6 months (long-term context)</div>' +
-      spark +
-      '<div class="tl-spark-hint">Hover over a dot to see that month\'s net cash flow.</div>' +
     '</div>';
 }
 
@@ -2498,32 +2632,30 @@ function _tlHtmlTopMovers(d) {
   var txns = d.transactions || [];
   if (!txns.length) return '';
 
-  // Use last COMPLETED week's transactions. Individual transactions
-  // (not category aggregates) so Mike sees the actual events —
-  // per-week category aggregation is too sparse to be useful.
-  var weeks = _tlBuildWeekly(txns);
-  var wkCur = _tlLastCompleteWeek(weeks);
-  if (!wkCur) wkCur = weeks[weeks.length - 1];
-  if (!wkCur) return '';
-  var weekLbl = _tlWeekLabel(wkCur.weekStart);
-
-  var wkStart = new Date(wkCur.weekStart + 'T00:00:00');
-  var wkEnd   = new Date(wkStart); wkEnd.setDate(wkStart.getDate() + 6); wkEnd.setHours(23,59,59);
-  function inWeek(t) {
-    if (t.excluded) return false;
-    var d = new Date(t.date + 'T12:00:00');
-    return d >= wkStart && d <= wkEnd;
-  }
-  var inItems = [], outItems = [];
+  // === LAST 30 DAYS ACTUAL — grouped by category (monthly-scale
+  // aggregation makes category grouping useful again).
+  var todayISO = (new Date()).toISOString().substring(0, 10);
+  var start30  = _tlDateOffset(todayISO, -30);
+  var yesterdayISO = _tlDateOffset(todayISO, -1);
+  var actualBy = {};
   txns.forEach(function(t) {
-    if (!inWeek(t)) return;
-    // Prefer showing category if categorized, else use raw name.
-    var displayName = t.category && t.category !== '(Uncategorized)' ? t.category : (t.name || '(unlabeled)');
-    if (t.amount > 0) inItems.push({ name: displayName, val: t.amount, date: t.date });
-    else if (t.amount < 0) outItems.push({ name: displayName, val: t.amount, date: t.date });
+    if (t.excluded || !t.date) return;
+    if (t.date < start30 || t.date > yesterdayISO) return;
+    var cat = (t.category && t.category !== '(Uncategorized)') ? t.category : (t.name || '(unlabeled)');
+    if (!actualBy[cat]) actualBy[cat] = { name: cat, val: 0, count: 0 };
+    actualBy[cat].val += t.amount;
+    actualBy[cat].count++;
   });
-  inItems.sort(function(a, b) { return b.val - a.val; });
-  outItems.sort(function(a, b) { return a.val - b.val; });
+  var actualIn = [], actualOut = [];
+  Object.keys(actualBy).forEach(function(k) {
+    var e = actualBy[k];
+    if (e.val > 0) actualIn.push(e);
+    else if (e.val < 0) actualOut.push(e);
+  });
+  actualIn.sort(function(a, b) { return b.val - a.val; });
+  actualOut.sort(function(a, b) { return a.val - b.val; });
+  // Rename to inItems/outItems so downstream code stays the same.
+  var inItems = actualIn, outItems = actualOut;
 
   var totalIn  = inItems.reduce(function(s, x)  { return s + x.val; }, 0);
   var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
@@ -2531,14 +2663,13 @@ function _tlHtmlTopMovers(d) {
   var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
   var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
 
-  function itemList(arr, max) {
-    if (!arr.length) return '<div class="tl-flow-item" style="color:#999">No activity this week</div>';
+  function itemList(arr, max, emptyMsg) {
+    if (!arr.length) return '<div class="tl-flow-item" style="color:#999">' + (emptyMsg || 'No activity') + '</div>';
     var shown = arr.slice(0, max);
     var rest  = arr.slice(max);
     var html = shown.map(function(x) {
-      var dateShort = x.date ? x.date.substring(5).replace('-', '/') : '';
       return '<div class="tl-flow-item">' +
-        '<span class="n"><span style="color:#9aa0a6;font-size:10px;margin-right:6px">' + dateShort + '</span>' + x.name + '</span>' +
+        '<span class="n">' + x.name + '</span>' +
         '<span class="v">' + _tlFmtSigned(x.val) + '</span></div>';
     }).join('');
     if (rest.length) {
@@ -2548,21 +2679,40 @@ function _tlHtmlTopMovers(d) {
     return html;
   }
 
+  // === COMING UP (Next 30 Days Expected) ===
+  var fc = _tlUpcomingForecast(d);
+
   return '' +
     '<div class="tl-flow-row">' +
       '<div class="tl-flow in">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Week of ' + weekLbl + ' · Top Sources of Money In</div>' +
+          '<div class="tl-flow-title">Last 30 Days · Money In</div>' +
           '<div class="tl-flow-total pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
         '</div>' +
-        itemList(inItems, 5) +
+        itemList(inItems, 6, 'No income in the last 30 days') +
       '</div>' +
       '<div class="tl-flow out">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Week of ' + weekLbl + ' · Top Expenses</div>' +
+          '<div class="tl-flow-title">Last 30 Days · Expenses</div>' +
           '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         '</div>' +
-        itemList(outItems, 5) +
+        itemList(outItems, 6, 'No expenses in the last 30 days') +
+      '</div>' +
+    '</div>' +
+    '<div class="tl-flow-row" style="margin-top:0">' +
+      '<div class="tl-flow in" style="border-top-color:#4fc3f7;border-top-style:dashed">' +
+        '<div class="tl-flow-head">' +
+          '<div class="tl-flow-title">Coming Up · Expected Money In <span style="opacity:.6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></div>' +
+          '<div class="tl-flow-total pos">+$' + Math.round(fc.totalIn).toLocaleString() + '</div>' +
+        '</div>' +
+        itemList(fc.inItems, 6, 'No recurring income expected') +
+      '</div>' +
+      '<div class="tl-flow out" style="border-top-color:#4fc3f7;border-top-style:dashed">' +
+        '<div class="tl-flow-head">' +
+          '<div class="tl-flow-title">Coming Up · Expected Expenses <span style="opacity:.6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></div>' +
+          '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</div>' +
+        '</div>' +
+        itemList(fc.outItems, 6, 'No recurring expenses expected') +
       '</div>' +
     '</div>';
 }
@@ -2724,43 +2874,40 @@ function _tlHtmlCompareTable(d) {
   }).join('');
 
   var isMTD = months[months.length - 1].ym !== cur.ym;
-  // Weekly + Rolling 4-Week comparison — all "current" benchmarks
-  // (this week, last week, last 4 weeks, prior 4 weeks) sit next to
-  // the multi-month averages Mike uses for context. Rolling 4-week is
-  // more useful than calendar MTD because window size stays constant
-  // regardless of where you are in the calendar month.
+  // Rolling monthly comparison — Last 30 Days + Prior 30 Days sit next
+  // to the T3M/T6M multi-month averages. No week-based columns.
   var txns = d.transactions || [];
-  var weeks = _tlBuildWeekly(txns);
-  var wkCur = _tlLastCompleteWeek(weeks) || { in: 0, out: 0, netAll: 0 };
-  var wkIdx = weeks.map(function(w) { return w.weekStart; }).indexOf(wkCur.weekStart);
-  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
-  var r4Cur   = _tlRollingWeeks(weeks, wkIdx, 4);
-  var r4Prior = _tlRollingWeeks(weeks, wkIdx - 4, 4);
+  var todayISO = (new Date()).toISOString().substring(0, 10);
+  var yesterdayISO = _tlDateOffset(todayISO, -1);
+  var start30 = _tlDateOffset(todayISO, -30);
+  var startPrev30 = _tlDateOffset(todayISO, -60);
+  var endPrev30   = _tlDateOffset(todayISO, -31);
+  var actCur   = _tlSumDateRange(txns, start30, yesterdayISO);
+  var actPrior = _tlSumDateRange(txns, startPrev30, endPrev30);
+  var fc = _tlUpcomingForecast(d);
 
   var overlayRows = [
-    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     r4: r4Cur.in,     p4: r4Prior.in,     t3: avgN('in',3),     t6: avgN('in',6)  },
-    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    r4: r4Cur.out,    p4: r4Prior.out,    t3: avgN('out',3),    t6: avgN('out',6) },
-    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, r4: r4Cur.netAll, p4: r4Prior.netAll, t3: avgN('netAll',3), t6: avgN('netAll',6), isNet: true }
+    { label: 'Money In',  last30: actCur.in,     prior30: actPrior.in,     expected: fc.totalIn,  t3: avgN('in',3),     t6: avgN('in',6)  },
+    { label: 'Money Out', last30: actCur.out,    prior30: actPrior.out,    expected: fc.totalOut, t3: avgN('out',3),    t6: avgN('out',6) },
+    { label: 'Net',       last30: actCur.netAll, prior30: actPrior.netAll, expected: fc.net,      t3: avgN('netAll',3), t6: avgN('netAll',6), isNet: true }
   ];
   var overlayBody = overlayRows.map(function(r) {
     var cls = r.isNet ? ' class="net-row"' : '';
     return '<tr' + cls + '>' +
       '<td>' + r.label + '</td>' +
-      '<td>' + _tlFmtSigned(r.thisWk) + '</td>' +
-      '<td>' + _tlFmtSigned(r.lastWk) + '</td>' +
-      '<td>' + _tlFmtSigned(r.r4)     + '</td>' +
-      '<td>' + _tlFmtSigned(r.p4)     + '</td>' +
-      '<td>' + _tlFmtSigned(r.t3)     + '</td>' +
-      '<td>' + _tlFmtSigned(r.t6)     + '</td></tr>';
+      '<td>' + _tlFmtSigned(r.last30)   + '</td>' +
+      '<td>' + _tlFmtSigned(r.prior30)  + '</td>' +
+      '<td>' + _tlFmtSigned(r.expected) + '</td>' +
+      '<td>' + _tlFmtSigned(r.t3)       + '</td>' +
+      '<td>' + _tlFmtSigned(r.t6)       + '</td></tr>';
   }).join('');
-  var weekLbl = wkCur.weekStart ? _tlWeekLabel(wkCur.weekStart) : '';
 
   return '' +
     '<div class="tl-compare">' +
-      '<div class="tl-compare-title">Current activity vs benchmarks · Week of ' + weekLbl + '</div>' +
+      '<div class="tl-compare-title">Rolling comparison · ' + _tlDateShort(start30) + ' – ' + _tlDateShort(yesterdayISO) + '</div>' +
       '<table><thead><tr><th></th>' +
-        '<th>This Week</th><th>Last Week</th>' +
-        '<th>Last 4 Wks</th><th>Prior 4 Wks</th>' +
+        '<th>Last 30 Days</th><th>Prior 30 Days</th>' +
+        '<th>Next 30 (Exp.)</th>' +
         '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
       '</tr></thead>' +
       '<tbody>' + overlayBody + '</tbody></table>' +

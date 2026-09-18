@@ -1264,6 +1264,56 @@ function _tlmndRollingWeeks_(weeks, endIdx, n) {
   out.endWeek   = weeks[endIdx].weekStart;
   return out;
 }
+// Rolling 30-day sum helpers, mirror of frontend.
+function _tlmndSumDateRange_(txns, startISO, endISO) {
+  var out = { in: 0, out: 0, netAll: 0, count: 0 };
+  (txns || []).forEach(function(t) {
+    if (t.excluded || !t.date) return;
+    if (t.date < startISO || t.date > endISO) return;
+    if (t.amount >= 0) out.in += t.amount; else out.out += t.amount;
+    out.netAll += t.amount;
+    out.count++;
+  });
+  return out;
+}
+function _tlmndDateOffset_(baseISO, offsetDays) {
+  var d = new Date(baseISO + 'T12:00:00');
+  d.setDate(d.getDate() + offsetDays);
+  return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2);
+}
+function _tlmndDateShort_(iso) {
+  if (!iso) return '';
+  var d = new Date(iso + 'T12:00:00');
+  var mos = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mos[d.getMonth()] + ' ' + d.getDate();
+}
+// Next 30 days expected — recurring cats, avg of last 3 completed months.
+function _tlmndForecast_(mat, months) {
+  var now = new Date();
+  var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var recentYms = months.filter(function(m) { return m.ym !== curYm; })
+    .slice(-3).map(function(m) { return m.ym; });
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  var inItems = [], outItems = [];
+  (mat || []).forEach(function(c) {
+    if (!c.recurring) return;
+    if (isIE(c.category)) return;
+    var total = 0, count = 0;
+    recentYms.forEach(function(ym) {
+      if (c.months[ym] != null) { total += c.months[ym]; count++; }
+    });
+    if (!count) return;
+    var expected = total / count;
+    if (Math.abs(expected) < 1) return;
+    if (expected >= 0) inItems.push({ name: c.category, val: expected });
+    else outItems.push({ name: c.category, val: expected });
+  });
+  inItems.sort(function(a, b) { return b.val - a.val; });
+  outItems.sort(function(a, b) { return a.val - b.val; });
+  var totalIn = inItems.reduce(function(s, x) { return s + x.val; }, 0);
+  var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
+  return { inItems: inItems, outItems: outItems, totalIn: totalIn, totalOut: totalOut, net: totalIn + totalOut };
+}
 
 function _tlmndEsc_(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -1308,45 +1358,43 @@ function _tlmndBuildWeeklyPdfHtml_() {
     ? Utilities.formatDate(new Date(balancesRes.latestUpdate), 'America/New_York', 'MMM d, yyyy \'at\' h:mm a')
     : 'not yet synced';
 
-  // === WEEKLY HERO ===
-  // Reference = last COMPLETED week (Mon-Sun). Delta vs prior week.
+  // === ROLLING MONTHLY HERO ===
+  // Reference = LAST 30 DAYS (rolling), vs prior 30 days.
   var txns = d.transactions || [];
-  var weeks = _tlmndBuildWeekly_(txns);
-  var wkCur = _tlmndLastCompleteWeek_(weeks) || { weekStart: '', in: 0, out: 0, netAll: 0 };
-  var wkIdx = -1;
-  for (var _wi = 0; _wi < weeks.length; _wi++) { if (weeks[_wi].weekStart === wkCur.weekStart) { wkIdx = _wi; break; } }
-  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
-  var weekLbl = wkCur.weekStart ? _tlmndWeekLabel_(wkCur.weekStart) : 'This Week';
-  var wkDelta = wkCur.netAll - wkPrev.netAll;
+  var todayISO = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var yesterdayISO = _tlmndDateOffset_(todayISO, -1);
+  var start30 = _tlmndDateOffset_(todayISO, -30);
+  var startPrev30 = _tlmndDateOffset_(todayISO, -60);
+  var endPrev30   = _tlmndDateOffset_(todayISO, -31);
+  var actCur   = _tlmndSumDateRange_(txns, start30, yesterdayISO);
+  var actPrior = _tlmndSumDateRange_(txns, startPrev30, endPrev30);
+  var actDelta = actCur.netAll - actPrior.netAll;
   var deltaTxt;
-  if (Math.abs(wkDelta) < 200) deltaTxt = 'about the same as last week';
-  else if (wkDelta > 0) deltaTxt = _tlmndFmtPos_(wkDelta) + ' better than last week';
-  else                  deltaTxt = _tlmndFmtPos_(wkDelta) + ' worse than last week';
+  if (Math.abs(actDelta) < 500) deltaTxt = 'about the same as the prior 30 days';
+  else if (actDelta > 0) deltaTxt = _tlmndFmtPos_(actDelta) + ' better than prior 30 days';
+  else                   deltaTxt = _tlmndFmtPos_(actDelta) + ' worse than prior 30 days';
 
-  // === Rolling 4-week tracker (replaces MTD) ===
-  var r4Cur   = _tlmndRollingWeeks_(weeks, wkIdx, 4);
-  var r4Prior = _tlmndRollingWeeks_(weeks, wkIdx - 4, 4);
-  var r4Delta = r4Cur.netAll - r4Prior.netAll;
-  var wkAvg   = r4Cur.weeksCounted ? r4Cur.netAll / r4Cur.weeksCounted : 0;
+  // === Coming Up forecast (recurring, next 30 days) ===
+  var fc = _tlmndForecast_(mat, series);
 
-  // Override the older refMonth-based label so the hero shows the week.
-  monthLabel = 'Week of ' + weekLbl;
-  var cur = wkCur;
+  monthLabel = 'Last 30 Days · ' + _tlmndDateShort_(start30) + ' – ' + _tlmndDateShort_(yesterdayISO);
+  var cur = actCur;
 
-  // === Top movers — last COMPLETED WEEK, individual transactions ===
-  var wkStart = wkCur.weekStart ? new Date(wkCur.weekStart + 'T00:00:00') : null;
-  var wkEnd   = wkStart ? new Date(wkStart) : null; if (wkEnd) wkEnd.setDate(wkStart.getDate() + 6);
-  function inWk(t) {
-    if (!wkStart || t.excluded) return false;
-    var td = new Date(t.date + 'T12:00:00');
-    return td >= wkStart && td <= wkEnd;
-  }
-  var inItems = [], outItems = [];
+  // === Top movers — LAST 30 DAYS actual, grouped by CATEGORY ===
+  var actualBy = {};
   txns.forEach(function(t) {
-    if (!inWk(t)) return;
+    if (t.excluded || !t.date) return;
+    if (t.date < start30 || t.date > yesterdayISO) return;
     var nm = (t.category && t.category !== '(Uncategorized)') ? t.category : (t.name || '(unlabeled)');
-    if (t.amount > 0) inItems.push({ name: nm, val: t.amount, date: t.date });
-    else if (t.amount < 0) outItems.push({ name: nm, val: t.amount, date: t.date });
+    if (!actualBy[nm]) actualBy[nm] = { name: nm, val: 0, count: 0 };
+    actualBy[nm].val += t.amount;
+    actualBy[nm].count++;
+  });
+  var inItems = [], outItems = [];
+  Object.keys(actualBy).forEach(function(k) {
+    var e = actualBy[k];
+    if (e.val > 0) inItems.push(e);
+    else if (e.val < 0) outItems.push(e);
   });
   inItems.sort(function(a, b) { return b.val - a.val; });
   outItems.sort(function(a, b) { return a.val - b.val; });
@@ -1364,9 +1412,9 @@ function _tlmndBuildWeeklyPdfHtml_() {
     return arr.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / arr.length;
   }
   var compareRows = [
-    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     r4: r4Cur.in,     p4: r4Prior.in,     t3: avgField('in',3),     t6: avgField('in',6)  },
-    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    r4: r4Cur.out,    p4: r4Prior.out,    t3: avgField('out',3),    t6: avgField('out',6) },
-    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, r4: r4Cur.netAll, p4: r4Prior.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), isNet: true }
+    { label: 'Money In',  last30: actCur.in,     prior30: actPrior.in,     expected: fc.totalIn,  t3: avgField('in',3),     t6: avgField('in',6)  },
+    { label: 'Money Out', last30: actCur.out,    prior30: actPrior.out,    expected: fc.totalOut, t3: avgField('out',3),    t6: avgField('out',6) },
+    { label: 'Net',       last30: actCur.netAll, prior30: actPrior.netAll, expected: fc.net,      t3: avgField('netAll',3), t6: avgField('netAll',6), isNet: true }
   ];
 
   // Burn & Forecast (recurring only, exclude current partial month).
@@ -1517,12 +1565,11 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var cmpBody = compareRows.map(function(r) {
     var cls = r.isNet ? ' class="net"' : '';
     return '<tr' + cls + '><td class="lbl">' + r.label + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.thisWk) + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.lastWk) + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.r4)     + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.p4)     + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.t3)     + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.t6)     + '</td></tr>';
+      '<td>' + _tlmndFmtSvr_(r.last30)   + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.prior30)  + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.expected) + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t3)       + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t6)       + '</td></tr>';
   }).join('');
 
   var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
@@ -1610,21 +1657,21 @@ function _tlmndBuildWeeklyPdfHtml_() {
           '</table>' +
         '</div>'
       : '') +
-    // Hero + MTD tracker (two-column row)
+    // Hero (Last 30 Days actual) + Forecast (Next 30 Days expected)
     '<table style="width:100%;border-spacing:8px 0;margin-bottom:12px"><tr>' +
       '<td style="width:60%;vertical-align:top;padding:0">' +
         '<div class="hero" style="margin-bottom:0">' +
-          '<div class="lbl">Net Cash Flow &middot; Week of ' + weekLbl + '</div>' +
+          '<div class="lbl">Net Cash Flow &middot; ' + _tlmndEsc_(monthLabel) + '</div>' +
           '<div class="val ' + heroCls + '">' + heroVal + '</div>' +
           '<div class="sub">' + _tlmndEsc_(deltaTxt) + '</div>' +
         '</div>' +
       '</td>' +
       '<td style="width:40%;vertical-align:top;padding:0">' +
         '<div style="background:#f8f9fa;border:1px solid #e0e5eb;border-radius:6px;padding:14px 16px;height:100%;box-sizing:border-box">' +
-          '<div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">Last 4 Weeks (through ' + _tlmndEsc_(weekLbl) + ')</div>' +
-          '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:10px;color:' + (r4Cur.netAll >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(r4Cur.netAll) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>vs Prior 4 Weeks</span><span style="font-weight:700;color:' + (r4Delta >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(r4Delta) + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Average per week</span><span style="font-weight:700;color:' + (wkAvg >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(wkAvg) + '</span></div>' +
+          '<div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">Next 30 Days &middot; Expected (recurring)</div>' +
+          '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:10px;color:' + (fc.net >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(fc.net) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Expected in</span><span style="font-weight:700;color:#137333">+$' + Math.round(fc.totalIn).toLocaleString() + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Expected out</span><span style="font-weight:700;color:#a50e0e">-$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</span></div>' +
         '</div>' +
       '</td>' +
     '</tr></table>' +
