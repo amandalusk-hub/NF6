@@ -894,7 +894,24 @@ function applyTLMNDRules() {
       }
       row[idxNotes] = n.trim();
       categorized++;
-    } else if (!existing) {
+    } else if (existing) {
+      // Manual category that uses a known rule category — inherit the
+      // rule's Recurring / Entity Tag / Exclude flags so a manually-tagged
+      // row (e.g. "MacDonald Loan Repayment" set by hand on the $8,333
+      // branch deposit) is treated consistently with the same category
+      // set by any matching rule. Without this, manual rows land as
+      // non-recurring even when their category is a recurring one.
+      for (var mk = 0; mk < rules.length; mk++) {
+        if (rules[mk].category === existing) {
+          if (rules[mk].recurring) row[idxRec] = rules[mk].recurring;
+          if (rules[mk].entityTag) row[idxEnt] = rules[mk].entityTag;
+          var mn = String(row[idxNotes] || '').replace(/^\[EXCLUDED\]\s*/, '');
+          if (rules[mk].exclude) { mn = '[EXCLUDED] ' + mn; excluded++; }
+          row[idxNotes] = mn.trim();
+          break;
+        }
+      }
+    } else {
       uncategorized++;
     }
   });
