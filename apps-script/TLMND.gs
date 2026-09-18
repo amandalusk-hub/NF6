@@ -863,8 +863,29 @@ function applyTLMNDRules() {
 
   vals.forEach(function(row, i) {
     var existing = String(row[idxCat] || '').trim();
-    // Manual override: category set to a value no rule uses → preserve.
-    if (existing && !ruleCategories[existing]) { skippedManual++; return; }
+    // If Category is already set, treat it as MANUAL and preserve it —
+    // even if the value happens to match a rule's category name. The
+    // rule engine only runs on blank Category cells. This fixes the
+    // case where a manually-tagged row (e.g. "MacDonald Loan Repayment"
+    // on the $8,333 branch deposit) was being overwritten by the
+    // priority-200 "DEPOSIT ID NUMBER → Branch Deposit" catch-all.
+    // Recurring / Entity Tag / Exclude flags are still synced from the
+    // matching rule (by category name) so the row displays under the
+    // right section without needing manual flag maintenance.
+    if (existing) {
+      for (var mk = 0; mk < rules.length; mk++) {
+        if (rules[mk].category === existing) {
+          if (rules[mk].recurring) row[idxRec] = rules[mk].recurring;
+          if (rules[mk].entityTag) row[idxEnt] = rules[mk].entityTag;
+          var mn = String(row[idxNotes] || '').replace(/^\[EXCLUDED\]\s*/, '');
+          if (rules[mk].exclude) { mn = '[EXCLUDED] ' + mn; excluded++; }
+          row[idxNotes] = mn.trim();
+          break;
+        }
+      }
+      skippedManual++;
+      return;
+    }
 
     var matched = null;
     for (var k = 0; k < rules.length; k++) {
@@ -888,11 +909,8 @@ function applyTLMNDRules() {
       row[idxCat] = matched.category;
       if (matched.recurring) row[idxRec] = matched.recurring;
       if (matched.entityTag) row[idxEnt] = matched.entityTag;
-      // Always strip any prior [EXCLUDED] marker before re-applying — this
-      // is what keeps rows from being permanently stuck as excluded when a
-      // rule is later flipped from exclude=Yes to exclude=blank (Ellison
-      // Medical is the canonical case). Then re-add the marker only if
-      // the CURRENT matched rule is still excluded.
+      // Always strip any prior [EXCLUDED] marker before re-applying so
+      // rows flip cleanly when a rule's exclude=Yes becomes exclude=blank.
       var n = String(row[idxNotes] || '').replace(/^\[EXCLUDED\]\s*/, '');
       if (matched.exclude) {
         n = '[EXCLUDED] ' + n;
@@ -900,23 +918,6 @@ function applyTLMNDRules() {
       }
       row[idxNotes] = n.trim();
       categorized++;
-    } else if (existing) {
-      // Manual category that uses a known rule category — inherit the
-      // rule's Recurring / Entity Tag / Exclude flags so a manually-tagged
-      // row (e.g. "MacDonald Loan Repayment" set by hand on the $8,333
-      // branch deposit) is treated consistently with the same category
-      // set by any matching rule. Without this, manual rows land as
-      // non-recurring even when their category is a recurring one.
-      for (var mk = 0; mk < rules.length; mk++) {
-        if (rules[mk].category === existing) {
-          if (rules[mk].recurring) row[idxRec] = rules[mk].recurring;
-          if (rules[mk].entityTag) row[idxEnt] = rules[mk].entityTag;
-          var mn = String(row[idxNotes] || '').replace(/^\[EXCLUDED\]\s*/, '');
-          if (rules[mk].exclude) { mn = '[EXCLUDED] ' + mn; excluded++; }
-          row[idxNotes] = mn.trim();
-          break;
-        }
-      }
     } else {
       uncategorized++;
     }
