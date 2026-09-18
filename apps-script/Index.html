@@ -2459,6 +2459,10 @@ function _tlDateShort(iso) {
 
 // "Next 30 Days Expected" — for each RECURRING category, take avg of the
 // last 3 completed months as expected monthly amount. Excludes inter-entity.
+// Divisor is always the full window (3), NOT the number of months that
+// happened to have data — otherwise a lump-sum payment covering multiple
+// months (e.g. MacDonald paid $8,333 once for 4 months at $2,083/mo)
+// shows as "$8,333 expected" instead of being spread across the window.
 function _tlUpcomingForecast(d) {
   var mat  = d.categoryMatrix || [];
   var months = d.monthlySeries || [];
@@ -2466,6 +2470,7 @@ function _tlUpcomingForecast(d) {
   var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var recentYms = months.filter(function(m) { return m.ym !== curYm; })
     .slice(-3).map(function(m) { return m.ym; });
+  var windowSize = recentYms.length || 1;
 
   function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
 
@@ -2473,12 +2478,11 @@ function _tlUpcomingForecast(d) {
   mat.forEach(function(c) {
     if (!c.recurring) return;
     if (isInterEntity(c.category)) return;
-    var total = 0, count = 0;
+    var total = 0;
     recentYms.forEach(function(ym) {
-      if (c.months[ym] != null) { total += c.months[ym]; count++; }
+      total += (c.months[ym] || 0);   // missing months count as $0
     });
-    if (!count) return;
-    var expected = total / count;
+    var expected = total / windowSize;
     if (Math.abs(expected) < 1) return;
     if (expected >= 0) inItems.push({ name: c.category, val: expected });
     else outItems.push({ name: c.category, val: expected });

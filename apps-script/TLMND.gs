@@ -1288,22 +1288,23 @@ function _tlmndDateShort_(iso) {
   return mos[d.getMonth()] + ' ' + d.getDate();
 }
 // Next 30 days expected — recurring cats, avg of last 3 completed months.
+// Divisor is always the full 3-month window so lump payments (e.g.
+// MacDonald's $8,333 covering 4 months) spread across, not shown as
+// the full lump amount.
 function _tlmndForecast_(mat, months) {
   var now = new Date();
   var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var recentYms = months.filter(function(m) { return m.ym !== curYm; })
     .slice(-3).map(function(m) { return m.ym; });
+  var windowSize = recentYms.length || 1;
   function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
   var inItems = [], outItems = [];
   (mat || []).forEach(function(c) {
     if (!c.recurring) return;
     if (isIE(c.category)) return;
-    var total = 0, count = 0;
-    recentYms.forEach(function(ym) {
-      if (c.months[ym] != null) { total += c.months[ym]; count++; }
-    });
-    if (!count) return;
-    var expected = total / count;
+    var total = 0;
+    recentYms.forEach(function(ym) { total += (c.months[ym] || 0); });
+    var expected = total / windowSize;
     if (Math.abs(expected) < 1) return;
     if (expected >= 0) inItems.push({ name: c.category, val: expected });
     else outItems.push({ name: c.category, val: expected });
@@ -1551,12 +1552,11 @@ function _tlmndBuildWeeklyPdfHtml_() {
   // Build the top movers HTML (Page 1) — individual transactions this
   // week with their transaction date prefix so Mike can see when it hit.
   function topMoverList(arr, max) {
-    if (!arr.length) return '<div class="empty">No activity this week</div>';
+    if (!arr.length) return '<div class="empty">No activity in the last 30 days</div>';
     var shown = arr.slice(0, max);
     return '<table class="movers">' + shown.map(function(x) {
       var cls = x.val < 0 ? 'neg' : 'pos';
-      var dateShort = x.date ? '<span style="color:#9aa0a6;font-size:9px;margin-right:6px">' + x.date.substring(5).replace('-', '/') + '</span>' : '';
-      return '<tr><td>' + dateShort + _tlmndEsc_(x.name || '') + '</td><td class="' + cls + '">' +
+      return '<tr><td>' + _tlmndEsc_(x.name || '') + '</td><td class="' + cls + '">' +
         (x.val < 0 ? '-$' : '+$') + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
     }).join('') + '</table>';
   }
@@ -1678,22 +1678,94 @@ function _tlmndBuildWeeklyPdfHtml_() {
     // Top movers (two cards side by side)
     '<div class="two">' +
       '<div class="col in">' +
-        '<h3>Week of ' + weekLbl + ' &middot; Top Sources of Money In</h3>' +
+        '<h3>Last 30 Days &middot; Money In (Top Sources)</h3>' +
         '<div class="subtotal pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
-        topMoverList(inItems, 5) +
+        topMoverList(inItems, 6) +
       '</div>' +
       '<div class="col out">' +
-        '<h3>Week of ' + weekLbl + ' &middot; Top Expenses</h3>' +
+        '<h3>Last 30 Days &middot; Top Expenses</h3>' +
         '<div class="subtotal neg">-$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
-        topMoverList(outItems, 5) +
+        topMoverList(outItems, 6) +
       '</div>' +
     '</div>' +
-    // Comparison table — Weekly + MTD + T3/T6
+    // On-Track Analysis (Expected vs Actual, last 30 days recurring)
+    (function() {
+      function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c || ''); }
+      var actRecIn = 0, actRecOut = 0, actNonRecIn = 0, actNonRecOut = 0;
+      txns.forEach(function(t) {
+        if (t.excluded || !t.date) return;
+        if (t.date < start30 || t.date > yesterdayISO) return;
+        if (isIE(t.category)) return;
+        if (t.recurring) {
+          if (t.amount >= 0) actRecIn += t.amount; else actRecOut += t.amount;
+        } else {
+          if (t.amount >= 0) actNonRecIn += t.amount; else actNonRecOut += t.amount;
+        }
+      });
+      var expNet = fc.net, actNet = actRecIn + actRecOut;
+      var netVar = actNet - expNet;
+      var varIn  = actRecIn  - fc.totalIn;
+      var varOut = actRecOut - fc.totalOut;
+      var status, statusBg, statusFg;
+      if (Math.abs(netVar) < 3000)      { status = 'ON TRACK';       statusBg = '#e6f4ea'; statusFg = '#137333'; }
+      else if (netVar > 0)              { status = 'AHEAD OF PLAN';  statusBg = '#e6f4ea'; statusFg = '#137333'; }
+      else                              { status = 'BEHIND PLAN';    statusBg = '#fce8e6'; statusFg = '#a50e0e'; }
+      function sVar(v, higherIsBetter) {
+        var sign = v >= 0 ? '+' : '-';
+        var absV = Math.abs(Math.round(v)).toLocaleString();
+        var good = higherIsBetter ? v >= 0 : v >= 0;
+        var color = good ? '#137333' : '#a50e0e';
+        return '<span style="color:' + color + ';font-weight:700">' + sign + '$' + absV + '</span>';
+      }
+      return '<div style="background:#fff;border:1px solid #e0e5eb;border-radius:6px;padding:12px 16px;margin-bottom:12px;border-left:4px solid #4fc3f7">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+          '<div style="font-size:10px;color:#0d2137;text-transform:uppercase;letter-spacing:.5px;font-weight:700">Are We On Track? · Last 30 Days vs Expected Recurring</div>' +
+          '<div style="padding:3px 10px;border-radius:20px;font-size:9px;font-weight:800;letter-spacing:.4px;background:' + statusBg + ';color:' + statusFg + '">' + status + '</div>' +
+        '</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:10.5px">' +
+          '<thead><tr>' +
+            '<th style="text-align:left;padding:5px 8px;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.4px;border-bottom:1px solid #dadce0"></th>' +
+            '<th style="text-align:right;padding:5px 8px;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.4px;border-bottom:1px solid #dadce0">Expected</th>' +
+            '<th style="text-align:right;padding:5px 8px;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.4px;border-bottom:1px solid #dadce0">Actual</th>' +
+            '<th style="text-align:right;padding:5px 8px;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.4px;border-bottom:1px solid #dadce0">Variance</th>' +
+          '</tr></thead><tbody>' +
+            '<tr><td style="padding:6px 8px">Recurring Money In</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#137333">+$' + Math.round(fc.totalIn).toLocaleString() + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#137333">+$' + Math.round(actRecIn).toLocaleString() + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + sVar(varIn, true) + '</td></tr>' +
+            '<tr><td style="padding:6px 8px">Recurring Money Out</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#a50e0e">-$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#a50e0e">-$' + Math.abs(Math.round(actRecOut)).toLocaleString() + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + sVar(varOut, false) + '</td></tr>' +
+            '<tr style="border-top:2px solid #dadce0;background:#f5f7fa;font-weight:800"><td style="padding:6px 8px">Net Recurring</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _tlmndFmtSvr_(expNet) + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + _tlmndFmtSvr_(actNet) + '</td>' +
+              '<td style="padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums">' + sVar(netVar, true) + '</td></tr>' +
+          '</tbody></table>' +
+          (Math.abs(actNonRecIn) + Math.abs(actNonRecOut) > 0
+            ? '<div style="margin-top:8px;padding:8px 12px;background:#fafbfc;border-radius:4px;font-size:10px;color:#3c4858"><strong>Plus unplanned (non-recurring):</strong> Money in +$' + Math.round(actNonRecIn).toLocaleString() + ' &middot; Money out -$' + Math.abs(Math.round(actNonRecOut)).toLocaleString() + '</div>'
+            : '') +
+      '</div>';
+    })() +
+    // Coming Up (Next 30 Days Expected) — same two-column layout
+    '<div class="two">' +
+      '<div class="col in" style="border-left-color:#4fc3f7">' +
+        '<h3>Coming Up &middot; Expected Money In <span style="color:#9aa0a6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></h3>' +
+        '<div class="subtotal pos">+$' + Math.round(fc.totalIn).toLocaleString() + '</div>' +
+        topMoverList(fc.inItems, 6) +
+      '</div>' +
+      '<div class="col out" style="border-left-color:#4fc3f7">' +
+        '<h3>Coming Up &middot; Expected Expenses <span style="color:#9aa0a6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></h3>' +
+        '<div class="subtotal neg">-$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</div>' +
+        topMoverList(fc.outItems, 6) +
+      '</div>' +
+    '</div>' +
+    // Comparison table — Rolling 30-day + Expected + T3/T6
     '<div class="compare">' +
-      '<h3>Current activity vs benchmarks &middot; Week of ' + weekLbl + '</h3>' +
+      '<h3>Rolling comparison &middot; ' + _tlmndDateShort_(start30) + ' – ' + _tlmndDateShort_(yesterdayISO) + '</h3>' +
       '<table><thead><tr><th></th>' +
-        '<th>This Week</th><th>Last Week</th>' +
-        '<th>Last 4 Wks</th><th>Prior 4 Wks</th>' +
+        '<th>Last 30 Days</th><th>Prior 30 Days</th>' +
+        '<th>Next 30 (Exp.)</th>' +
         '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
       '</tr></thead>' +
       '<tbody>' + cmpBody + '</tbody></table>' +
