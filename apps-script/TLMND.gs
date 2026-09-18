@@ -1652,7 +1652,9 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '.forecast .call .l{font-size:9px;color:#5f6368;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}' +
       '.forecast .call .v{font-size:22px;font-weight:800;color:#0d2137;font-variant-numeric:tabular-nums}' +
       '.forecast .call .n{font-size:10px;color:#5f6368;margin-top:3px}' +
-      'table.matrix{width:100%;border-collapse:collapse;font-size:9.5px;margin-top:6px;page-break-before:always}' +
+      'table.matrix{width:100%;border-collapse:collapse;font-size:9.5px;margin-top:6px}' +
+      '.matrix-page{page-break-before:always}' +
+      '.matrix-page .h2title{margin-top:0;padding-top:0}' +
       'table.matrix th{background:#f8f9fa;padding:5px 6px;text-align:right;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:8px;letter-spacing:.4px;border-bottom:2px solid #dadce0;white-space:nowrap}' +
       'table.matrix th.catname,table.matrix td.catname{text-align:left}' +
       'table.matrix td{padding:4px 6px;text-align:right;font-variant-numeric:tabular-nums;border-bottom:1px solid #f4f5f7;white-space:nowrap}' +
@@ -1801,9 +1803,13 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '</div>' +
     '</div>' +
     // ── PAGE 2 ────────────────────────────────────────────────
-    '<h2 class="h2title">Full Category Breakdown &mdash; Last 6 Months</h2>' +
-    '<table class="matrix">' + matThead + matBody + '</table>' +
-    '<div class="footer">Data pulled from Plaid + SnapTrade &middot; excludes internal-account transfers to avoid double-counting.</div>' +
+    // Wrap title + matrix in one .matrix-page block so page-break stays
+    // ABOVE the title (they render on the same new page together).
+    '<div class="matrix-page">' +
+      '<h2 class="h2title">Full Category Breakdown &mdash; Last 6 Months</h2>' +
+      '<table class="matrix">' + matThead + matBody + '</table>' +
+      '<div class="footer">Data pulled from Plaid + SnapTrade &middot; excludes internal-account transfers to avoid double-counting.</div>' +
+    '</div>' +
     '</body></html>';
 }
 
