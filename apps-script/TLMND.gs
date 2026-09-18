@@ -1250,6 +1250,20 @@ function _tlmndMonthTD_(txns, ym, dayCap) {
   });
   return out;
 }
+// Rolling N weeks ending at endIdx — mirror of the frontend helper.
+function _tlmndRollingWeeks_(weeks, endIdx, n) {
+  var out = { in: 0, out: 0, netAll: 0, startWeek: null, endWeek: null, weeksCounted: 0 };
+  if (!weeks || !weeks.length || endIdx < 0) return out;
+  var startIdx = Math.max(0, endIdx - n + 1);
+  for (var i = startIdx; i <= endIdx; i++) {
+    var w = weeks[i];
+    out.in += w.in; out.out += w.out; out.netAll += w.netAll;
+    out.weeksCounted++;
+  }
+  out.startWeek = weeks[startIdx].weekStart;
+  out.endWeek   = weeks[endIdx].weekStart;
+  return out;
+}
 
 function _tlmndEsc_(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
@@ -1309,15 +1323,11 @@ function _tlmndBuildWeeklyPdfHtml_() {
   else if (wkDelta > 0) deltaTxt = _tlmndFmtPos_(wkDelta) + ' better than last week';
   else                  deltaTxt = _tlmndFmtPos_(wkDelta) + ' worse than last week';
 
-  // === MTD tracker ===
-  var _dayCap = _srvNow.getDate();
-  var _daysInMonth = new Date(_srvNow.getFullYear(), _srvNow.getMonth() + 1, 0).getDate();
-  var _lm = new Date(_srvNow.getFullYear(), _srvNow.getMonth() - 1, 1);
-  var _prevYm = _lm.getFullYear() + '-' + ('0'+(_lm.getMonth()+1)).slice(-2);
-  var mtdCur   = _tlmndMonthTD_(txns, _srvCurYm, _dayCap);
-  var mtdPrev  = _tlmndMonthTD_(txns, _prevYm, _dayCap);
-  var mtdDelta = mtdCur.netAll - mtdPrev.netAll;
-  var projectedEOM = _dayCap > 0 ? (mtdCur.netAll / _dayCap) * _daysInMonth : mtdCur.netAll;
+  // === Rolling 4-week tracker (replaces MTD) ===
+  var r4Cur   = _tlmndRollingWeeks_(weeks, wkIdx, 4);
+  var r4Prior = _tlmndRollingWeeks_(weeks, wkIdx - 4, 4);
+  var r4Delta = r4Cur.netAll - r4Prior.netAll;
+  var wkAvg   = r4Cur.weeksCounted ? r4Cur.netAll / r4Cur.weeksCounted : 0;
 
   // Override the older refMonth-based label so the hero shows the week.
   monthLabel = 'Week of ' + weekLbl;
@@ -1354,9 +1364,9 @@ function _tlmndBuildWeeklyPdfHtml_() {
     return arr.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / arr.length;
   }
   var compareRows = [
-    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     mtd: mtdCur.in,     lmMtd: mtdPrev.in,     t3: avgField('in',3),     t6: avgField('in',6)  },
-    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    mtd: mtdCur.out,    lmMtd: mtdPrev.out,    t3: avgField('out',3),    t6: avgField('out',6) },
-    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, mtd: mtdCur.netAll, lmMtd: mtdPrev.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), isNet: true }
+    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     r4: r4Cur.in,     p4: r4Prior.in,     t3: avgField('in',3),     t6: avgField('in',6)  },
+    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    r4: r4Cur.out,    p4: r4Prior.out,    t3: avgField('out',3),    t6: avgField('out',6) },
+    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, r4: r4Cur.netAll, p4: r4Prior.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), isNet: true }
   ];
 
   // Burn & Forecast (recurring only, exclude current partial month).
@@ -1509,8 +1519,8 @@ function _tlmndBuildWeeklyPdfHtml_() {
     return '<tr' + cls + '><td class="lbl">' + r.label + '</td>' +
       '<td>' + _tlmndFmtSvr_(r.thisWk) + '</td>' +
       '<td>' + _tlmndFmtSvr_(r.lastWk) + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.mtd)    + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.lmMtd)  + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.r4)     + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.p4)     + '</td>' +
       '<td>' + _tlmndFmtSvr_(r.t3)     + '</td>' +
       '<td>' + _tlmndFmtSvr_(r.t6)     + '</td></tr>';
   }).join('');
@@ -1611,10 +1621,10 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '</td>' +
       '<td style="width:40%;vertical-align:top;padding:0">' +
         '<div style="background:#f8f9fa;border:1px solid #e0e5eb;border-radius:6px;padding:14px 16px;height:100%;box-sizing:border-box">' +
-          '<div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">' + _tlmndMonthLabelSvr_(_srvCurYm) + ' Month-to-Date (through day ' + _dayCap + ')</div>' +
-          '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:10px;color:' + (mtdCur.netAll >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(mtdCur.netAll) + '</div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>vs Last Month same day</span><span style="font-weight:700;color:' + (mtdDelta >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(mtdDelta) + '</span></div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Projected end-of-month</span><span style="font-weight:700;color:' + (projectedEOM >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(projectedEOM) + '</span></div>' +
+          '<div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">Last 4 Weeks (through ' + _tlmndEsc_(weekLbl) + ')</div>' +
+          '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:10px;color:' + (r4Cur.netAll >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(r4Cur.netAll) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>vs Prior 4 Weeks</span><span style="font-weight:700;color:' + (r4Delta >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(r4Delta) + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Average per week</span><span style="font-weight:700;color:' + (wkAvg >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(wkAvg) + '</span></div>' +
         '</div>' +
       '</td>' +
     '</tr></table>' +
@@ -1636,7 +1646,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
       '<h3>Current activity vs benchmarks &middot; Week of ' + weekLbl + '</h3>' +
       '<table><thead><tr><th></th>' +
         '<th>This Week</th><th>Last Week</th>' +
-        '<th>MTD</th><th>Last Mo MTD</th>' +
+        '<th>Last 4 Wks</th><th>Prior 4 Wks</th>' +
         '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
       '</tr></thead>' +
       '<tbody>' + cmpBody + '</tbody></table>' +

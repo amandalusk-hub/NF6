@@ -2400,6 +2400,25 @@ function _tlMonthTD(txns, ym, dayCap) {
   return out;
 }
 
+// Sum stats for the last N completed weeks (ending at the given week's
+// Monday). weeks is the ordered array from _tlBuildWeekly.
+// Returns { in, out, netAll, startWeek, endWeek, weeksCounted }.
+function _tlRollingWeeks(weeks, endIdx, n) {
+  var out = { in: 0, out: 0, netAll: 0, startWeek: null, endWeek: null, weeksCounted: 0 };
+  if (!weeks || !weeks.length || endIdx < 0) return out;
+  var startIdx = Math.max(0, endIdx - n + 1);
+  for (var i = startIdx; i <= endIdx; i++) {
+    var w = weeks[i];
+    out.in     += w.in;
+    out.out    += w.out;
+    out.netAll += w.netAll;
+    out.weeksCounted++;
+  }
+  out.startWeek = weeks[startIdx].weekStart;
+  out.endWeek   = weeks[endIdx].weekStart;
+  return out;
+}
+
 // ─── Weekly-focused top block ─────────────────────────────────────────
 // Hero card leads with LAST COMPLETED WEEK's net cash flow + week-over-
 // week delta, so Mike sees the most current news. MTD tracker sits
@@ -2428,24 +2447,16 @@ function _tlHtmlHero(d) {
   var heroCls = wkCur.netAll >= 0 ? 'pos' : 'neg';
   var heroVal = (wkCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(wkCur.netAll)).toLocaleString();
 
-  // MTD tracker — this month through today vs last month through same day.
-  var now = new Date();
-  var curYm  = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
-  var prevYm = (function() {
-    var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    return lm.getFullYear() + '-' + ('0'+(lm.getMonth()+1)).slice(-2);
-  })();
-  var dayCap = now.getDate();
-  var mtdCur   = _tlMonthTD(txns, curYm, dayCap);
-  var mtdPrev  = _tlMonthTD(txns, prevYm, dayCap);
-  var mtdDelta = mtdCur.netAll - mtdPrev.netAll;
-  var mtdCls   = mtdCur.netAll >= 0 ? 'pos' : 'neg';
-  var mtdVal   = (mtdCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(mtdCur.netAll)).toLocaleString();
-  // Simple projection: daily rate × days-in-month.
-  var daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  var projected   = dayCap > 0 ? (mtdCur.netAll / dayCap) * daysInMonth : mtdCur.netAll;
-  var projCls     = projected >= 0 ? 'pos' : 'neg';
-  var projVal     = (projected < 0 ? '−$' : '+$') + Math.abs(Math.round(projected)).toLocaleString();
+  // Rolling 4-week tracker — last 4 completed weeks vs the 4 before that.
+  var r4Cur   = _tlRollingWeeks(weeks, wkIdx, 4);
+  var r4Prior = _tlRollingWeeks(weeks, wkIdx - 4, 4);
+  var r4Delta = r4Cur.netAll - r4Prior.netAll;
+  var r4Cls   = r4Cur.netAll >= 0 ? 'pos' : 'neg';
+  var r4Val   = (r4Cur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(r4Cur.netAll)).toLocaleString();
+  var wkAvg   = r4Cur.weeksCounted ? r4Cur.netAll / r4Cur.weeksCounted : 0;
+  var r4RangeLbl = r4Cur.startWeek
+    ? _tlWeekLabel(r4Cur.startWeek).split('-')[0].split(' - ')[0] + ' – ' + _tlWeekLabel(r4Cur.endWeek).split('-').slice(-1)[0].trim()
+    : 'last 4 weeks';
 
   return '' +
     '<div class="tl-hero-row">' +
@@ -2455,14 +2466,15 @@ function _tlHtmlHero(d) {
         '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(wkDir) + '</span> ' + wkDeltaTxt + '</div>' +
       '</div>' +
       '<div class="tl-hero-mtd">' +
-        '<div class="tl-hero-mtd-label">' + _tlMonthLabel(curYm) + ' Month-to-Date (through day ' + dayCap + ')</div>' +
-        '<div class="tl-hero-mtd-value ' + mtdCls + '">' + mtdVal + '</div>' +
+        '<div class="tl-hero-mtd-label">Last 4 Weeks (through ' + weekLbl + ')</div>' +
+        '<div class="tl-hero-mtd-value ' + r4Cls + '">' + r4Val + '</div>' +
         '<div class="tl-hero-mtd-row">' +
-          '<span>vs Last Month same day</span><span class="' + (mtdDelta >= 0 ? 'pos' : 'neg') + '">' +
-          (mtdDelta >= 0 ? '+' : '−') + '$' + Math.abs(Math.round(mtdDelta)).toLocaleString() + '</span>' +
+          '<span>vs Prior 4 Weeks</span><span class="' + (r4Delta >= 0 ? 'pos' : 'neg') + '">' +
+          (r4Delta >= 0 ? '+' : '−') + '$' + Math.abs(Math.round(r4Delta)).toLocaleString() + '</span>' +
         '</div>' +
         '<div class="tl-hero-mtd-row">' +
-          '<span>Projected end-of-month</span><span class="' + projCls + '">' + projVal + '</span>' +
+          '<span>Average per week</span><span class="' + (wkAvg >= 0 ? 'pos' : 'neg') + '">' +
+          (wkAvg < 0 ? '−$' : '+$') + Math.abs(Math.round(wkAvg)).toLocaleString() + '</span>' +
         '</div>' +
       '</div>' +
     '</div>';
@@ -2712,26 +2724,23 @@ function _tlHtmlCompareTable(d) {
   }).join('');
 
   var isMTD = months[months.length - 1].ym !== cur.ym;
-  // Weekly + MTD comparison overlay — computed here so all "current"
-  // benchmarks (this week, last week, MTD, last-mo-MTD) sit next to
-  // the multi-month averages Mike is used to seeing.
+  // Weekly + Rolling 4-Week comparison — all "current" benchmarks
+  // (this week, last week, last 4 weeks, prior 4 weeks) sit next to
+  // the multi-month averages Mike uses for context. Rolling 4-week is
+  // more useful than calendar MTD because window size stays constant
+  // regardless of where you are in the calendar month.
   var txns = d.transactions || [];
   var weeks = _tlBuildWeekly(txns);
   var wkCur = _tlLastCompleteWeek(weeks) || { in: 0, out: 0, netAll: 0 };
   var wkIdx = weeks.map(function(w) { return w.weekStart; }).indexOf(wkCur.weekStart);
   var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
-  var _now = new Date();
-  var _curYm  = _now.getFullYear() + '-' + ('0'+(_now.getMonth()+1)).slice(-2);
-  var _lm     = new Date(_now.getFullYear(), _now.getMonth() - 1, 1);
-  var _prevYm = _lm.getFullYear() + '-' + ('0'+(_lm.getMonth()+1)).slice(-2);
-  var _dayCap = _now.getDate();
-  var mtdCur  = _tlMonthTD(txns, _curYm,  _dayCap);
-  var mtdPrev = _tlMonthTD(txns, _prevYm, _dayCap);
+  var r4Cur   = _tlRollingWeeks(weeks, wkIdx, 4);
+  var r4Prior = _tlRollingWeeks(weeks, wkIdx - 4, 4);
 
   var overlayRows = [
-    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     mtd: mtdCur.in,     lmMtd: mtdPrev.in,     t3: avgN('in',3),     t6: avgN('in',6)  },
-    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    mtd: mtdCur.out,    lmMtd: mtdPrev.out,    t3: avgN('out',3),    t6: avgN('out',6) },
-    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, mtd: mtdCur.netAll, lmMtd: mtdPrev.netAll, t3: avgN('netAll',3), t6: avgN('netAll',6), isNet: true }
+    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     r4: r4Cur.in,     p4: r4Prior.in,     t3: avgN('in',3),     t6: avgN('in',6)  },
+    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    r4: r4Cur.out,    p4: r4Prior.out,    t3: avgN('out',3),    t6: avgN('out',6) },
+    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, r4: r4Cur.netAll, p4: r4Prior.netAll, t3: avgN('netAll',3), t6: avgN('netAll',6), isNet: true }
   ];
   var overlayBody = overlayRows.map(function(r) {
     var cls = r.isNet ? ' class="net-row"' : '';
@@ -2739,8 +2748,8 @@ function _tlHtmlCompareTable(d) {
       '<td>' + r.label + '</td>' +
       '<td>' + _tlFmtSigned(r.thisWk) + '</td>' +
       '<td>' + _tlFmtSigned(r.lastWk) + '</td>' +
-      '<td>' + _tlFmtSigned(r.mtd)    + '</td>' +
-      '<td>' + _tlFmtSigned(r.lmMtd)  + '</td>' +
+      '<td>' + _tlFmtSigned(r.r4)     + '</td>' +
+      '<td>' + _tlFmtSigned(r.p4)     + '</td>' +
       '<td>' + _tlFmtSigned(r.t3)     + '</td>' +
       '<td>' + _tlFmtSigned(r.t6)     + '</td></tr>';
   }).join('');
@@ -2751,7 +2760,7 @@ function _tlHtmlCompareTable(d) {
       '<div class="tl-compare-title">Current activity vs benchmarks · Week of ' + weekLbl + '</div>' +
       '<table><thead><tr><th></th>' +
         '<th>This Week</th><th>Last Week</th>' +
-        '<th>MTD</th><th>Last Mo MTD</th>' +
+        '<th>Last 4 Wks</th><th>Prior 4 Wks</th>' +
         '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
       '</tr></thead>' +
       '<tbody>' + overlayBody + '</tbody></table>' +
