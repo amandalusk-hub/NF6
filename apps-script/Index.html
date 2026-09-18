@@ -3250,6 +3250,9 @@ function _tlHtmlInternalMovements(d) {
   // moved (direction is already in the label like "TLMND ···2001 →
   // Fidelity ···6454") — so no green/red coloring needed, all cells
   // are "amount moved" in a neutral dark tone.
+  // Rows get .tl-cat-row + data-category so the same click-to-drill
+  // handler that the category matrix uses also opens the underlying
+  // transactions for these movements.
   var body = '<tbody>' + groups.map(function(g) {
     var tds = months.map(function(ym) {
       var v = g.months[ym] || 0;
@@ -3257,7 +3260,8 @@ function _tlHtmlInternalMovements(d) {
       return '<td>$' + Math.round(v).toLocaleString() + '</td>';
     }).join('');
     var total = g.total || 0;
-    return '<tr><td>' + g.category + '</td>' + tds +
+    return '<tr class="tl-cat-row" data-category="' + g.category.replace(/"/g, '&quot;') + '">' +
+      '<td>' + g.category + '</td>' + tds +
       '<td><strong>$' + Math.round(total).toLocaleString() + '</strong></td></tr>';
   }).join('') + '</tbody>';
 
@@ -3265,7 +3269,7 @@ function _tlHtmlInternalMovements(d) {
     '<div class="tl-internal">' +
       '<div class="tl-internal-title">Internal Account Movements</div>' +
       '<div class="tl-internal-sub">Transfers between TLMND\'s own accounts (Chase ↔ Fidelity, NF USA CA ↔ TLMND). ' +
-        'Not counted in cash flow · shown for reconciliation only.</div>' +
+        'Not counted in cash flow · shown for reconciliation only · click any row to see the underlying transactions.</div>' +
       '<table class="tl-internal-table">' + thead + body + '</table>' +
     '</div>';
 }
