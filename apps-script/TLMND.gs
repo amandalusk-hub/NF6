@@ -1184,6 +1184,56 @@ function _tlmndFmtSvr_(v) {
   return (v < 0 ? '-$' : '+$') + Math.abs(Math.round(v)).toLocaleString();
 }
 function _tlmndFmtPos_(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
+
+// Server-side weekly aggregation helpers — mirrors the frontend ones so
+// the PDF and dashboard produce identical numbers.
+function _tlmndWeekStartMonday_(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');
+  var day = d.getDay();
+  var diff = (day === 0) ? -6 : 1 - day;
+  var m = new Date(d);
+  m.setDate(d.getDate() + diff);
+  return m.getFullYear() + '-' + ('0'+(m.getMonth()+1)).slice(-2) + '-' + ('0'+m.getDate()).slice(-2);
+}
+function _tlmndWeekLabel_(mondayStr) {
+  var s = new Date(mondayStr + 'T12:00:00');
+  var e = new Date(s); e.setDate(s.getDate() + 6);
+  var mos = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (s.getMonth() === e.getMonth()) return mos[s.getMonth()] + ' ' + s.getDate() + '-' + e.getDate();
+  return mos[s.getMonth()] + ' ' + s.getDate() + ' - ' + mos[e.getMonth()] + ' ' + e.getDate();
+}
+function _tlmndBuildWeekly_(txns) {
+  var by = {};
+  (txns || []).forEach(function(t) {
+    if (t.excluded) return;
+    var wk = _tlmndWeekStartMonday_(t.date);
+    if (!by[wk]) by[wk] = { weekStart: wk, in: 0, out: 0, netAll: 0 };
+    if (t.amount >= 0) by[wk].in += t.amount; else by[wk].out += t.amount;
+    by[wk].netAll += t.amount;
+  });
+  return Object.keys(by).sort().map(function(k) { return by[k]; });
+}
+function _tlmndLastCompleteWeek_(weeks) {
+  if (!weeks || !weeks.length) return null;
+  var todayMon = _tlmndWeekStartMonday_((new Date()).toISOString().substring(0, 10));
+  for (var i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i].weekStart < todayMon) return weeks[i];
+  }
+  return weeks[0];
+}
+function _tlmndMonthTD_(txns, ym, dayCap) {
+  var out = { in: 0, out: 0, netAll: 0 };
+  (txns || []).forEach(function(t) {
+    if (t.excluded) return;
+    if (!t.date || t.date.substring(0, 7) !== ym) return;
+    var day = Number(t.date.substring(8, 10));
+    if (dayCap != null && day > dayCap) return;
+    if (t.amount >= 0) out.in += t.amount; else out.out += t.amount;
+    out.netAll += t.amount;
+  });
+  return out;
+}
+
 function _tlmndEsc_(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -1227,48 +1277,69 @@ function _tlmndBuildWeeklyPdfHtml_() {
     ? Utilities.formatDate(new Date(balancesRes.latestUpdate), 'America/New_York', 'MMM d, yyyy \'at\' h:mm a')
     : 'not yet synced';
 
-  // Delta vs 6-mo avg (of completed months only) for the hero subtitle.
-  var cur = refMonth;
-  var completedSeries = mtdEntry ? series.slice(0, -1) : series;
-  var completed6 = completedSeries.slice(-6);
-  var avg6Complete = completed6.length
-    ? completed6.reduce(function(s, m) { return s + (m.netAll || 0); }, 0) / completed6.length
-    : 0;
-  var delta6 = cur.netAll - avg6Complete;
+  // === WEEKLY HERO ===
+  // Reference = last COMPLETED week (Mon-Sun). Delta vs prior week.
+  var txns = d.transactions || [];
+  var weeks = _tlmndBuildWeekly_(txns);
+  var wkCur = _tlmndLastCompleteWeek_(weeks) || { weekStart: '', in: 0, out: 0, netAll: 0 };
+  var wkIdx = -1;
+  for (var _wi = 0; _wi < weeks.length; _wi++) { if (weeks[_wi].weekStart === wkCur.weekStart) { wkIdx = _wi; break; } }
+  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
+  var weekLbl = wkCur.weekStart ? _tlmndWeekLabel_(wkCur.weekStart) : 'This Week';
+  var wkDelta = wkCur.netAll - wkPrev.netAll;
   var deltaTxt;
-  if (Math.abs(delta6) < 500) deltaTxt = 'about in line with the 6-month average';
-  else if (delta6 > 0) deltaTxt = _tlmndFmtPos_(delta6) + ' better than 6-month average';
-  else                 deltaTxt = _tlmndFmtPos_(delta6) + ' worse than 6-month average';
+  if (Math.abs(wkDelta) < 200) deltaTxt = 'about the same as last week';
+  else if (wkDelta > 0) deltaTxt = _tlmndFmtPos_(wkDelta) + ' better than last week';
+  else                  deltaTxt = _tlmndFmtPos_(wkDelta) + ' worse than last week';
 
-  // Top In / Out for the reference (last complete) month.
-  var curYm = refMonth.ym;
+  // === MTD tracker ===
+  var _dayCap = _srvNow.getDate();
+  var _daysInMonth = new Date(_srvNow.getFullYear(), _srvNow.getMonth() + 1, 0).getDate();
+  var _lm = new Date(_srvNow.getFullYear(), _srvNow.getMonth() - 1, 1);
+  var _prevYm = _lm.getFullYear() + '-' + ('0'+(_lm.getMonth()+1)).slice(-2);
+  var mtdCur   = _tlmndMonthTD_(txns, _srvCurYm, _dayCap);
+  var mtdPrev  = _tlmndMonthTD_(txns, _prevYm, _dayCap);
+  var mtdDelta = mtdCur.netAll - mtdPrev.netAll;
+  var projectedEOM = _dayCap > 0 ? (mtdCur.netAll / _dayCap) * _daysInMonth : mtdCur.netAll;
+
+  // Override the older refMonth-based label so the hero shows the week.
+  monthLabel = 'Week of ' + weekLbl;
+  var cur = wkCur;
+
+  // === Top movers — last COMPLETED WEEK, individual transactions ===
+  var wkStart = wkCur.weekStart ? new Date(wkCur.weekStart + 'T00:00:00') : null;
+  var wkEnd   = wkStart ? new Date(wkStart) : null; if (wkEnd) wkEnd.setDate(wkStart.getDate() + 6);
+  function inWk(t) {
+    if (!wkStart || t.excluded) return false;
+    var td = new Date(t.date + 'T12:00:00');
+    return td >= wkStart && td <= wkEnd;
+  }
   var inItems = [], outItems = [];
-  mat.forEach(function(c) {
-    var v = c.months[curYm] || 0;
-    if (v > 0) inItems.push({ name: c.category, val: v });
-    else if (v < 0) outItems.push({ name: c.category, val: v });
+  txns.forEach(function(t) {
+    if (!inWk(t)) return;
+    var nm = (t.category && t.category !== '(Uncategorized)') ? t.category : (t.name || '(unlabeled)');
+    if (t.amount > 0) inItems.push({ name: nm, val: t.amount, date: t.date });
+    else if (t.amount < 0) outItems.push({ name: nm, val: t.amount, date: t.date });
   });
   inItems.sort(function(a, b) { return b.val - a.val; });
   outItems.sort(function(a, b) { return a.val - b.val; });
   var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
   var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
 
-  // Comparison table — "This Month" is the reference (last complete) month;
-  // "Last Month" is the completed month before that; averages use completed
-  // months only so the comparison stays apples-to-apples.
+  // === Comparison table ===
+  // Averages use completed months only.
   var refIdx = -1;
   for (var _pi = 0; _pi < series.length; _pi++) { if (series[_pi].ym === refMonth.ym) { refIdx = _pi; break; } }
-  var prev = refIdx > 0 ? series[refIdx - 1] : { in: 0, out: 0, netAll: 0 };
-  var seriesForAvg = series.slice(0, refIdx + 1);   // up through refMonth inclusive
+  var seriesForAvg = series.slice(0, refIdx + 1);
   function avgField(field, n) {
     var arr = seriesForAvg.slice(-n);
     if (!arr.length) return 0;
     return arr.reduce(function(s, m) { return s + (m[field] || 0); }, 0) / arr.length;
   }
   var compareRows = [
-    { label: 'Money In',  cur: cur.in,     prev: prev.in,     t3: avgField('in',3),     t6: avgField('in',6),     t12: avgField('in',12) },
-    { label: 'Money Out', cur: cur.out,    prev: prev.out,    t3: avgField('out',3),    t6: avgField('out',6),    t12: avgField('out',12) },
-    { label: 'Net',       cur: cur.netAll, prev: prev.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), t12: avgField('netAll',12), isNet: true }
+    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     mtd: mtdCur.in,     lmMtd: mtdPrev.in,     t3: avgField('in',3),     t6: avgField('in',6)  },
+    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    mtd: mtdCur.out,    lmMtd: mtdPrev.out,    t3: avgField('out',3),    t6: avgField('out',6) },
+    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, mtd: mtdCur.netAll, lmMtd: mtdPrev.netAll, t3: avgField('netAll',3), t6: avgField('netAll',6), isNet: true }
   ];
 
   // Burn & Forecast (recurring only, exclude current partial month).
@@ -1402,14 +1473,16 @@ function _tlmndBuildWeeklyPdfHtml_() {
     totalRowHtml('NET ALL', mat, 'grand') +
     '</tbody>';
 
-  // Build the top movers HTML (Page 1).
+  // Build the top movers HTML (Page 1) — individual transactions this
+  // week with their transaction date prefix so Mike can see when it hit.
   function topMoverList(arr, max) {
-    if (!arr.length) return '<div class="empty">No activity this month</div>';
+    if (!arr.length) return '<div class="empty">No activity this week</div>';
     var shown = arr.slice(0, max);
     return '<table class="movers">' + shown.map(function(x) {
       var cls = x.val < 0 ? 'neg' : 'pos';
-      var sign = x.val < 0 ? '-$' : '+$';
-      return '<tr><td>' + _tlmndEsc_(x.name) + '</td><td class="' + cls + '">' + sign + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
+      var dateShort = x.date ? '<span style="color:#9aa0a6;font-size:9px;margin-right:6px">' + x.date.substring(5).replace('-', '/') + '</span>' : '';
+      return '<tr><td>' + dateShort + _tlmndEsc_(x.name || '') + '</td><td class="' + cls + '">' +
+        (x.val < 0 ? '-$' : '+$') + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
     }).join('') + '</table>';
   }
 
@@ -1417,11 +1490,12 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var cmpBody = compareRows.map(function(r) {
     var cls = r.isNet ? ' class="net"' : '';
     return '<tr' + cls + '><td class="lbl">' + r.label + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.cur)  + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.prev) + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.t3)   + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.t6)   + '</td>' +
-      '<td>' + _tlmndFmtSvr_(r.t12)  + '</td></tr>';
+      '<td>' + _tlmndFmtSvr_(r.thisWk) + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.lastWk) + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.mtd)    + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.lmMtd)  + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t3)     + '</td>' +
+      '<td>' + _tlmndFmtSvr_(r.t6)     + '</td></tr>';
   }).join('');
 
   var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
@@ -1509,36 +1583,45 @@ function _tlmndBuildWeeklyPdfHtml_() {
           '</table>' +
         '</div>'
       : '') +
-    // Hero
-    '<div class="hero">' +
-      '<div class="lbl">Net Cash Flow &middot; ' + monthLabel + '</div>' +
-      '<div class="val ' + heroCls + '">' + heroVal + '</div>' +
-      '<div class="sub">' + _tlmndEsc_(deltaTxt) + '</div>' +
-      (mtdEntry
-        ? '<div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15);font-size:10px;opacity:.85">' +
-            _tlmndMonthLabelSvr_(mtdEntry.ym) + ' month-to-date: ' +
-            '<strong>' + _tlmndFmtSvr_(mtdEntry.netAll) + '</strong>' +
-            ' <span style="opacity:.7">(partial month, not directly comparable)</span>' +
-          '</div>'
-        : '') +
-    '</div>' +
+    // Hero + MTD tracker (two-column row)
+    '<table style="width:100%;border-spacing:8px 0;margin-bottom:12px"><tr>' +
+      '<td style="width:60%;vertical-align:top;padding:0">' +
+        '<div class="hero" style="margin-bottom:0">' +
+          '<div class="lbl">Net Cash Flow &middot; Week of ' + weekLbl + '</div>' +
+          '<div class="val ' + heroCls + '">' + heroVal + '</div>' +
+          '<div class="sub">' + _tlmndEsc_(deltaTxt) + '</div>' +
+        '</div>' +
+      '</td>' +
+      '<td style="width:40%;vertical-align:top;padding:0">' +
+        '<div style="background:#f8f9fa;border:1px solid #e0e5eb;border-radius:6px;padding:14px 16px;height:100%;box-sizing:border-box">' +
+          '<div style="font-size:10px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:4px">' + _tlmndMonthLabelSvr_(_srvCurYm) + ' Month-to-Date (through day ' + _dayCap + ')</div>' +
+          '<div style="font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1;margin-bottom:10px;color:' + (mtdCur.netAll >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(mtdCur.netAll) + '</div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>vs Last Month same day</span><span style="font-weight:700;color:' + (mtdDelta >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(mtdDelta) + '</span></div>' +
+          '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:#3c4858;padding:3px 0"><span>Projected end-of-month</span><span style="font-weight:700;color:' + (projectedEOM >= 0 ? '#137333' : '#a50e0e') + '">' + _tlmndFmtSvr_(projectedEOM) + '</span></div>' +
+        '</div>' +
+      '</td>' +
+    '</tr></table>' +
     // Top movers (two cards side by side)
     '<div class="two">' +
       '<div class="col in">' +
-        '<h3>' + monthLabel + ' &middot; Top Sources of Money In</h3>' +
+        '<h3>Week of ' + weekLbl + ' &middot; Top Sources of Money In</h3>' +
         '<div class="subtotal pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
         topMoverList(inItems, 5) +
       '</div>' +
       '<div class="col out">' +
-        '<h3>' + monthLabel + ' &middot; Top Expenses</h3>' +
+        '<h3>Week of ' + weekLbl + ' &middot; Top Expenses</h3>' +
         '<div class="subtotal neg">-$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         topMoverList(outItems, 5) +
       '</div>' +
     '</div>' +
-    // Comparison table
+    // Comparison table — Weekly + MTD + T3/T6
     '<div class="compare">' +
-      '<h3>' + monthLabel + ' vs benchmarks</h3>' +
-      '<table><thead><tr><th></th><th>This Month</th><th>Last Month</th><th>3-Mo Avg</th><th>6-Mo Avg</th><th>12-Mo Avg</th></tr></thead>' +
+      '<h3>Current activity vs benchmarks &middot; Week of ' + weekLbl + '</h3>' +
+      '<table><thead><tr><th></th>' +
+        '<th>This Week</th><th>Last Week</th>' +
+        '<th>MTD</th><th>Last Mo MTD</th>' +
+        '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
+      '</tr></thead>' +
       '<tbody>' + cmpBody + '</tbody></table>' +
     '</div>' +
     // Burn & Forecast

@@ -504,6 +504,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-hero-value.neg{color:#ff9d9d}
       #tab-tlmnd .tl-hero-trend{margin-top:14px;font-size:13px;opacity:.9;display:flex;align-items:center;gap:8px}
       #tab-tlmnd .tl-hero-trend .arrow{font-size:14px;font-weight:700}
+      #tab-tlmnd .tl-hero-mtd{background:#fff;border-radius:10px;padding:20px 22px;box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column;justify-content:center}
+      #tab-tlmnd .tl-hero-mtd-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;font-weight:600;margin-bottom:6px}
+      #tab-tlmnd .tl-hero-mtd-value{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.3px;line-height:1;margin-bottom:12px}
+      #tab-tlmnd .tl-hero-mtd-value.pos{color:#137333}
+      #tab-tlmnd .tl-hero-mtd-value.neg{color:#a50e0e}
+      #tab-tlmnd .tl-hero-mtd-row{display:flex;justify-content:space-between;font-size:12px;color:#3c4858;padding:3px 0;font-variant-numeric:tabular-nums}
+      #tab-tlmnd .tl-hero-mtd-row span:last-child{font-weight:700}
+      #tab-tlmnd .tl-spark-full{margin-bottom:14px}
       #tab-tlmnd .tl-spark-card{background:#fff;border-radius:10px;padding:16px 20px;box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;flex-direction:column}
       #tab-tlmnd .tl-spark-label{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
       #tab-tlmnd .tl-spark-title{font-size:13px;color:#0d2137;font-weight:600;margin-bottom:4px}
@@ -2027,7 +2035,7 @@ function renderTLMNDCashFlow() {
   }
 
   var html = _tlHtmlPlanner(d) + _tlHtmlHero(d) + _tlHtmlTopMovers(d) + _tlHtmlCompareTable(d) +
-             _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
+             _tlHtmlSparkCard(d) + _tlHtmlBurnForecast(d) + _tlHtmlChart(d.monthlySeries) +
              _tlHtmlCategoryMatrix(d) + _tlHtmlInternalMovements(d);
   content.innerHTML = html;
   // Wire up planner after DOM is in place.
@@ -2329,102 +2337,178 @@ function _tlLastCompleteMonth(months) {
   return months[months.length - 1];
 }
 
-// ─── Redesigned top block ──────────────────────────────────────────────
-// Hero card (big Net number + comparison sentence) alongside a 6-month
-// sparkline; then a Money In / Money Out card pair showing the top
-// contributing categories this month; then a compact comparison table.
-//
-// Reference month = LAST COMPLETED month (not current partial month) —
-// so all comparisons vs. 6-month averages are apples-to-apples. Current
-// MTD is shown as a smaller line below for context.
+// ── Weekly aggregation helpers ────────────────────────────────────────
+// Return the Monday date-string ("YYYY-MM-DD") for the week containing
+// the given date-string. Uses ISO week convention (Mon = start of week).
+function _tlWeekStartMonday(dateStr) {
+  var d = new Date(dateStr + 'T12:00:00');  // noon to sidestep DST
+  var day = d.getDay();                     // 0=Sun, 1=Mon, ..., 6=Sat
+  var diff = (day === 0) ? -6 : 1 - day;    // Sun rolls back 6, Mon 0, Tue -1, ...
+  var monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday.getFullYear() + '-' + ('0'+(monday.getMonth()+1)).slice(-2) + '-' + ('0'+monday.getDate()).slice(-2);
+}
+
+// "Sep 8-14" or "Sep 29 - Oct 5" style label for a Monday-anchored week.
+function _tlWeekLabel(mondayStr) {
+  var start = new Date(mondayStr + 'T12:00:00');
+  var end = new Date(start); end.setDate(start.getDate() + 6);
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if (start.getMonth() === end.getMonth()) {
+    return months[start.getMonth()] + ' ' + start.getDate() + '-' + end.getDate();
+  }
+  return months[start.getMonth()] + ' ' + start.getDate() + ' - ' + months[end.getMonth()] + ' ' + end.getDate();
+}
+
+// Build per-week { weekStart, in, out, netAll } from a transactions
+// array. Excludes rows already marked [EXCLUDED] (paired internal moves).
+function _tlBuildWeekly(txns) {
+  var byWeek = {};
+  (txns || []).forEach(function(t) {
+    if (t.excluded) return;
+    var wk = _tlWeekStartMonday(t.date);
+    if (!byWeek[wk]) byWeek[wk] = { weekStart: wk, in: 0, out: 0, netAll: 0 };
+    if (t.amount >= 0) byWeek[wk].in  += t.amount;
+    else               byWeek[wk].out += t.amount;
+    byWeek[wk].netAll += t.amount;
+  });
+  return Object.keys(byWeek).sort().map(function(k) { return byWeek[k]; });
+}
+
+// Last COMPLETED week — most recent week whose Sunday is in the past.
+function _tlLastCompleteWeek(weeks) {
+  if (!weeks || !weeks.length) return null;
+  var todayMon = _tlWeekStartMonday((new Date()).toISOString().substring(0, 10));
+  for (var i = weeks.length - 1; i >= 0; i--) {
+    if (weeks[i].weekStart < todayMon) return weeks[i];
+  }
+  return weeks[0];
+}
+
+// Sum of transaction amounts for a given YYYY-MM through a specific
+// day-of-month (inclusive). If dayCap is null, includes the whole month.
+function _tlMonthTD(txns, ym, dayCap) {
+  var out = { in: 0, out: 0, netAll: 0 };
+  (txns || []).forEach(function(t) {
+    if (t.excluded) return;
+    if (!t.date || t.date.substring(0, 7) !== ym) return;
+    var day = Number(t.date.substring(8, 10));
+    if (dayCap != null && day > dayCap) return;
+    if (t.amount >= 0) out.in += t.amount; else out.out += t.amount;
+    out.netAll += t.amount;
+  });
+  return out;
+}
+
+// ─── Weekly-focused top block ─────────────────────────────────────────
+// Hero card leads with LAST COMPLETED WEEK's net cash flow + week-over-
+// week delta, so Mike sees the most current news. MTD tracker sits
+// alongside for month trajectory. Sparkline of monthly Net follows for
+// long-term context.
 function _tlHtmlHero(d) {
   var months = d.monthlySeries || [];
+  var txns   = d.transactions  || [];
   if (!months.length) return '';
-  var cur   = _tlLastCompleteMonth(months);
-  if (!cur) cur = months[months.length - 1];
-  var k     = d.kpis;
-  var monthLabel = _tlMonthLabel(cur.ym);
-  // Current in-progress month for the MTD line — only show if it's different
-  // from the reference month (i.e., we're mid-month).
-  var latestEntry = months[months.length - 1];
-  var isMidMonth  = latestEntry && latestEntry.ym !== cur.ym;
-  var mtdEntry    = isMidMonth ? latestEntry : null;
 
-  // Avg NetAll across the LAST N COMPLETED months (skip in-progress current).
-  var completeSeries = mtdEntry ? months.slice(0, -1) : months;
-  function avgComplete(n) {
-    var arr = completeSeries.slice(-n);
-    if (!arr.length) return 0;
-    return arr.reduce(function(s, m) { return s + (m.netAll || 0); }, 0) / arr.length;
-  }
-  var avg6 = avgComplete(6);
+  // Build weekly series from transactions and pick reference week.
+  var weeks = _tlBuildWeekly(txns);
+  var wkCur = _tlLastCompleteWeek(weeks);
+  if (!wkCur) wkCur = weeks[weeks.length - 1] || { weekStart: '', in: 0, out: 0, netAll: 0 };
+  var wkIdx = weeks.map(function(w) { return w.weekStart; }).indexOf(wkCur.weekStart);
+  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
+  var weekLbl = wkCur.weekStart ? _tlWeekLabel(wkCur.weekStart) : 'This Week';
 
-  // Comparison sentence — 6-mo avg of completed months is the benchmark.
-  var delta6 = cur.netAll - avg6;
-  var direction, deltaTxt;
-  if (Math.abs(delta6) < 500) {
-    direction = 'arrow-flat';
-    deltaTxt  = 'about in line with the 6-month average';
-  } else if (delta6 > 0) {
-    direction = 'arrow-up';
-    deltaTxt  = '$' + Math.round(Math.abs(delta6)).toLocaleString() + ' <strong>better</strong> than 6-month average';
-  } else {
-    direction = 'arrow-down';
-    deltaTxt  = '$' + Math.round(Math.abs(delta6)).toLocaleString() + ' <strong>worse</strong> than 6-month average';
-  }
+  // Week-over-week delta.
+  var wkDelta = wkCur.netAll - wkPrev.netAll;
+  var wkDir, wkDeltaTxt;
+  if (Math.abs(wkDelta) < 200) { wkDir = 'arrow-flat'; wkDeltaTxt = 'about the same as last week'; }
+  else if (wkDelta > 0) { wkDir = 'arrow-up';   wkDeltaTxt = '$' + Math.round(Math.abs(wkDelta)).toLocaleString() + ' <strong>better</strong> than last week'; }
+  else                  { wkDir = 'arrow-down'; wkDeltaTxt = '$' + Math.round(Math.abs(wkDelta)).toLocaleString() + ' <strong>worse</strong> than last week'; }
 
-  var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
-  var heroVal = (cur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(cur.netAll)).toLocaleString();
+  var heroCls = wkCur.netAll >= 0 ? 'pos' : 'neg';
+  var heroVal = (wkCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(wkCur.netAll)).toLocaleString();
 
-  // Sparkline showing net cash flow per month. Each point has a hover
-  // tooltip with the month + amount, and mini labels below the line.
-  var spark = _tlSparkline(months, 260, 70);
-
-  // MTD line for the in-progress month, so she still sees "what's
-  // happened this month so far" without it skewing the hero comparison.
-  var mtdLine = '';
-  if (mtdEntry) {
-    var mtdVal = (mtdEntry.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(mtdEntry.netAll)).toLocaleString();
-    var mtdCls = mtdEntry.netAll >= 0 ? 'pos' : 'neg';
-    mtdLine = '<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.15);font-size:12px;opacity:.85">' +
-      _tlMonthLabel(mtdEntry.ym) + ' <em>month-to-date</em>: ' +
-      '<span class="' + mtdCls + '" style="font-weight:700">' + mtdVal + '</span>' +
-      ' <span style="opacity:.7">— partial month, not directly comparable</span>' +
-    '</div>';
-  }
+  // MTD tracker — this month through today vs last month through same day.
+  var now = new Date();
+  var curYm  = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
+  var prevYm = (function() {
+    var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return lm.getFullYear() + '-' + ('0'+(lm.getMonth()+1)).slice(-2);
+  })();
+  var dayCap = now.getDate();
+  var mtdCur   = _tlMonthTD(txns, curYm, dayCap);
+  var mtdPrev  = _tlMonthTD(txns, prevYm, dayCap);
+  var mtdDelta = mtdCur.netAll - mtdPrev.netAll;
+  var mtdCls   = mtdCur.netAll >= 0 ? 'pos' : 'neg';
+  var mtdVal   = (mtdCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(mtdCur.netAll)).toLocaleString();
+  // Simple projection: daily rate × days-in-month.
+  var daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  var projected   = dayCap > 0 ? (mtdCur.netAll / dayCap) * daysInMonth : mtdCur.netAll;
+  var projCls     = projected >= 0 ? 'pos' : 'neg';
+  var projVal     = (projected < 0 ? '−$' : '+$') + Math.abs(Math.round(projected)).toLocaleString();
 
   return '' +
     '<div class="tl-hero-row">' +
       '<div class="tl-hero">' +
-        '<div class="tl-hero-label">Net Cash Flow · ' + monthLabel + (mtdEntry ? ' (last complete)' : '') + '</div>' +
+        '<div class="tl-hero-label">Net Cash Flow · Week of ' + weekLbl + '</div>' +
         '<div class="tl-hero-value ' + heroCls + '">' + heroVal + '</div>' +
-        '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(direction) + '</span> ' + deltaTxt + '</div>' +
-        mtdLine +
+        '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(wkDir) + '</span> ' + wkDeltaTxt + '</div>' +
       '</div>' +
-      '<div class="tl-spark-card">' +
-        '<div class="tl-spark-label">Net cash flow · last 6 months</div>' +
-        spark +
-        '<div class="tl-spark-hint">Hover over a dot to see the month\'s net cash flow.</div>' +
+      '<div class="tl-hero-mtd">' +
+        '<div class="tl-hero-mtd-label">' + _tlMonthLabel(curYm) + ' Month-to-Date (through day ' + dayCap + ')</div>' +
+        '<div class="tl-hero-mtd-value ' + mtdCls + '">' + mtdVal + '</div>' +
+        '<div class="tl-hero-mtd-row">' +
+          '<span>vs Last Month same day</span><span class="' + (mtdDelta >= 0 ? 'pos' : 'neg') + '">' +
+          (mtdDelta >= 0 ? '+' : '−') + '$' + Math.abs(Math.round(mtdDelta)).toLocaleString() + '</span>' +
+        '</div>' +
+        '<div class="tl-hero-mtd-row">' +
+          '<span>Projected end-of-month</span><span class="' + projCls + '">' + projVal + '</span>' +
+        '</div>' +
       '</div>' +
     '</div>';
 }
 
-function _tlHtmlTopMovers(d) {
+// Monthly-trend sparkline card — kept as a standalone block below the
+// hero row for long-term context. Was previously inside the hero row.
+function _tlHtmlSparkCard(d) {
   var months = d.monthlySeries || [];
   if (!months.length) return '';
-  // Use last COMPLETED month, not the in-progress current one, so the
-  // top-mover totals are comparable to prior months.
-  var refMonth = _tlLastCompleteMonth(months) || months[months.length - 1];
-  var curYm    = refMonth.ym;
-  var isMTD    = months[months.length - 1].ym !== curYm;
-  var monthLbl = _tlMonthLabel(curYm) + (isMTD ? ' (last complete)' : '');
+  var spark = _tlSparkline(months, 780, 90);
+  return '' +
+    '<div class="tl-spark-card tl-spark-full">' +
+      '<div class="tl-spark-label">Monthly Net Cash Flow · last 6 months (long-term context)</div>' +
+      spark +
+      '<div class="tl-spark-hint">Hover over a dot to see that month\'s net cash flow.</div>' +
+    '</div>';
+}
 
-  // Split categoryMatrix by direction using the current month only.
+function _tlHtmlTopMovers(d) {
+  var txns = d.transactions || [];
+  if (!txns.length) return '';
+
+  // Use last COMPLETED week's transactions. Individual transactions
+  // (not category aggregates) so Mike sees the actual events —
+  // per-week category aggregation is too sparse to be useful.
+  var weeks = _tlBuildWeekly(txns);
+  var wkCur = _tlLastCompleteWeek(weeks);
+  if (!wkCur) wkCur = weeks[weeks.length - 1];
+  if (!wkCur) return '';
+  var weekLbl = _tlWeekLabel(wkCur.weekStart);
+
+  var wkStart = new Date(wkCur.weekStart + 'T00:00:00');
+  var wkEnd   = new Date(wkStart); wkEnd.setDate(wkStart.getDate() + 6); wkEnd.setHours(23,59,59);
+  function inWeek(t) {
+    if (t.excluded) return false;
+    var d = new Date(t.date + 'T12:00:00');
+    return d >= wkStart && d <= wkEnd;
+  }
   var inItems = [], outItems = [];
-  (d.categoryMatrix || []).forEach(function(c) {
-    var v = c.months[curYm] || 0;
-    if (v > 0) inItems.push({ name: c.category, val: v });
-    else if (v < 0) outItems.push({ name: c.category, val: v });
+  txns.forEach(function(t) {
+    if (!inWeek(t)) return;
+    // Prefer showing category if categorized, else use raw name.
+    var displayName = t.category && t.category !== '(Uncategorized)' ? t.category : (t.name || '(unlabeled)');
+    if (t.amount > 0) inItems.push({ name: displayName, val: t.amount, date: t.date });
+    else if (t.amount < 0) outItems.push({ name: displayName, val: t.amount, date: t.date });
   });
   inItems.sort(function(a, b) { return b.val - a.val; });
   outItems.sort(function(a, b) { return a.val - b.val; });
@@ -2432,13 +2516,18 @@ function _tlHtmlTopMovers(d) {
   var totalIn  = inItems.reduce(function(s, x)  { return s + x.val; }, 0);
   var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
 
+  var totalIn  = inItems.reduce(function(s, x) { return s + x.val; }, 0);
+  var totalOut = outItems.reduce(function(s, x) { return s + x.val; }, 0);
+
   function itemList(arr, max) {
-    if (!arr.length) return '<div class="tl-flow-item" style="color:#999">No activity this month</div>';
+    if (!arr.length) return '<div class="tl-flow-item" style="color:#999">No activity this week</div>';
     var shown = arr.slice(0, max);
     var rest  = arr.slice(max);
     var html = shown.map(function(x) {
-      return '<div class="tl-flow-item"><span class="n">' + x.name + '</span><span class="v">' +
-        _tlFmtSigned(x.val) + '</span></div>';
+      var dateShort = x.date ? x.date.substring(5).replace('-', '/') : '';
+      return '<div class="tl-flow-item">' +
+        '<span class="n"><span style="color:#9aa0a6;font-size:10px;margin-right:6px">' + dateShort + '</span>' + x.name + '</span>' +
+        '<span class="v">' + _tlFmtSigned(x.val) + '</span></div>';
     }).join('');
     if (rest.length) {
       var restTotal = rest.reduce(function(s, x) { return s + x.val; }, 0);
@@ -2451,14 +2540,14 @@ function _tlHtmlTopMovers(d) {
     '<div class="tl-flow-row">' +
       '<div class="tl-flow in">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">' + monthLbl + ' · Top Sources of Money In</div>' +
+          '<div class="tl-flow-title">Week of ' + weekLbl + ' · Top Sources of Money In</div>' +
           '<div class="tl-flow-total pos">+$' + Math.round(totalIn).toLocaleString() + '</div>' +
         '</div>' +
         itemList(inItems, 5) +
       '</div>' +
       '<div class="tl-flow out">' +
         '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">' + monthLbl + ' · Top Expenses</div>' +
+          '<div class="tl-flow-title">Week of ' + weekLbl + ' · Top Expenses</div>' +
           '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         '</div>' +
         itemList(outItems, 5) +
@@ -2623,11 +2712,49 @@ function _tlHtmlCompareTable(d) {
   }).join('');
 
   var isMTD = months[months.length - 1].ym !== cur.ym;
+  // Weekly + MTD comparison overlay — computed here so all "current"
+  // benchmarks (this week, last week, MTD, last-mo-MTD) sit next to
+  // the multi-month averages Mike is used to seeing.
+  var txns = d.transactions || [];
+  var weeks = _tlBuildWeekly(txns);
+  var wkCur = _tlLastCompleteWeek(weeks) || { in: 0, out: 0, netAll: 0 };
+  var wkIdx = weeks.map(function(w) { return w.weekStart; }).indexOf(wkCur.weekStart);
+  var wkPrev = wkIdx > 0 ? weeks[wkIdx - 1] : { in: 0, out: 0, netAll: 0 };
+  var _now = new Date();
+  var _curYm  = _now.getFullYear() + '-' + ('0'+(_now.getMonth()+1)).slice(-2);
+  var _lm     = new Date(_now.getFullYear(), _now.getMonth() - 1, 1);
+  var _prevYm = _lm.getFullYear() + '-' + ('0'+(_lm.getMonth()+1)).slice(-2);
+  var _dayCap = _now.getDate();
+  var mtdCur  = _tlMonthTD(txns, _curYm,  _dayCap);
+  var mtdPrev = _tlMonthTD(txns, _prevYm, _dayCap);
+
+  var overlayRows = [
+    { label: 'Money In',  thisWk: wkCur.in,     lastWk: wkPrev.in,     mtd: mtdCur.in,     lmMtd: mtdPrev.in,     t3: avgN('in',3),     t6: avgN('in',6)  },
+    { label: 'Money Out', thisWk: wkCur.out,    lastWk: wkPrev.out,    mtd: mtdCur.out,    lmMtd: mtdPrev.out,    t3: avgN('out',3),    t6: avgN('out',6) },
+    { label: 'Net',       thisWk: wkCur.netAll, lastWk: wkPrev.netAll, mtd: mtdCur.netAll, lmMtd: mtdPrev.netAll, t3: avgN('netAll',3), t6: avgN('netAll',6), isNet: true }
+  ];
+  var overlayBody = overlayRows.map(function(r) {
+    var cls = r.isNet ? ' class="net-row"' : '';
+    return '<tr' + cls + '>' +
+      '<td>' + r.label + '</td>' +
+      '<td>' + _tlFmtSigned(r.thisWk) + '</td>' +
+      '<td>' + _tlFmtSigned(r.lastWk) + '</td>' +
+      '<td>' + _tlFmtSigned(r.mtd)    + '</td>' +
+      '<td>' + _tlFmtSigned(r.lmMtd)  + '</td>' +
+      '<td>' + _tlFmtSigned(r.t3)     + '</td>' +
+      '<td>' + _tlFmtSigned(r.t6)     + '</td></tr>';
+  }).join('');
+  var weekLbl = wkCur.weekStart ? _tlWeekLabel(wkCur.weekStart) : '';
+
   return '' +
     '<div class="tl-compare">' +
-      '<div class="tl-compare-title">' + _tlMonthLabel(cur.ym) + (isMTD ? ' (last complete)' : '') + ' vs benchmarks</div>' +
-      '<table><thead><tr><th></th><th>This Month</th><th>Last Month</th><th>3-Mo Avg</th><th>6-Mo Avg</th><th>12-Mo Avg</th></tr></thead>' +
-      '<tbody>' + body + '</tbody></table>' +
+      '<div class="tl-compare-title">Current activity vs benchmarks · Week of ' + weekLbl + '</div>' +
+      '<table><thead><tr><th></th>' +
+        '<th>This Week</th><th>Last Week</th>' +
+        '<th>MTD</th><th>Last Mo MTD</th>' +
+        '<th>3-Mo Avg</th><th>6-Mo Avg</th>' +
+      '</tr></thead>' +
+      '<tbody>' + overlayBody + '</tbody></table>' +
     '</div>';
 }
 
