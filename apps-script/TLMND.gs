@@ -1774,19 +1774,6 @@ function _tlmndBuildWeeklyPdfHtml_() {
             : '') +
       '</div>';
     })() +
-    // Coming Up (Next 30 Days Expected) — same two-column layout
-    '<div class="two">' +
-      '<div class="col in" style="border-left-color:#4fc3f7">' +
-        '<h3>Coming Up &middot; Expected Money In <span style="color:#9aa0a6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></h3>' +
-        '<div class="subtotal pos">+$' + Math.round(fc.totalIn).toLocaleString() + '</div>' +
-        topMoverList(fc.inItems, 6) +
-      '</div>' +
-      '<div class="col out" style="border-left-color:#4fc3f7">' +
-        '<h3>Coming Up &middot; Expected Expenses <span style="color:#9aa0a6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></h3>' +
-        '<div class="subtotal neg">-$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</div>' +
-        topMoverList(fc.outItems, 6) +
-      '</div>' +
-    '</div>' +
     // Comparison table — Rolling 30-day + Expected + T3/T6
     '<div class="compare">' +
       '<h3>Rolling comparison &middot; ' + _tlmndDateShort_(start30) + ' – ' + _tlmndDateShort_(yesterdayISO) + '</h3>' +

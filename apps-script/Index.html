@@ -2687,9 +2687,6 @@ function _tlHtmlTopMovers(d) {
     return html;
   }
 
-  // === COMING UP (Next 30 Days Expected) ===
-  var fc = _tlUpcomingForecast(d);
-
   return '' +
     '<div class="tl-flow-row">' +
       '<div class="tl-flow in">' +
@@ -2705,22 +2702,6 @@ function _tlHtmlTopMovers(d) {
           '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(totalOut)).toLocaleString() + '</div>' +
         '</div>' +
         itemList(outItems, 6, 'No expenses in the last 30 days') +
-      '</div>' +
-    '</div>' +
-    '<div class="tl-flow-row" style="margin-top:0">' +
-      '<div class="tl-flow in" style="border-top-color:#4fc3f7;border-top-style:dashed">' +
-        '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Coming Up · Expected Money In <span style="opacity:.6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></div>' +
-          '<div class="tl-flow-total pos">+$' + Math.round(fc.totalIn).toLocaleString() + '</div>' +
-        '</div>' +
-        itemList(fc.inItems, 6, 'No recurring income expected') +
-      '</div>' +
-      '<div class="tl-flow out" style="border-top-color:#4fc3f7;border-top-style:dashed">' +
-        '<div class="tl-flow-head">' +
-          '<div class="tl-flow-title">Coming Up · Expected Expenses <span style="opacity:.6;font-weight:400;text-transform:none">(next 30 days, recurring)</span></div>' +
-          '<div class="tl-flow-total neg">−$' + Math.abs(Math.round(fc.totalOut)).toLocaleString() + '</div>' +
-        '</div>' +
-        itemList(fc.outItems, 6, 'No recurring expenses expected') +
       '</div>' +
     '</div>';
 }
