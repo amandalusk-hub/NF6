@@ -2997,24 +2997,38 @@ function _tlHtmlChart(series) {
   var groupW = innerW / series.length;
   var barW   = Math.min(28, groupW * 0.28);
 
-  var bars = '', labels = '', netPts = [];
+  var bars = '', labels = '', netPts = [], netDots = '';
+  // Format helpers for tooltips.
+  function _t$(v) { return (v < 0 ? '−$' : v > 0 ? '+$' : '$') + Math.abs(Math.round(v)).toLocaleString(); }
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  function _tMo(ym) { var p = ym.split('-'); return monthNames[Number(p[1]) - 1] + ' ' + p[0]; }
+
   series.forEach(function(s, i) {
     var cx = padL + groupW * (i + 0.5);
     var inH  = s.in  * scale;
-    var outH = -s.out * scale;   // out is negative, invert for bar height
+    var outH = -s.out * scale;
     var netY = yZero - s.netAll * scale;
-    bars += '<rect x="' + (cx - barW - 2) + '" y="' + (yZero - inH)  + '" width="' + barW + '" height="' + inH  + '" fill="#137333" opacity="0.85"/>';
-    bars += '<rect x="' + (cx + 2)        + '" y="' + yZero          + '" width="' + barW + '" height="' + outH + '" fill="#a50e0e" opacity="0.85"/>';
+    var mLbl = _tMo(s.ym);
+    // In bar with tooltip.
+    bars += '<g><title>' + mLbl + ' — Money In: ' + _t$(s.in) + '</title>' +
+      '<rect x="' + (cx - barW - 2) + '" y="' + (yZero - inH) + '" width="' + barW + '" height="' + inH + '" fill="#137333" opacity="0.85"/>' +
+      '<rect x="' + (cx - barW - 2) + '" y="' + Math.min(yZero - inH, yZero) + '" width="' + barW + '" height="' + Math.abs(inH) + '" fill="transparent" style="cursor:pointer"><title>' + mLbl + ' — Money In: ' + _t$(s.in) + '</title></rect>' +
+    '</g>';
+    // Out bar with tooltip.
+    bars += '<g><title>' + mLbl + ' — Money Out: ' + _t$(s.out) + '</title>' +
+      '<rect x="' + (cx + 2) + '" y="' + yZero + '" width="' + barW + '" height="' + outH + '" fill="#a50e0e" opacity="0.85"/>' +
+      '<rect x="' + (cx + 2) + '" y="' + yZero + '" width="' + barW + '" height="' + Math.abs(outH) + '" fill="transparent" style="cursor:pointer"><title>' + mLbl + ' — Money Out: ' + _t$(s.out) + '</title></rect>' +
+    '</g>';
     netPts.push(cx + ',' + netY);
+    netDots += '<g><title>' + mLbl + ' — Net: ' + _t$(s.netAll) + '</title>' +
+      '<circle cx="' + cx + '" cy="' + netY + '" r="3.5" fill="#0d2137"/>' +
+      '<circle cx="' + cx + '" cy="' + netY + '" r="10" fill="transparent" style="cursor:pointer"><title>' + mLbl + ' — Net: ' + _t$(s.netAll) + '</title></circle>' +
+    '</g>';
     var lbl = s.ym.split('-'); lbl = lbl[1] + '/' + lbl[0].slice(2);
     labels += '<text x="' + cx + '" y="' + (h - 12) + '" text-anchor="middle" font-size="11" fill="#5f6368">' + lbl + '</text>';
   });
-  // Zero baseline + net line.
-  var netLine = '<polyline points="' + netPts.join(' ') + '" fill="none" stroke="#0d2137" stroke-width="2"/>';
-  netPts.forEach(function(p) {
-    var xy = p.split(',');
-    netLine += '<circle cx="' + xy[0] + '" cy="' + xy[1] + '" r="3.5" fill="#0d2137"/>';
-  });
+  // Net line joins the dots.
+  var netLine = '<polyline points="' + netPts.join(' ') + '" fill="none" stroke="#0d2137" stroke-width="2"/>' + netDots;
 
   // Y-axis ticks (rough): -maxAbs, 0, +maxAbs
   var ticks = '' +
@@ -3036,6 +3050,7 @@ function _tlHtmlChart(series) {
       '<svg class="tl-chart" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">' +
         ticks + bars + netLine + labels +
       '</svg>' +
+      '<div style="text-align:center;font-size:10px;color:#9aa0a6;font-style:italic;margin-top:4px">Hover over a bar or dot to see the amount.</div>' +
     '</div>';
 }
 
