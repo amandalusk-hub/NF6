@@ -3933,10 +3933,15 @@ function sendBalancesPDF_(recipient, subjectPrefix) {
   var sheet = ss.getSheetByName('Balances');
   if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
 
+  // fitw=true (fit to width) keeps text readable across multiple pages.
+  // Tight margins give the charts more vertical room so they're less
+  // likely to be split across a page boundary.
   var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
             '/export?exportFormat=pdf&format=pdf' +
             '&size=letter&portrait=false&fitw=true&gridlines=false' +
             '&sheetnames=false&printtitle=false&pagenumbers=false' +
+            '&horizontal_alignment=CENTER&vertical_alignment=TOP' +
+            '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3' +
             '&gid=' + sheet.getSheetId();
 
   var response = UrlFetchApp.fetch(url, {
@@ -4105,8 +4110,12 @@ function quickChartPie_(title, labels, values, colors) {
     contentType: 'application/json',
     payload:     JSON.stringify({
       chart:               cfg,
-      width:               750,
-      height:              360,
+      // 600x280 keeps the chart legible while making sure both pies fit on
+      // a single page of the landscape-letter PDF export without being sliced
+      // across a page break. Larger sizes get cut horizontally by the
+      // Google Sheets → PDF exporter.
+      width:               600,
+      height:              280,
       devicePixelRatio:    1,
       backgroundColor:     'white',
       format:              'png',
