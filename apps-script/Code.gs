@@ -191,6 +191,8 @@ function onOpen() {
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
     .addItem('Set Daily PDF Email Recipient',  'setDailyPDFRecipient')
+    .addItem('Send Weekly Net Worth PDF (test to me)', 'sendWeeklyNetWorthPdfTest')
+    .addItem('Send Daily Net Worth PDF (test to me)',  'sendDailyNetWorthPdfTest')
     .addSeparator()
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
@@ -3976,6 +3978,15 @@ function weeklyPDFEmail() {
   return sendBalancesPDF_(recipient, 'Weekly Net Worth Summary');
 }
 
+// Menu-callable test send — Weekly Net Worth PDF to the current user only.
+function sendWeeklyNetWorthPdfTest() {
+  var ui = SpreadsheetApp.getUi();
+  var me = Session.getActiveUser().getEmail();
+  if (!me) { ui.alert('Could not determine your email address.'); return; }
+  var r = sendBalancesPDF_(me, 'TEST — Weekly Net Worth Summary');
+  ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
+}
+
 // Daily PDF — runs Mon-Fri at 8am via 5 weekday triggers. Uses a separate
 // DAILY_PDF_RECIPIENT property so the daily list can differ from the weekly
 // list (e.g. send daily only to internal team, weekly to broader stakeholders).
@@ -3986,6 +3997,15 @@ function dailyPDFEmail() {
     return { success: false, error: 'No recipient configured. Use Tracker → Set Daily PDF Email Recipient.' };
   }
   return sendBalancesPDF_(recipient, 'Daily Net Worth Summary');
+}
+
+// Menu-callable test send — Daily Net Worth PDF to the current user only.
+function sendDailyNetWorthPdfTest() {
+  var ui = SpreadsheetApp.getUi();
+  var me = Session.getActiveUser().getEmail();
+  if (!me) { ui.alert('Could not determine your email address.'); return; }
+  var r = sendBalancesPDF_(me, 'TEST — Daily Net Worth Summary');
+  ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
 }
 
 function setDailyPDFRecipient() {
