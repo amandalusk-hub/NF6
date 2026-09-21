@@ -761,7 +761,10 @@ function seedTLMNDRules() {
     // name substring first (catches wires/ACH) then by the internal
     // Chase transfer format as a fallback.
     [15, 'Name', 'contains', 'NF USA TX',                         '', '', 'NF Texas',                    'No',  'TLMND',      '', 'Yes', 'Any NF USA TX movement — catches wires/ACH by name'],
-    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'NF Texas',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)']
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5155',    '', '', 'NF Texas',                    'No',  'TLMND',      '', 'Yes', 'TLMND ↔ NF USA TX ···5155 (Chase internal transfer)'],
+    // NF6 Tiger Capital ···5319 — Chase internal transfer, real inter-entity flow.
+    [90, 'Name', 'contains', 'Online Transfer from CHK ...5319',  '', '', 'NF6 Tiger Capital',           'No',  'TLMND',      '', 'Yes', 'NF6 Tiger Capital ···5319 → TLMND (inbound)'],
+    [90, 'Name', 'contains', 'Online Transfer to CHK ...5319',    '', '', 'NF6 Tiger Capital',           'No',  'TLMND',      '', 'Yes', 'TLMND → NF6 Tiger Capital ···5319 (outbound)']
   ];
 
   // Pad every rule to the full header width so setValues stays rectangular.
@@ -1320,7 +1323,7 @@ function _tlmndForecast_(mat, months, overrides) {
   var recentYms = months.filter(function(m) { return m.ym !== curYm; })
     .slice(-3).map(function(m) { return m.ym; });
   var windowSize = recentYms.length || 1;
-  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c); }
   var inItems = [], outItems = [];
   (mat || []).forEach(function(c) {
     if (!c.recurring) return;
@@ -1450,7 +1453,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   var now = new Date();
   var currentYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var completeMonths = series.filter(function(m) { return m.ym !== currentYm; });
-  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c); }
   var opIn = {}, opOut = {};
   completeMonths.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
   mat.forEach(function(c) {
@@ -1481,7 +1484,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
     if (/legal|law|roetzel/.test(c))                                                      return 'Legal';
     if (/ellison|solaris|wasica|book credit|macdonald|cherry valley|sa nj|realty/.test(c))return 'Customers & Loan Repayments';
     if (/fidelity|money market|dividend|interest/.test(c))                                return 'Fidelity Investments';
-    if (/inter-entity|blue panda|nf europe|nf mde co|nf texas/.test(c))                    return 'Inter-Entity';
+    if (/inter-entity|blue panda|nf europe|nf mde co|nf texas|nf6 tiger/.test(c))          return 'Inter-Entity';
     if (/wire|ach payment|book transfer|deposit|other/.test(c))                           return 'Uncategorized / Catch-all';
     return 'Other';
   }
@@ -1493,7 +1496,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
       if (v >= 0) tIn += v; else tOut += v;
     });
     var dir = Math.abs(tIn) > Math.abs(tOut) ? 'in' : 'out';
-    var isIEcat = /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c.category);
+    var isIEcat = /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c.category);
     if (isIEcat) (dir === 'in' ? ieIn : ieOut).push(c);
     else if (c.recurring) (dir === 'in' ? recIn : recOut).push(c);
     else (dir === 'in' ? nonIn : nonOut).push(c);
@@ -1720,7 +1723,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
     '</div>' +
     // On-Track Analysis (Expected vs Actual, last 30 days recurring)
     (function() {
-      function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c || ''); }
+      function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c || ''); }
       var actRecIn = 0, actRecOut = 0, actNonRecIn = 0, actNonRecOut = 0;
       txns.forEach(function(t) {
         if (t.excluded || !t.date) return;

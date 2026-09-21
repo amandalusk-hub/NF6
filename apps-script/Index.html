@@ -2262,7 +2262,7 @@ function _tlPlannerRecompute(d) {
   var now = new Date();
   var curYm = now.getFullYear() + '-' + ('0'+(now.getMonth()+1)).slice(-2);
   var complete = series.filter(function(m) { return m.ym !== curYm; });
-  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c); }
   var opIn = {}, opOut = {};
   complete.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
   mat.forEach(function(c) {
@@ -2473,7 +2473,7 @@ function _tlUpcomingForecast(d) {
     .slice(-3).map(function(m) { return m.ym; });
   var windowSize = recentYms.length || 1;
 
-  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c); }
 
   var inItems = [], outItems = [];
   mat.forEach(function(c) {
@@ -2509,7 +2509,7 @@ function _tlHtmlTracking(d) {
   var todayISO = (new Date()).toISOString().substring(0, 10);
   var start30 = _tlDateOffset(todayISO, -30);
   var yesterdayISO = _tlDateOffset(todayISO, -1);
-  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c || ''); }
+  function isIE(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c || ''); }
 
   var actRecIn = 0, actRecOut = 0, actNonRecIn = 0, actNonRecOut = 0;
   txns.forEach(function(t) {
@@ -2722,7 +2722,7 @@ function _tlHtmlBurnForecast(d) {
   if (!months.length) return '';
 
   // Bucket recurring-only monthly totals.
-  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c); }
+  function isInterEntity(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c); }
   var opIn = {}, opOut = {};
   months.forEach(function(m) { opIn[m.ym] = 0; opOut[m.ym] = 0; });
   mat.forEach(function(c) {
@@ -3065,7 +3065,7 @@ function _tlGroupOf(cat) {
   if (/legal|law|roetzel/.test(c))                                              return 'Legal';
   if (/ellison|solaris|wasica|book credit|macdonald|cherry valley/.test(c))     return 'Customers & Loan Repayments';
   if (/fidelity|money market|dividend|interest/.test(c))                        return 'Fidelity Investments';
-  if (/inter-entity|blue panda|nf europe|nf mde co|nf texas/.test(c))            return 'Inter-Entity';
+  if (/inter-entity|blue panda|nf europe|nf mde co|nf texas|nf6 tiger/.test(c))  return 'Inter-Entity';
   if (/wire|ach payment|book transfer|deposit|other/.test(c))                   return 'Uncategorized / Catch-all';
   return 'Other';
 }
@@ -3117,7 +3117,7 @@ function _tlHtmlCategoryMatrix(d) {
     // Match on any inter-entity keyword — must stay in sync with _tlGroupOf
     // and the isInterEntity helpers above so new short names (NF Texas,
     // NF MDE CO, Blue Panda Family, NF Europe) still classify correctly.
-    var isInterEntity = /blue panda|nf europe|nf mde co|nf texas|inter-entity/i.test(c.category);
+    var isInterEntity = /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c.category);
     if (isInterEntity) {
       (dir === 'in' ? ieIn : ieOut).push(c);
     } else if (c.recurring) {
