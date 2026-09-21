@@ -4117,7 +4117,7 @@ function quickChartPie_(title, labels, values, colors) {
     +   'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
     +   'return (val/tot*100).toFixed(1)+"%";'
     + '}},'
-    + 'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
+    + 'legend:{position:"bottom",align:"start",labels:{color:"#1a2e44",font:{size:10},padding:6,boxWidth:12}},'
     + 'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
     + '}}}';
   var url = 'https://quickchart.io/chart';
@@ -4130,12 +4130,12 @@ function quickChartPie_(title, labels, values, colors) {
     contentType: 'application/json',
     payload:     JSON.stringify({
       chart:               cfg,
-      // 600x280 keeps the chart legible while making sure both pies fit on
-      // a single page of the landscape-letter PDF export without being sliced
-      // across a page break. Larger sizes get cut horizontally by the
-      // Google Sheets → PDF exporter.
-      width:               600,
-      height:              280,
+      // 550x400 with legend on the BOTTOM so the ~15 asset categories wrap
+      // horizontally across the width instead of overflowing the right-
+      // side column (which was clipping the last few real-estate lines).
+      // Height stays modest to keep both charts on a single PDF page.
+      width:               550,
+      height:              400,
       devicePixelRatio:    1,
       backgroundColor:     'white',
       format:              'png',
