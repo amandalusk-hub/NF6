@@ -4130,12 +4130,12 @@ function quickChartPie_(title, labels, values, colors) {
     contentType: 'application/json',
     payload:     JSON.stringify({
       chart:               cfg,
-      // 550x400 with legend on the BOTTOM so the ~15 asset categories wrap
-      // horizontally across the width instead of overflowing the right-
-      // side column (which was clipping the last few real-estate lines).
-      // Height stays modest to keep both charts on a single PDF page.
-      width:               550,
-      height:              400,
+      // 900x340 — landscape "long ways" layout since the two pies are
+      // now stacked vertically (each gets the full page width). Bottom
+      // legend has plenty of room to spread horizontally so all
+      // categories fit in a couple of rows without clipping.
+      width:               900,
+      height:              340,
       devicePixelRatio:    1,
       backgroundColor:     'white',
       format:              'png',
@@ -4488,8 +4488,24 @@ function generateBalancesSheet() {
     }
   });
 
-  sheet.insertImage(quickChartPie_('Assets by Category',  assetLabels, assetValues, assetBg), 1, chartAnchorRow);
-  sheet.insertImage(quickChartPie_('Liabilities by Type', liabLabels,  liabValues,  liabBg),  9, chartAnchorRow);
+  // Sort each pie's data largest-first so slices go around clockwise from
+  // biggest to smallest (and the legend reads the same way).
+  function _sortPieData(labels, values, colors) {
+    var rows = labels.map(function(l, i) { return { label: l, value: values[i], color: colors[i] }; });
+    rows.sort(function(a, b) { return b.value - a.value; });
+    return {
+      labels: rows.map(function(r) { return r.label; }),
+      values: rows.map(function(r) { return r.value; }),
+      colors: rows.map(function(r) { return r.color; })
+    };
+  }
+  var aSorted = _sortPieData(assetLabels, assetValues, assetBg);
+  var lSorted = _sortPieData(liabLabels,  liabValues,  liabBg);
+
+  // Stack the two pies VERTICALLY so each one gets the full page width —
+  // "long ways" layout, better for legends with lots of items.
+  sheet.insertImage(quickChartPie_('Assets by Category',  aSorted.labels, aSorted.values, aSorted.colors), 1, chartAnchorRow);
+  sheet.insertImage(quickChartPie_('Liabilities by Type', lSorted.labels, lSorted.values, lSorted.colors), 1, chartAnchorRow + 22);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
