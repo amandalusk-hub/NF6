@@ -4169,6 +4169,19 @@ function renderMNWList(){
           <span class="mnw-row-age">${daysSince(a['Last Updated']||a['Date Added'])}</span>
           <div class="mnw-row-val-cell">
             <div class="mnw-row-val">${fmtUSD(num(a['My Share USD']))}</div>
+            ${(()=>{
+              // Foreign-currency assets: show local value + FX rate so the
+              // conversion is visible right on the row.
+              const cur=(a.Currency||'USD');
+              const lv=num(a['Local Value']);
+              if(cur==='USD' || lv<=0) return '';
+              const fx=(state.fxRates||[]).find(r=>r.Currency===cur);
+              const rate=fx?num(fx['Rate to USD']):0;
+              const localStr=lv.toLocaleString('en-US',{maximumFractionDigits:0})+' '+esc(cur);
+              if(rate<=0) return `<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">${localStr}</div>`;
+              const rateStr=rate<0.01?rate.toExponential(3):rate.toLocaleString('en-US',{maximumFractionDigits:6,minimumFractionDigits:4});
+              return `<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px" title="1 ${esc(cur)} = $${rateStr} USD">${localStr} · @ $${rateStr}</div>`;
+            })()}
             ${investedAmt?`<div style="font-size:10px;color:#aaa;font-weight:500;margin-top:2px">${investedYear?`<span style="color:#bbb;margin-right:5px">${investedYear}</span>`:''}Invested ${fmtUSD(investedAmt)}</div>`:''}
           </div>
         </div>`;
@@ -4324,7 +4337,21 @@ function renderAssetsTable(){
       </td>
       <td><span class="badge" style="background:${catColor(a.Category)}22;color:${catColor(a.Category)}">${esc(a.Category||'')}</span></td>
       <td>${esc(a.Entity||'')}</td>
-      <td>${(()=>{const lv=num(a['Local Value']);const cur=(a.Currency||'USD');return lv>0?(cur==='USD'?fmtUSD(lv):lv.toLocaleString('en-US',{maximumFractionDigits:0})+' '+esc(cur)):'--';})()}</td>
+      <td>${(()=>{
+        const lv=num(a['Local Value']);const cur=(a.Currency||'USD');
+        if(lv<=0) return '--';
+        if(cur==='USD') return fmtUSD(lv);
+        // Foreign currency: show local value + inline FX rate so the
+        // conversion is visible right here on the asset row.
+        const localStr = lv.toLocaleString('en-US',{maximumFractionDigits:0}) + ' ' + esc(cur);
+        const fx = (state.fxRates||[]).find(r=>r.Currency===cur);
+        const rate = fx ? num(fx['Rate to USD']) : 0;
+        if(rate<=0) return localStr;
+        const rateStr = rate<0.01
+          ? rate.toExponential(3)
+          : rate.toLocaleString('en-US',{maximumFractionDigits:6,minimumFractionDigits:4});
+        return localStr + '<div style="font-size:10px;color:#8996a8;margin-top:2px" title="1 '+esc(cur)+' = $'+rateStr+' USD">@ $'+rateStr+'/'+esc(cur)+'</div>';
+      })()}</td>
       <td>${fmtUSD(num(a['My Share USD']))}</td>
       <td>${num(a['Cost Basis'])>0?fmtUSD(num(a['Cost Basis'])*num(a['USD Rate'])):'--'}</td>
       <td>${(()=>{const g=num(a['My Share USD'])-(num(a['Cost Basis'])*num(a['USD Rate']));return num(a['Cost Basis'])>0?`<span style="color:${g>=0?'#1e8e3e':'#c5221f'};font-weight:600">${g>=0?'+':''}${fmtUSD(g)}</span>`:'--'})()}</td>
