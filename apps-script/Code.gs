@@ -4072,15 +4072,70 @@ function _buildNetWorthPdfHtml_(subjectPrefix) {
   function catColor(c){ return CAT_COLORS[c] || CAT_COLORS[Object.keys(CAT_COLORS).find(function(k){return k.toLowerCase()===String(c||'').toLowerCase();})] || '#90a4ae'; }
   var LIAB_COLORS = ['#c5221f','#e07b30','#8b6914','#7f1d1d','#a0522d','#5d3a1a','#b8860b'];
 
-  // Group assets by category, sorted by total desc; items within sorted by value.
+  // Mirror the website's ordering exactly (renderMNWList in Index.html):
+  //   - Assets: categories in CATEGORIES array order (unknown cats sort last
+  //     alphabetically). Items within a category go through _instSort_ —
+  //     grouped by institution/entity, groups sorted by combined total desc,
+  //     items within a group sorted by value desc.
+  //   - Liabilities: types sorted by total desc, items by value desc.
+  function _peGroupKey(name){
+    if(!name) return '';
+    var s = String(name).toLowerCase().trim();
+    s = s.replace(/^\d+(\.\d+)?%\s*(of\s+)?/, '');
+    s = s.replace(/^\d+(\.\d+)?%\s*(ownership\s+of\s+)?/, '');
+    var parts = s.match(/[a-z0-9]+/g) || [];
+    if (!parts.length) return '';
+    if (parts.length >= 2 && /^\d+$/.test(parts[1])) return parts[0] + parts[1];
+    return parts[0];
+  }
+  function _instSort_(items, cat){
+    var groupMap = {};
+    items.forEach(function(a){
+      var key;
+      if (cat === 'Private Equity') {
+        key = _peGroupKey(a.Name) || (a.Entity || '(No Entity)');
+      } else if (cat === 'Loans Receivable' || cat === 'Promissory Notes') {
+        key = a.Entity || '(No Entity)';
+      } else {
+        var n = a.Name || '';
+        var di = n.indexOf(' - ');
+        key = di >= 0 ? n.substring(0, di) : n;
+        key = key.replace(/\s+Brokerage$/i, '').trim();
+      }
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(a);
+    });
+    return Object.keys(groupMap)
+      .map(function(k){ var arr = groupMap[k]; return { key:k, accts:arr, tot:arr.reduce(function(s,a){return s+a._usd;},0) }; })
+      .sort(function(a,b){ return b.tot - a.tot; })
+      .reduce(function(out, g){
+        g.accts.sort(function(a,b){return b._usd - a._usd;}).forEach(function(a){ out.push(a); });
+        return out;
+      }, []);
+  }
+
+  // Categories in CATEGORIES order. Unknown ones sort to the end alphabetically.
+  var CATEGORIES_ORDER = [
+    'Art/Jewelry/Other','Automobile','Cash - Business','Cash - Personal',
+    'Public Equity (Dividends)','Public Equity (Growth)',
+    'Loans Receivable','Promissory Notes','Private Equity',
+    'Real Estate - Colombia','Real Estate - Dominican Republic',
+    'Real Estate - Europe','Real Estate - Puerto Rico','Real Estate - United States',
+    'VIP Medical Group','Crypto','Insurance','Other'
+  ];
   var byCat = {};
   assets.forEach(function(a){ var c = a.Category || 'Other'; if(!byCat[c]) byCat[c] = []; byCat[c].push(a); });
   var catEntries = Object.keys(byCat).map(function(c){
-    var items = byCat[c].sort(function(x,y){return y._usd - x._usd;});
-    return { cat:c, items:items, total:items.reduce(function(s,a){return s+a._usd;},0) };
-  }).sort(function(a,b){ return b.total - a.total; });
+    return { cat:c, items:_instSort_(byCat[c], c), total:byCat[c].reduce(function(s,a){return s+a._usd;},0) };
+  }).sort(function(a,b){
+    var ai = CATEGORIES_ORDER.indexOf(a.cat), bi = CATEGORIES_ORDER.indexOf(b.cat);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.cat.localeCompare(b.cat);
+  });
 
-  // Group liabilities by type, sorted the same way.
+  // Liabilities: types sorted by total desc, items by value desc.
   var byType = {};
   liabs.forEach(function(l){ var t = l.Type || 'Other'; if(!byType[t]) byType[t] = []; byType[t].push(l); });
   var typeEntries = Object.keys(byType).map(function(t){
