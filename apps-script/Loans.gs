@@ -224,7 +224,13 @@ function _generateAmortizationSchedule_(loan) {
   var isBOP = paymentType.toLowerCase().indexOf('beginning') >= 0;
 
   for (var n = 1; n <= termMonths; n++) {
-    var dueDate = new Date(firstY, firstM + n - 1, firstD);
+    // Safe month-add: clamp the day to the target month's last day so a
+    // loan starting on the 31st doesn't roll over ("Feb 31" → "Mar 3").
+    var targetY = firstY, targetM = firstM + n - 1;
+    while (targetM > 11) { targetY++; targetM -= 12; }
+    var daysInTarget = new Date(targetY, targetM + 1, 0).getDate();
+    var targetD = Math.min(firstD, daysInTarget);
+    var dueDate = new Date(targetY, targetM, targetD);
     var interest, principalPaid, thisPayment;
 
     if (isBOP && n === 1) {
