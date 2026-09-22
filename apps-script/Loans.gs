@@ -99,6 +99,7 @@ function getLoans() {
 
 function addLoan(data) {
   _requireEditor_();
+  _logAudit_('addLoan', 'loan', '', data && data.name, 'Added loan: ' + (data && data.name || ''));
   var sheet = ensureLoansSheet_();
   var now = new Date();
   var id = 'l_' + Utilities.getUuid().substring(0, 8);
@@ -129,6 +130,7 @@ function addLoan(data) {
 
 function updateLoan(id, data) {
   _requireEditor_();
+  _logAudit_('updateLoan', 'loan', id, data && data.name, 'Updated loan: ' + (data && data.name || ''));
   var sheet = ensureLoansSheet_();
   if (sheet.getLastRow() < 2) return { success: false, error: 'No loans found.' };
   var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, LOANS_HEADERS.length).getValues();
@@ -164,9 +166,12 @@ function deleteLoan(id) {
   _requireEditor_();
   var sheet = ensureLoansSheet_();
   if (sheet.getLastRow() < 2) return { success: false, error: 'No loans found.' };
-  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, LOANS_HEADERS.length).getValues();
+  var nameIdx = LOANS_HEADERS.indexOf('Name');
   for (var i = 0; i < vals.length; i++) {
     if (String(vals[i][0]) === String(id)) {
+      var name = nameIdx >= 0 ? vals[i][nameIdx] : '';
+      _logAudit_('deleteLoan', 'loan', id, name, 'Deleted loan: ' + name);
       sheet.deleteRow(i + 2);
       return { success: true };
     }

@@ -131,6 +131,30 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 .loading-overlay.open{display:flex}
 /* Tab panels */
 .tab-panel{display:none}
+/* Read-only viewer lockdown — CSS-only, no per-element JS needed. */
+body.read-only .btn-primary,
+body.read-only .btn-danger,
+body.read-only #access-gear,
+body.read-only [data-edit-only]{ display:none !important; }
+body.read-only .modal-body input:not([readonly]),
+body.read-only .modal-body select,
+body.read-only .modal-body textarea{
+  pointer-events:none; background:#f5f7fa !important; color:#7a8ba8 !important; cursor:not-allowed;
+}
+body.read-only .modal-body input[type=checkbox],
+body.read-only .modal-body input[type=radio]{ pointer-events:none; opacity:.6; }
+body.read-only #detail-save-status{ display:none !important; }
+body.read-only .modal-body button[onclick*="save"],
+body.read-only .modal-body button[onclick*="delete"],
+body.read-only .modal-body button[onclick*="Delete"],
+body.read-only .modal-body button[onclick*="move"],
+body.read-only .modal-body button[onclick*="Move"],
+body.read-only .modal-body button[onclick*="add"],
+body.read-only .modal-body button[onclick*="remove"]{ display:none !important; }
+/* Keep modal-close buttons visible so read-only viewers can always exit. */
+body.read-only .modal-close,
+body.read-only .btn-secondary[onclick*="closeModal"],
+body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important; }
 .tab-panel.active{display:block}
 </style>
 </head>
@@ -2006,6 +2030,10 @@ function loadAccessInfo(){
 }
 function renderAccessUi(){
   var a = state.access || {};
+  // Flip a body class so CSS can hide edit-only buttons + lock inputs for
+  // read-only viewers. Prevents Brandon-style bugs where an accidental
+  // click on Save/Delete/Move surfaces a server-side error he can't dismiss.
+  document.body.classList.toggle('read-only', a.isEditor === false);
   // Read-only banner: fixed at the top of the page, visible only to non-editors.
   var bar = document.getElementById('read-only-banner');
   if (!bar) {
@@ -5728,6 +5756,13 @@ function saveAssetDetails(keepOpen){
   // Block auto-saves (keepOpen=true) while the modal is loading; explicit saves always proceed.
   if(_loadingDetail && keepOpen) return;
   clearTimeout(_assetAutoSave);
+  // Read-only viewers: just close the modal (if this was the Close button).
+  // Never fire a save that will 500 server-side and pop an error banner
+  // the viewer can't dismiss.
+  if (state.access && state.access.isEditor === false) {
+    if (!keepOpen) closeModal('detail-modal');
+    return;
+  }
   const id=document.getElementById('detail-id').value;
   if(!id) return;
   const gv=elId=>{const el=document.getElementById(elId);return el?el.value.trim():'';};
@@ -6669,6 +6704,11 @@ function openLiabDetail(id){
 
 function saveLiabilityDetails(keepOpen){
   if(_loadingDetail && keepOpen) return; // Block auto-saves only; explicit saves always proceed
+  // Read-only viewers: close the modal instead of firing a save that would 500.
+  if (state.access && state.access.isEditor === false) {
+    if (!keepOpen) closeModal('liab-detail-modal');
+    return;
+  }
   // In-flight guard for liability auto-saves (mirrors asset path).
   if (keepOpen && _liabAutoSaveInFlight) { _liabAutoSavePending = true; return; }
   clearTimeout(_liabAutoSave);
@@ -7038,11 +7078,16 @@ var _autoSaveInFlight=false, _autoSavePending=false;
 var _liabAutoSaveInFlight=false, _liabAutoSavePending=false;
 function scheduleAssetAutoSave(){
   if(_loadingDetail) return;
+  // Read-only viewers should never trigger a save — otherwise typing into
+  // a form (even if it's just to explore) fires an auto-save that gets
+  // rejected server-side and pops a scary error toast.
+  if (state.access && state.access.isEditor === false) return;
   clearTimeout(_assetAutoSave);
   _assetAutoSave=setTimeout(function(){ saveAssetDetails(true); }, 2000);
 }
 function scheduleLiabAutoSave(){
   if(_loadingDetail) return;
+  if (state.access && state.access.isEditor === false) return;
   clearTimeout(_liabAutoSave);
   _liabAutoSave=setTimeout(function(){ saveLiabilityDetails(true); }, 2000);
 }

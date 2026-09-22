@@ -115,6 +115,7 @@ function addEditor(email) {
   if (list.map(function(e){return String(e).toLowerCase();}).indexOf(email) < 0) {
     list.push(email);
     PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+    _logAudit_('addEditor', 'access', '', email, 'Granted edit access to: ' + email);
   }
   return { success: true, editors: list };
 }
@@ -125,7 +126,56 @@ function removeEditor(email) {
   email = String(email || '').trim().toLowerCase();
   var list = _getEditors_().filter(function(e){ return String(e).toLowerCase() !== email; });
   PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+  _logAudit_('removeEditor', 'access', '', email, 'Removed editor: ' + email);
   return { success: true, editors: list };
+}
+
+// ─── Audit Log ─────────────────────────────────────────────────────────────
+// Every mutation writes a row to the AUDIT_LOG sheet: timestamp, caller
+// email, action name, entity type + id + name, and a short note about
+// what changed. Fails silently — audit logging must never break the
+// underlying mutation.
+function _logAudit_(action, entityType, entityId, entityName, details) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('AUDIT_LOG');
+    if (!sheet) {
+      sheet = ss.insertSheet('AUDIT_LOG');
+      sheet.getRange(1, 1, 1, 7)
+        .setValues([['Timestamp','User','Action','Entity Type','Entity ID','Entity Name','Details']])
+        .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+      sheet.setColumnWidth(1, 165);
+      sheet.setColumnWidth(2, 200);
+      sheet.setColumnWidth(3, 130);
+      sheet.setColumnWidth(4, 100);
+      sheet.setColumnWidth(5, 100);
+      sheet.setColumnWidth(6, 240);
+      sheet.setColumnWidth(7, 420);
+    }
+    sheet.appendRow([
+      new Date(),
+      _currentUserEmail_() || '(unknown)',
+      String(action || ''),
+      String(entityType || ''),
+      String(entityId || ''),
+      String(entityName || ''),
+      String(details == null ? '' : details).substring(0, 800)
+    ]);
+  } catch (e) {
+    Logger.log('_logAudit_ failed: ' + e.message);
+  }
+}
+
+// Menu-callable: open the AUDIT_LOG sheet directly in the spreadsheet.
+function openAuditLog() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('AUDIT_LOG');
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('No audit log yet — it\'s created on the first edit action.');
+    return;
+  }
+  ss.setActiveSheet(sheet);
 }
 
 var SUPPORTED_CURRENCIES = {
@@ -291,6 +341,8 @@ function onOpen() {
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
+    .addSeparator()
+    .addItem('Open Audit Log Sheet', 'openAuditLog')
     .addSeparator()
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
     .addSeparator()
@@ -807,6 +859,7 @@ function TO_USD(amount, currencyCode) {
 // ── Assets CRUD ───────────────────────────────────────────────────────────────
 
 function addAsset(data) { _requireEditor_();
+  _logAudit_('addAsset', 'asset', '', data && data.name, 'Added asset: ' + (data && data.name || '(unnamed)'));
   var sheet    = getSheet_('ASSETS');
   var id       = Utilities.getUuid();
   var now      = new Date();
@@ -966,6 +1019,7 @@ function saveAssetDetails(id, detailsJson) { _requireEditor_();
 // Combined save: updates core fields + details in one GAS call (half the round-trips).
 // coreData mirrors the updateAsset() payload; detailsJson is the JSON string for Details.
 function saveFullAsset(coreData, id, detailsJson) { _requireEditor_();
+  _logAudit_('saveFullAsset', 'asset', id, coreData && coreData.name, 'Updated asset (name/value/details)');
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -1143,8 +1197,14 @@ function saveAssetDetailsOnly(id, detailsJson) { _requireEditor_();
 function deleteAsset(id) { _requireEditor_();
   var sheet = getSheet_('ASSETS');
   var rows  = sheet.getDataRange().getValues();
+  var nameIdx = rows[0].indexOf('Name');
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
+    if (rows[i][0] === id) {
+      var name = nameIdx >= 0 ? rows[i][nameIdx] : '';
+      _logAudit_('deleteAsset', 'asset', id, name, 'Deleted asset: ' + name);
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
   }
   return { success: false, error: 'Not found' };
 }
@@ -1155,9 +1215,11 @@ function deleteAsset(id) { _requireEditor_();
 // amount, or amount received back on a loan — plus a date and free-text
 // notes. Row data is preserved either way — archiving never deletes.
 function setAssetArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
+  _logAudit_(archived ? 'archiveAsset' : 'restoreAsset', 'asset', id, '', archived ? 'Archived asset (closeout $' + (closeoutAmount||0) + ')' : 'Restored asset');
   return _setRowArchived_('ASSETS', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
 function setLiabilityArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
+  _logAudit_(archived ? 'archiveLiability' : 'restoreLiability', 'liability', id, '', archived ? 'Archived liability (payoff $' + (closeoutAmount||0) + ')' : 'Restored liability');
   return _setRowArchived_('LIABILITIES', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
 function _setRowArchived_(sheetKey, id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
@@ -1248,6 +1310,7 @@ function convertAssetToLiability(assetId, liabilityType) {
 // ── Entities CRUD ─────────────────────────────────────────────────────────────
 
 function addEntity(data) { _requireEditor_();
+  _logAudit_('addEntity', 'entity', '', data && data.name, 'Added entity: ' + (data && data.name || ''));
   var sheet   = getSheet_('ENTITIES');
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var row = headers.map(function(h) {
@@ -1273,6 +1336,7 @@ function addEntity(data) { _requireEditor_();
 }
 
 function updateEntity(data) { _requireEditor_();
+  _logAudit_('updateEntity', 'entity', '', data && data.name, 'Updated entity: ' + (data && data.name || ''));
   var sheet   = getSheet_('ENTITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0];
@@ -1302,6 +1366,7 @@ function updateEntity(data) { _requireEditor_();
 }
 
 function deleteEntity(name) { _requireEditor_();
+  _logAudit_('deleteEntity', 'entity', '', name, 'Deleted entity: ' + name);
   var sheet = getSheet_('ENTITIES');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -1313,6 +1378,7 @@ function deleteEntity(name) { _requireEditor_();
 // ── Liabilities CRUD ──────────────────────────────────────────────────────────
 
 function addLiability(data) { _requireEditor_();
+  _logAudit_('addLiability', 'liability', '', data && data.name, 'Added liability: ' + (data && data.name || ''));
   var sheet  = getSheet_('LIABILITIES');
   var id     = Utilities.getUuid();
   var now    = new Date();
@@ -1323,6 +1389,7 @@ function addLiability(data) { _requireEditor_();
 }
 
 function updateLiability(data) { _requireEditor_();
+  _logAudit_('updateLiability', 'liability', data && data.id, data && data.name, 'Updated liability: ' + (data && data.name || ''));
   var sheet   = getSheet_('LIABILITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0] || [];
@@ -1433,8 +1500,14 @@ function saveLiabilityDetails(id, detailsJson) { _requireEditor_();
 function deleteLiability(id) { _requireEditor_();
   var sheet = getSheet_('LIABILITIES');
   var rows  = sheet.getDataRange().getValues();
+  var nameIdx = rows[0].indexOf('Name');
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
+    if (rows[i][0] === id) {
+      var name = nameIdx >= 0 ? rows[i][nameIdx] : '';
+      _logAudit_('deleteLiability', 'liability', id, name, 'Deleted liability: ' + name);
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
   }
   return { success: false, error: 'Not found' };
 }
