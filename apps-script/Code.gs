@@ -506,6 +506,7 @@ function getFullData() {
     liabilityDetails: getLiabilityDetailsMap_(),
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
+    fxMeta:      getFxSourceInfo_(),
     // history omitted — fetched on demand via getAssetHistory() when detail panel opens
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
@@ -636,6 +637,22 @@ function getFxRate_(currency) {
   } catch(e) {}
   var result = fetchExchangeRates();
   return (result.success && result.rates[currency]) ? result.rates[currency] : 1;
+}
+
+// Metadata for the dashboard's FX Rates panel: which service supplies the
+// numbers, its public URL, whether the paid tier key is in use, and when
+// the cache was last refreshed. Read from FX_CACHE script property.
+function getFxSourceInfo_() {
+  var hasKey = !!PropertiesService.getScriptProperties().getProperty('EXCHANGERATE_API_KEY');
+  var source = hasKey
+    ? { name: 'exchangerate-api.com', url: 'https://www.exchangerate-api.com', tier: 'paid (API key)' }
+    : { name: 'open.er-api.com',      url: 'https://open.er-api.com',           tier: 'free tier' };
+  var fetched = null;
+  try {
+    var cached = PropertiesService.getScriptProperties().getProperty('FX_CACHE');
+    if (cached) fetched = JSON.parse(cached).fetched || null;
+  } catch(e) {}
+  return { source: source.name, sourceUrl: source.url, tier: source.tier, fetched: fetched };
 }
 
 /**

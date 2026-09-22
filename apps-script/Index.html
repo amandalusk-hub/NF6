@@ -217,6 +217,14 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
         <div id="liab-empty" style="display:none" class="no-data">No liabilities recorded</div>
       </div>
     </div>
+    <!-- FX Rates panel: current exchange rates + source attribution -->
+    <div class="card" id="fx-panel" style="margin-top:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <div class="section-title" style="margin:0">Exchange Rates (to USD)</div>
+        <div id="fx-source-line" style="font-size:11px;color:#6b7c95"></div>
+      </div>
+      <div id="fx-table-wrap"></div>
+    </div>
   </div>
 
   <!-- Assets -->
@@ -1843,7 +1851,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 <script>
 // -- State ------------------------------------------------------------------
 const state = {
-  assets: [], entities: [], fxRates: [], history: [], snapshots: [], categories: [], currencies: [],
+  assets: [], entities: [], fxRates: [], fxMeta: null, history: [], snapshots: [], categories: [], currencies: [],
   sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true }, liabilities: { col: 'Name', asc: true } }
 };
 
@@ -1959,6 +1967,7 @@ function onDataLoaded(d){
   state.liabilityDetails = d.liabilityDetails || {};
   state.entities    = d.entities    || [];
   state.fxRates     = d.fxRates     || [];
+  state.fxMeta      = d.fxMeta      || null;
   state.history     = d.history     || []; // kept for History tab
   state.snapshots   = d.snapshots   || [];
   state.categories  = d.categories  || [];
@@ -3819,6 +3828,76 @@ function renderDashboard(){
   renderDonut();
   try{renderLiabDonut();}catch(e){console.warn('liabDonut:',e);}
   renderMNWList();
+  try{renderFxPanel();}catch(e){console.warn('fxPanel:',e);}
+}
+
+// FX Rates panel — lists the currencies actually held in Assets, their
+// current rate to USD, and where the numbers come from (open.er-api.com by
+// default; exchangerate-api.com if the paid-tier key is set).
+function renderFxPanel(){
+  var wrap = document.getElementById('fx-table-wrap');
+  var srcLine = document.getElementById('fx-source-line');
+  if (!wrap) return;
+  var meta = state.fxMeta || {};
+  var srcName = meta.source || 'open.er-api.com';
+  var srcUrl  = meta.sourceUrl || 'https://open.er-api.com';
+  var fetched = meta.fetched ? new Date(meta.fetched) : null;
+  var fetchedStr = fetched
+    ? fetched.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})
+    : 'never';
+  var tier = meta.tier ? ' (' + meta.tier + ')' : '';
+  if (srcLine) {
+    srcLine.innerHTML =
+      'Rates from <a href="' + srcUrl + '" target="_blank" style="color:#4a90d9;text-decoration:none">' + srcName + '</a>' + tier +
+      ' &middot; updated ' + fetchedStr +
+      ' &middot; <a href="#" onclick="event.preventDefault();refreshRates()" style="color:#4a90d9;text-decoration:none">refresh</a>';
+  }
+  // Only show currencies actually in use — filter to codes present on assets.
+  var codesInUse = {};
+  (state.assets||[]).forEach(function(a){
+    var c = (a.Currency||'').toString().trim().toUpperCase();
+    if (c && c !== 'USD') codesInUse[c] = true;
+  });
+  var CURRENCY_NAMES = {
+    AED:'UAE Dirham',AUD:'Australian Dollar',BRL:'Brazilian Real',CAD:'Canadian Dollar',
+    CHF:'Swiss Franc',CNY:'Chinese Yuan',COP:'Colombian Peso',DOP:'Dominican Peso',
+    EUR:'Euro',GBP:'British Pound',JPY:'Japanese Yen',MXN:'Mexican Peso',
+    PYG:'Paraguayan Guaraní'
+  };
+  var rows = (state.fxRates||[])
+    .filter(function(r){ return r.Currency && r.Currency !== 'USD' && codesInUse[r.Currency]; })
+    .map(function(r){
+      var rate = num(r['Rate to USD']);            // 1 unit foreign = X USD
+      var inverse = rate > 0 ? (1 / rate) : 0;      // 1 USD = X foreign
+      var name = CURRENCY_NAMES[r.Currency] || r.Currency;
+      var rateStr = rate < 0.01
+        ? rate.toExponential(3)
+        : rate.toLocaleString('en-US',{maximumFractionDigits:6,minimumFractionDigits:4});
+      var invStr = inverse < 1
+        ? inverse.toLocaleString('en-US',{maximumFractionDigits:6})
+        : inverse.toLocaleString('en-US',{maximumFractionDigits:2,minimumFractionDigits:2});
+      return '' +
+        '<tr>' +
+          '<td style="padding:8px 12px;font-weight:600">' + r.Currency + '</td>' +
+          '<td style="padding:8px 12px;color:#5f6c85">' + name + '</td>' +
+          '<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums">1 ' + r.Currency + ' = $' + rateStr + '</td>' +
+          '<td style="padding:8px 12px;text-align:right;font-variant-numeric:tabular-nums;color:#5f6c85">$1 = ' + invStr + ' ' + r.Currency + '</td>' +
+        '</tr>';
+    }).join('');
+  if (!rows) {
+    wrap.innerHTML = '<div style="padding:14px;color:#7a8ba8;font-size:13px">No foreign-currency assets. Rates are only fetched for currencies actually held.</div>';
+    return;
+  }
+  wrap.innerHTML =
+    '<table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<thead><tr style="border-bottom:1px solid #e6ebf2;color:#7a8ba8;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.5px">' +
+        '<th style="padding:6px 12px">Code</th>' +
+        '<th style="padding:6px 12px">Currency</th>' +
+        '<th style="padding:6px 12px;text-align:right">Rate</th>' +
+        '<th style="padding:6px 12px;text-align:right">Inverse</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>';
 }
 
 function renderDonut(){
