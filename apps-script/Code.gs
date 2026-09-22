@@ -2188,6 +2188,7 @@ function getPlaidStatementsLinkToken() {
 // Statements manually after linking.
 function handlePlaidStatementsSuccess(publicToken, institutionName) {
   try {
+    _requireEditor_();
     var cfg = getPlaidConfig_();
     var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/public_token/exchange', {
       method: 'POST', contentType: 'application/json',
@@ -3377,7 +3378,7 @@ function getPlaidUpdateLinkTokenForSidebar() {
 // flow (via additional_consented_products) so the user knows immediately if
 // Chase honored the request or if they need to fall back to a fresh
 // Statements-only link.
-function handlePlaidUpdateSuccess() {
+function handlePlaidUpdateSuccess() { _requireEditor_();
   var props   = PropertiesService.getScriptProperties();
   var lastTok = props.getProperty('PLAID_LAST_UPDATED_TOKEN');
   var hadStmt = props.getProperty('PLAID_LAST_UPDATED_HAD_STMT') === 'true';
@@ -3505,6 +3506,7 @@ function addStatementsConsentToChaseMenu() {
 
 function handlePlaidSuccess(publicToken, institutionName) {
   try {
+    _requireEditor_();
     var exchResult = exchangePlaidToken(publicToken);
     if (!exchResult.success) return { success: false, message: exchResult.error };
     if (institutionName && exchResult.accessToken) {
