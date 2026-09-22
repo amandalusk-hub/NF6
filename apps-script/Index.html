@@ -469,7 +469,10 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       #tab-tlmnd .tl-planner-inputs{display:flex;flex-direction:column;gap:8px}
       #tab-tlmnd .tl-planner-input-row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px}
       #tab-tlmnd .tl-planner-input-row label{color:#3c4858;font-weight:500;flex:1}
-      #tab-tlmnd .tl-planner-input-row input{width:130px;padding:6px 10px;border:1px solid #c0ccd8;border-radius:6px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;background:#fff}
+      #tab-tlmnd .tl-planner-input-row .tl-planner-input-wrap{position:relative;width:130px}
+      #tab-tlmnd .tl-planner-input-row input{width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:6px;font-size:13px;text-align:right;font-variant-numeric:tabular-nums;background:#fff;box-sizing:border-box}
+      #tab-tlmnd .tl-planner-input-row input.tl-planner-money{padding-left:22px}
+      #tab-tlmnd .tl-planner-input-row .tl-planner-dollar{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#5f6368;font-weight:500;font-size:13px;pointer-events:none}
       #tab-tlmnd .tl-planner-input-row input:focus{outline:2px solid #4fc3f7;outline-offset:-1px}
       #tab-tlmnd .tl-planner-refresh{background:none;border:none;color:#4a90d9;cursor:pointer;font-size:11px;padding:2px 6px}
       #tab-tlmnd .tl-planner-refresh:hover{text-decoration:underline}
@@ -2186,7 +2189,10 @@ function _tlPlannerLoadBalances(d, forceRefresh) {
         rowsHtml += '' +
           '<div class="tl-planner-input-row">' +
             '<label>' + b.label + (b.notFound ? ' <span style="color:#a50e0e">(not found)</span>' : '') + '</label>' +
-            '<input type="number" step="0.01" data-label="' + b.label + '" value="' + val.toFixed(2) + '">' +
+            '<div class="tl-planner-input-wrap">' +
+              '<span class="tl-planner-dollar">$</span>' +
+              '<input type="text" inputmode="decimal" class="tl-planner-money" data-label="' + b.label + '" value="' + _tlPlannerFormatMoney(val) + '">' +
+            '</div>' +
           '</div>';
       });
       rowsHtml += '<div class="tl-planner-total"><span>Total on hand</span><span class="val" id="tl-planner-total">$0</span></div>';
@@ -2199,11 +2205,21 @@ function _tlPlannerLoadBalances(d, forceRefresh) {
         _tlPlannerLoadBalances(d, true);
       });
 
-      // Wire balance inputs — persist edits + recompute on change.
+      // Wire balance inputs — persist edits + recompute on change. Uses the
+      // same focus/blur reformat pattern as the buffer input above so the
+      // user sees "$31,571" but can freely edit as a plain number.
       inputsEl.querySelectorAll('input[data-label]').forEach(function(inp) {
         inp.addEventListener('input', function() {
-          localStorage.setItem(STORAGE_PREFIX + 'bal_' + inp.dataset.label, inp.value);
+          var raw = _tlPlannerParseMoney(inp.value);
+          localStorage.setItem(STORAGE_PREFIX + 'bal_' + inp.dataset.label, raw.toString());
           _tlPlannerRecompute(d);
+        });
+        inp.addEventListener('focus', function() {
+          inp.value = String(_tlPlannerParseMoney(inp.value) || 0);
+          inp.select();
+        });
+        inp.addEventListener('blur', function() {
+          inp.value = _tlPlannerFormatMoney(_tlPlannerParseMoney(inp.value));
         });
       });
 
@@ -2248,10 +2264,11 @@ function _tlPlannerRecompute(d) {
   var months = Math.max(1, Number(monthsInput.value) || 2);
   var buffer = Math.max(0, _tlPlannerParseMoney(bufferInput && bufferInput.value));
 
-  // Sum current balances from all input fields.
+  // Sum current balances from all input fields. Values are stored as
+  // formatted money strings ("$31,571"), so parse before summing.
   var total = 0;
   inputsEl.querySelectorAll('input[data-label]').forEach(function(inp) {
-    total += Number(inp.value) || 0;
+    total += _tlPlannerParseMoney(inp.value);
   });
   if (totalEl) totalEl.textContent = '$' + Math.round(total).toLocaleString();
 
