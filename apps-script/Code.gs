@@ -3935,37 +3935,56 @@ function sendBalancesPDF_(recipient, subjectPrefix) {
   var sheet = ss.getSheetByName('Balances');
   if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
 
-  // fitw=true (fit to width) keeps text readable across multiple pages.
-  // Tight margins give the charts more vertical room so they're less
-  // likely to be split across a page boundary.
-  var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
-            '/export?exportFormat=pdf&format=pdf' +
-            '&size=letter&portrait=false&fitw=true&gridlines=false' +
-            '&sheetnames=false&printtitle=false&pagenumbers=false' +
-            '&horizontal_alignment=CENTER&vertical_alignment=TOP' +
-            '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3' +
-            '&gid=' + sheet.getSheetId();
+  // Shared PDF export URL builder. Different `gid` per sheet, everything
+  // else the same (landscape letter, fit to width, tight margins).
+  function buildExportUrl(gid) {
+    return 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
+           '/export?exportFormat=pdf&format=pdf' +
+           '&size=letter&portrait=false&fitw=true&gridlines=false' +
+           '&sheetnames=false&printtitle=false&pagenumbers=false' +
+           '&horizontal_alignment=CENTER&vertical_alignment=TOP' +
+           '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3' +
+           '&gid=' + gid;
+  }
+  function fetchPdf(url) {
+    return UrlFetchApp.fetch(url, {
+      headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
+      muteHttpExceptions: true
+    });
+  }
 
-  var response = UrlFetchApp.fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
+  // Export the main Balances sheet (data only — no charts here anymore).
+  var response = fetchPdf(buildExportUrl(sheet.getSheetId()));
   if (response.getResponseCode() !== 200) {
     return { success: false, error: 'PDF export failed: HTTP ' + response.getResponseCode() };
   }
 
   var dateStr   = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
   var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
-  var pdfBlob   = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
+  var attachments = [ response.getBlob().setName('Net_Worth_' + dateStr + '.pdf') ];
+
+  // Export the Balances Charts sheet as a SEPARATE PDF — pie charts always
+  // land intact on their own pages instead of getting clipped across the
+  // data-sheet's page breaks.
+  var chartsSheet = ss.getSheetByName('Balances Charts');
+  if (chartsSheet) {
+    var chartsResp = fetchPdf(buildExportUrl(chartsSheet.getSheetId()));
+    if (chartsResp.getResponseCode() === 200) {
+      attachments.push(chartsResp.getBlob().setName('Net_Worth_Charts_' + dateStr + '.pdf'));
+    } else {
+      Logger.log('Charts PDF export failed (non-fatal): HTTP ' + chartsResp.getResponseCode());
+    }
+  }
 
   MailApp.sendEmail({
     to:          recipient,
     subject:     subjectPrefix + ' — ' + dateLabel,
-    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.',
+    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.\n\n' +
+                 'Two PDFs: the balances data (accounts, categories, totals) and a separate charts page (pie breakdowns of assets and liabilities).',
     name:        'Net Worth Tracker',
-    attachments: [pdfBlob]
+    attachments: attachments
   });
-  Logger.log('sendBalancesPDF_: sent to ' + recipient);
+  Logger.log('sendBalancesPDF_: sent to ' + recipient + ' (' + attachments.length + ' attachment(s))');
   return { success: true };
 }
 
@@ -4502,10 +4521,18 @@ function generateBalancesSheet() {
   var aSorted = _sortPieData(assetLabels, assetValues, assetBg);
   var lSorted = _sortPieData(liabLabels,  liabValues,  liabBg);
 
-  // Stack the two pies VERTICALLY so each one gets the full page width —
-  // "long ways" layout, better for legends with lots of items.
-  sheet.insertImage(quickChartPie_('Assets by Category',  aSorted.labels, aSorted.values, aSorted.colors), 1, chartAnchorRow);
-  sheet.insertImage(quickChartPie_('Liabilities by Type', lSorted.labels, lSorted.values, lSorted.colors), 1, chartAnchorRow + 22);
+  // Put the pies on a DEDICATED "Balances Charts" sheet so they can't get
+  // clipped across a page break in the main Balances PDF export. The email
+  // sender exports both sheets as separate PDFs and attaches both.
+  var chartsSheet = ss.getSheetByName('Balances Charts');
+  if (chartsSheet) ss.deleteSheet(chartsSheet);
+  chartsSheet = ss.insertSheet('Balances Charts');
+  chartsSheet.setHiddenGridlines(true);
+  // Landscape letter fits ~10" width. Anchor both pies near the top, stacked
+  // vertically so each has full width. Row 1 for Assets, row 20 for Liabs
+  // (well within one printable page thanks to the small chart dims).
+  chartsSheet.insertImage(quickChartPie_('Assets by Category',  aSorted.labels, aSorted.values, aSorted.colors), 1, 1);
+  chartsSheet.insertImage(quickChartPie_('Liabilities by Type', lSorted.labels, lSorted.values, lSorted.colors), 1, 20);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
