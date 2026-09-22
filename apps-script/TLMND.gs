@@ -854,9 +854,26 @@ function applyTLMNDRules() {
   var idxNotes  = ci('Notes');
   if (idxCat < 0) return { success: false, error: 'Category column missing.' };
 
-  // Set of rule categories so we can detect manual overrides.
-  var ruleCategories = {};
-  rules.forEach(function(r) { if (r.category) ruleCategories[r.category] = true; });
+  // Build min-priority-per-category lookup. Any category name whose
+  // best-priority rule is >= CATCH_ALL_THRESHOLD is treated as a
+  // catch-all bucket (e.g. "Other ACH Payment" from priority 200) and
+  // eligible for re-evaluation on re-apply — so a newly-added
+  // more-specific rule (e.g. priority 40 "FidelityTLM" →
+  // "TLMND ···2001 → Fidelity ···6454") can win over the stale bucket.
+  var CATCH_ALL_THRESHOLD = 100;
+  var ruleCategories = {};              // category → true (any rule uses it)
+  var catMinPriority = {};              // category → lowest priority observed
+  rules.forEach(function(r) {
+    if (!r.category) return;
+    ruleCategories[r.category] = true;
+    if (catMinPriority[r.category] == null || r.priority < catMinPriority[r.category]) {
+      catMinPriority[r.category] = r.priority;
+    }
+  });
+  function _isCatchAllCategory(cat) {
+    var p = catMinPriority[cat];
+    return p != null && p >= CATCH_ALL_THRESHOLD;
+  }
 
   var last = sheet.getLastRow();
   var range = sheet.getRange(2, 1, last - 1, headers.length);
@@ -866,16 +883,13 @@ function applyTLMNDRules() {
 
   vals.forEach(function(row, i) {
     var existing = String(row[idxCat] || '').trim();
-    // If Category is already set, treat it as MANUAL and preserve it —
-    // even if the value happens to match a rule's category name. The
-    // rule engine only runs on blank Category cells. This fixes the
-    // case where a manually-tagged row (e.g. "MacDonald Loan Repayment"
-    // on the $8,333 branch deposit) was being overwritten by the
-    // priority-200 "DEPOSIT ID NUMBER → Branch Deposit" catch-all.
-    // Recurring / Entity Tag / Exclude flags are still synced from the
-    // matching rule (by category name) so the row displays under the
-    // right section without needing manual flag maintenance.
-    if (existing) {
+    // If Category is already set AND it's a real manual entry (either
+    // matches a low-priority rule, or matches no rule at all), preserve
+    // it. Rule engine only runs on blank cells + catch-all bucketed rows.
+    // This preserves manually-tagged rows (e.g. "MacDonald Loan Repayment"
+    // on the $8,333 branch deposit) while still letting new more-specific
+    // rules override stale catch-all assignments like "Other ACH Payment".
+    if (existing && !_isCatchAllCategory(existing)) {
       for (var mk = 0; mk < rules.length; mk++) {
         if (rules[mk].category === existing) {
           if (rules[mk].recurring) row[idxRec] = rules[mk].recurring;
