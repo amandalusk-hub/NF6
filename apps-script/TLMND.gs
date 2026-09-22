@@ -1223,7 +1223,7 @@ function _tlmndMonthLabelSvr_(ym) {
 }
 function _tlmndFmtSvr_(v) {
   if (Math.abs(v || 0) < 0.5) return '$0';
-  return (v < 0 ? '-$' : '+$') + Math.abs(Math.round(v)).toLocaleString();
+  return (v < 0 ? '−$' : '+$') + Math.abs(Math.round(v)).toLocaleString();
 }
 function _tlmndFmtPos_(v) { return '$' + Math.abs(Math.round(v || 0)).toLocaleString(); }
 
@@ -1505,7 +1505,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   function fmtCell(v) {
     if (!v) return '<td>&middot;</td>';
     var cls = v < 0 ? 'neg' : 'pos';
-    var sign = v < 0 ? '-$' : '$';
+    var sign = v < 0 ? '−$' : '$';
     return '<td class="' + cls + '">' + sign + Math.abs(Math.round(v)).toLocaleString() + '</td>';
   }
   function catRowHtml(c) {
@@ -1516,7 +1516,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   function catRowSimple(c) {
     var tds = months.map(function(ym) { return fmtCell(c.months[ym] || 0); }).join('');
     var totalCls = c.total < 0 ? 'neg' : 'pos';
-    var totalSign = c.total < 0 ? '-$' : '$';
+    var totalSign = c.total < 0 ? '−$' : '$';
     return '<tr><td class="catname">' + _tlmndEsc_(c.category) + '</td>' + tds +
       '<td class="' + totalCls + '"><strong>' + totalSign + Math.abs(Math.round(c.total)).toLocaleString() + '</strong></td></tr>';
   }
@@ -1527,7 +1527,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
     var grand = perMonth.reduce(function(s, v) { return s + v; }, 0);
     var tds = perMonth.map(function(v) { return fmtCell(v); }).join('');
     var gCls = grand < 0 ? 'neg' : 'pos';
-    var gSign = grand < 0 ? '-$' : '$';
+    var gSign = grand < 0 ? '−$' : '$';
     return '<tr class="' + (cls || 'total') + '"><td class="catname">' + label + '</td>' + tds +
       '<td class="' + gCls + '"><strong>' + gSign + Math.abs(Math.round(grand)).toLocaleString() + '</strong></td></tr>';
   }
@@ -1588,7 +1588,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
     return '<table class="movers">' + shown.map(function(x) {
       var cls = x.val < 0 ? 'neg' : 'pos';
       return '<tr><td>' + _tlmndEsc_(x.name || '') + '</td><td class="' + cls + '">' +
-        (x.val < 0 ? '-$' : '+$') + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
+        (x.val < 0 ? '−$' : '+$') + Math.abs(Math.round(x.val)).toLocaleString() + '</td></tr>';
     }).join('') + '</table>';
   }
 
@@ -1604,7 +1604,7 @@ function _tlmndBuildWeeklyPdfHtml_() {
   }).join('');
 
   var heroCls = cur.netAll >= 0 ? 'pos' : 'neg';
-  var heroVal = (cur.netAll < 0 ? '-$' : '+$') + Math.abs(Math.round(cur.netAll)).toLocaleString();
+  var heroVal = (cur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(cur.netAll)).toLocaleString();
 
   return '' +
     '<!DOCTYPE html><html><head><meta charset="utf-8"><title>TLMND Cash Flow</title>' +

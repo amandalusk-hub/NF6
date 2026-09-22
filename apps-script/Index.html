@@ -4287,10 +4287,17 @@ function renderEntitiesTable(){
 }
 
 // -- History Table ----------------------------------------------------------
+// Compact "$1.2M / $34K" formatter for chart axes and dense summaries.
+// Fixed to place the proper minus sign BEFORE the $ (was showing "$-1.2M")
+// and to add thousand separators to sub-$1K values.
 function fmtUSDShort(n){
-  if(Math.abs(n)>=1e6)return'$'+(n/1e6).toFixed(2)+'M';
-  if(Math.abs(n)>=1e3)return'$'+(n/1e3).toFixed(0)+'K';
-  return'$'+Math.round(n);
+  if(n==null||isNaN(n))return'$0';
+  var abs=Math.abs(Number(n));
+  var sign=n<0?'−':'';   // U+2212 MINUS SIGN
+  if(abs>=1e9)return sign+'$'+(abs/1e9).toFixed(2)+'B';
+  if(abs>=1e6)return sign+'$'+(abs/1e6).toFixed(2)+'M';
+  if(abs>=1e3)return sign+'$'+(abs/1e3).toFixed(0)+'K';
+  return sign+'$'+Math.round(abs).toLocaleString('en-US');
 }
 
 function renderTrendChart(){
@@ -6553,10 +6560,22 @@ function esc(s){
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function num(v){return parseFloat(v)||0}
+// Canonical US-dollar formatter — always whole dollars with thousand
+// separators, proper minus sign for negatives. Handles null/NaN cleanly.
+// Used ~80 places across the dashboard.
 function fmtUSD(n){
-  const abs=Math.abs(n);
-  const s=abs>=1?abs.toLocaleString('en-US',{maximumFractionDigits:0}):abs.toFixed(2);
-  return (n<0?'-':'')+'$'+s;
+  if(n==null||isNaN(n))return'$0';
+  var abs=Math.abs(Number(n));
+  var s=abs.toLocaleString('en-US',{maximumFractionDigits:0,minimumFractionDigits:0});
+  return (n<0?'−':'')+'$'+s;   // U+2212 MINUS SIGN, not hyphen
+}
+// Signed variant — always shows +/− prefix even for positives. Useful for
+// deltas ("+$1,234 this month"). Values below $0.50 display as $0.
+function fmtUSDSigned(n){
+  if(n==null||isNaN(n)||Math.abs(Number(n))<0.5)return'$0';
+  var abs=Math.abs(Number(n));
+  var s=abs.toLocaleString('en-US',{maximumFractionDigits:0,minimumFractionDigits:0});
+  return (n<0?'−':'+')+'$'+s;
 }
 function fmtDate(d){
   if(!d)return'';
