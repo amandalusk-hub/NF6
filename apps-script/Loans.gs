@@ -31,6 +31,9 @@ var LOANS_HEADERS = [
   'Plaid Match Pattern',
   'Status',                 // Active | Paid Off | Delinquent | Deferred
   'Notes',
+  'Linked Asset ID',        // Optional: the Assets row this loan tracks. When set,
+                            // the asset's My Share USD auto-updates on load to the
+                            // loan's current outstanding balance (× ownership %).
   'Date Added',
   'Last Updated'
 ];
@@ -47,6 +50,18 @@ function ensureLoansSheet_() {
       .setFontColor('#ffffff');
     sheet.setFrozenRows(1);
     sheet.autoResizeColumns(1, LOANS_HEADERS.length);
+    return sheet;
+  }
+  // Sheet exists — check the header row and add any missing columns (like
+  // "Linked Asset ID" added after Amanda already seeded Solaris). Data in
+  // existing rows stays intact; new columns just show up as blank cells.
+  var existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  var missing = LOANS_HEADERS.filter(function(h){ return existing.indexOf(h) < 0; });
+  if (missing.length) {
+    var startCol = existing.length + 1;
+    sheet.getRange(1, startCol, 1, missing.length)
+      .setValues([missing])
+      .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
   }
   return sheet;
 }
@@ -119,6 +134,7 @@ function addLoan(data) {
       case 'Plaid Match Pattern': return data.plaidPattern || '';
       case 'Status': return data.status || 'Active';
       case 'Notes': return data.notes || '';
+      case 'Linked Asset ID': return data.linkedAssetId || '';
       case 'Date Added': return now;
       case 'Last Updated': return now;
       default: return '';
@@ -152,6 +168,7 @@ function updateLoan(id, data) {
           case 'Plaid Match Pattern': if (data.plaidPattern !== undefined) row[idx] = data.plaidPattern; break;
           case 'Status': if (data.status !== undefined) row[idx] = data.status; break;
           case 'Notes': if (data.notes !== undefined) row[idx] = data.notes; break;
+          case 'Linked Asset ID': if (data.linkedAssetId !== undefined) row[idx] = data.linkedAssetId; break;
           case 'Last Updated': row[idx] = new Date(); break;
         }
       });
@@ -194,13 +211,20 @@ function _generateAmortizationSchedule_(loan) {
 
   if (!principal || !termMonths || !monthlyPayment || isNaN(firstPayment.getTime())) return [];
 
+  // Normalize firstPayment to the intended calendar date. "2026-01-01" parsed
+  // by new Date() lands on UTC midnight, which in ET reads as 12/31/2025 —
+  // shifting all schedule rows a day earlier. Rebuild from the ISO parts so
+  // the schedule dates line up with what Amanda entered.
+  var firstYmd = Utilities.formatDate(firstPayment, 'UTC', 'yyyy-MM-dd').split('-');
+  var firstY = Number(firstYmd[0]), firstM = Number(firstYmd[1]) - 1, firstD = Number(firstYmd[2]);
+
   var monthlyRate = (annualRate / 100) / 12;
   var balance = principal;
   var schedule = [];
   var isBOP = paymentType.toLowerCase().indexOf('beginning') >= 0;
 
   for (var n = 1; n <= termMonths; n++) {
-    var dueDate = new Date(firstPayment.getFullYear(), firstPayment.getMonth() + n - 1, firstPayment.getDate());
+    var dueDate = new Date(firstY, firstM + n - 1, firstD);
     var interest, principalPaid, thisPayment;
 
     if (isBOP && n === 1) {
@@ -283,6 +307,8 @@ function getLoansStatus() {
     // Greedy match: payment i → schedule row i. Simple and matches how
     // amortization is meant to work (one payment per period). If payments
     // arrive out of order or partial, we can refine later.
+    // Attaches the full Plaid transaction (name, account) on matched rows
+    // so the frontend drilldown can show the underlying transaction.
     var scheduleWithStatus = schedule.map(function(row, i) {
       var p = payments[i] || null;
       return {
@@ -295,7 +321,8 @@ function getLoansStatus() {
         received: !!p,
         actualDate: p ? p.date : null,
         actualAmount: p ? p.amount : null,
-        variance: p ? (p.amount - row.payment) : 0
+        variance: p ? (p.amount - row.payment) : 0,
+        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name } : null
       };
     });
 
@@ -316,6 +343,18 @@ function getLoansStatus() {
     // Next expected payment (first row that isn't yet received).
     var nextDue = scheduleWithStatus.find(function(r){ return !r.received; }) || null;
 
+    // If this loan is linked to an asset, push the current outstanding
+    // balance up to that asset row on the Assets sheet so the dashboard
+    // stays consistent. This is a light writeback — only fires when the
+    // asset's stored value actually differs from what the loan schedule
+    // computes, so most Loans-tab loads are read-only.
+    var linkedAssetId = String(loan['Linked Asset ID'] || '').trim();
+    var linkSync = null;
+    if (linkedAssetId) {
+      try { linkSync = _syncLinkedAssetBalance_(linkedAssetId, currentBalance, loan['Name']); }
+      catch(e) { Logger.log('_syncLinkedAssetBalance_ failed for ' + linkedAssetId + ': ' + e.message); }
+    }
+
     return {
       loan: loan,
       schedule: scheduleWithStatus,
@@ -326,8 +365,75 @@ function getLoansStatus() {
         totalScheduled:    totalScheduled,
         currentBalance:    currentBalance,
         nextDue:           nextDue,
-        pctPaid:           schedule.length ? (received.length / schedule.length) : 0
+        pctPaid:           schedule.length ? (received.length / schedule.length) : 0,
+        linkedAssetSync:   linkSync
       }
     };
   });
+}
+
+// Update the linked asset's stored balance to match the loan's current
+// outstanding. Uses the asset's My Share % to compute the owner's share.
+// Returns { updated: bool, oldValue, newValue } for the UI to display.
+function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
+  var sheet = getSheet_('ASSETS');
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var iId    = headers.indexOf('ID');
+  var iLocal = headers.indexOf('Local Value');
+  var iUsd   = headers.indexOf('USD Value');
+  var iShare = headers.indexOf('My Share %');
+  var iMine  = headers.indexOf('My Share USD');
+  var iUpd   = headers.indexOf('Last Updated');
+  if (iId < 0 || iMine < 0) return null;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][iId]) !== String(assetId)) continue;
+    var sharePct = iShare >= 0 ? (Number(data[r][iShare]) || 100) : 100;
+    var newLocal = loanBalance;
+    var newMine  = loanBalance * sharePct / 100;
+    var oldMine  = iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0;
+    // Only write if the value materially differs (>$1 to avoid rounding chatter).
+    if (Math.abs(newMine - oldMine) < 1) return { updated: false, oldValue: oldMine, newValue: newMine };
+    if (iLocal >= 0) sheet.getRange(r + 1, iLocal + 1).setValue(newLocal);
+    if (iUsd   >= 0) sheet.getRange(r + 1, iUsd + 1).setValue(newLocal);
+    if (iMine  >= 0) sheet.getRange(r + 1, iMine + 1).setValue(newMine);
+    if (iUpd   >= 0) sheet.getRange(r + 1, iUpd + 1).setValue(new Date());
+    _logAudit_('syncLoanBalance', 'asset', assetId, loanName, 'Synced from loan: ' + newMine.toFixed(2));
+    return { updated: true, oldValue: oldMine, newValue: newMine };
+  }
+  return null;
+}
+
+// Web-callable — for the "Linked Asset" dropdown in the Loans modal.
+// Returns Loans Receivable / Promissory Notes / (all if requested) assets.
+function getLoanableAssets() {
+  var sheet = getSheet_('ASSETS');
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var iId    = headers.indexOf('ID');
+  var iName  = headers.indexOf('Name');
+  var iCat   = headers.indexOf('Category');
+  var iEnt   = headers.indexOf('Entity');
+  var iShare = headers.indexOf('My Share %');
+  var iMine  = headers.indexOf('My Share USD');
+  var iArch  = headers.indexOf('Archived');
+  var out = [];
+  for (var r = 1; r < data.length; r++) {
+    var cat = String(data[r][iCat] || '');
+    // Only offer Loans Receivable / Promissory Notes / Private Equity as
+    // link targets — those are the categories where a loan schedule makes sense.
+    if (!/loans receivable|promissory notes|private equity/i.test(cat)) continue;
+    var isArch = iArch >= 0 ? String(data[r][iArch] || '').toLowerCase() === 'yes' || data[r][iArch] === true : false;
+    if (isArch) continue;
+    out.push({
+      id: String(data[r][iId] || ''),
+      name: String(data[r][iName] || ''),
+      category: cat,
+      entity: String(data[r][iEnt] || ''),
+      sharePct: iShare >= 0 ? (Number(data[r][iShare]) || 100) : 100,
+      currentValue: iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0
+    });
+  }
+  out.sort(function(a, b){ return a.name.localeCompare(b.name); });
+  return out;
 }
