@@ -410,6 +410,84 @@ function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
   return null;
 }
 
+// Diagnostic — shows Amanda what the Plaid matcher is actually seeing for a
+// given loan. Menu-callable. Answers: is the January payment missing because
+// (a) the sheet doesn't have January data at all, or (b) the January
+// transaction has a different name than the loan's Plaid Match Pattern?
+function debugLoanMatches() {
+  var loans = getLoans();
+  if (!loans.length) { SpreadsheetApp.getUi().alert('No loans registered yet.'); return; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) { SpreadsheetApp.getUi().alert('TLMND_TRANSACTIONS is empty.'); return; }
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iDate = headers.indexOf('Date');
+  var iName = headers.indexOf('Name');
+  var iAmount = headers.indexOf('Amount USD');
+  var iAccount = headers.indexOf('Account');
+  var iNotes = headers.indexOf('Notes');
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+
+  // Overall sheet stats.
+  var minDate = null, maxDate = null;
+  rows.forEach(function(r){
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (isNaN(d.getTime())) return;
+    if (!minDate || d < minDate) minDate = d;
+    if (!maxDate || d > maxDate) maxDate = d;
+  });
+
+  var report = 'TLMND_TRANSACTIONS: ' + rows.length + ' rows\n' +
+               'Date range: ' + (minDate ? Utilities.formatDate(minDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '?') +
+               ' → ' + (maxDate ? Utilities.formatDate(maxDate, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '?') + '\n\n';
+
+  loans.forEach(function(loan) {
+    var pattern = String(loan['Plaid Match Pattern'] || '').toLowerCase().trim();
+    var name = String(loan.Name || '');
+    report += '── ' + name + ' ──\n';
+    report += 'Loan pattern: "' + loan['Plaid Match Pattern'] + '"\n';
+    if (!pattern) { report += '  (no pattern set — cannot match)\n\n'; return; }
+
+    // (1) Broader search: try the first significant word of the pattern
+    //     (e.g. "solaris" from "SOLARIS-FL HOLDI") so we catch alternate
+    //     spellings like "SOLARIS WIRE" or "SOLARIS PAYMENT".
+    var firstWord = (pattern.match(/[a-z]{4,}/) || [''])[0];
+    var broadMatches = [], exactMatches = [], excludedMatches = [], negativeMatches = [];
+    rows.forEach(function(r) {
+      var n = String(r[iName] || '').toLowerCase();
+      var amt = Number(r[iAmount] || 0);
+      var notes = String(r[iNotes] || '');
+      var isExc = notes.indexOf('[EXCLUDED]') >= 0;
+      var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+      var ds = isNaN(d.getTime()) ? '?' : Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      var rowSum = ds + '  $' + amt.toFixed(2) + '  ' + String(r[iName] || '').substring(0, 80) +
+                   (isExc ? ' [EXCLUDED]' : '');
+      if (firstWord && n.indexOf(firstWord) >= 0) {
+        broadMatches.push(rowSum);
+        if (n.indexOf(pattern) >= 0) {
+          if (isExc) excludedMatches.push(rowSum);
+          else if (amt <= 0) negativeMatches.push(rowSum);
+          else exactMatches.push(rowSum);
+        }
+      }
+    });
+    report += 'Broad match ("' + firstWord + '" anywhere): ' + broadMatches.length + ' rows\n';
+    report += 'Exact pattern match, matched: ' + exactMatches.length + ' rows\n';
+    if (excludedMatches.length) report += 'Exact match but EXCLUDED: ' + excludedMatches.length + ' rows\n';
+    if (negativeMatches.length) report += 'Exact match but amount <= 0 (outflow): ' + negativeMatches.length + ' rows\n';
+    report += '\nAll broad matches (widest possible):\n';
+    broadMatches.forEach(function(m){ report += '  ' + m + '\n'; });
+    report += '\n';
+  });
+
+  // Log AND alert. Long output → open in the sheet's execution log.
+  Logger.log(report);
+  var ui = SpreadsheetApp.getUi();
+  // Alert dialog has a size limit; truncate if huge.
+  var alertText = report.length > 6000 ? report.substring(0, 6000) + '\n\n… (truncated — full report in Executions log)' : report;
+  ui.alert('Loan Matcher Diagnostic', alertText, ui.ButtonSet.OK);
+}
+
 // Web-callable — for the "Linked Asset" dropdown in the Loans modal.
 // Returns Loans Receivable / Promissory Notes / (all if requested) assets.
 function getLoanableAssets() {

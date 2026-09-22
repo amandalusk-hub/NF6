@@ -341,6 +341,7 @@ function onOpen() {
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
+    .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
     .addSeparator()
