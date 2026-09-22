@@ -4965,14 +4965,17 @@ function updateDetailPreview(){
     previewEl.textContent = '(no FX rate — run Tracker → Refresh FX Rates)';
   }
 
-  // Full breakdown panel: local × rate = USD total, then × share = my share.
+  // Full breakdown panel. The Local Value entered IS already Amanda's share
+  // (per backend contract in Code.gs: "Ownership % is informational only —
+  // My Share USD = local value directly, no multiplication"). So the math
+  // is a single step: Local Value × FX Rate = My Share USD. Ownership %
+  // is shown as context only, never applied.
   if (fxPanel && fxBody) {
     if (!localAmt) { fxPanel.style.display = 'none'; return; }
     var rateStr = rate > 0
       ? (rate < 0.01 ? rate.toExponential(3) : rate.toLocaleString('en-US',{maximumFractionDigits:6,minimumFractionDigits:4}))
       : '?';
-    var totalUsd = localAmt * rate;
-    var myUsd    = totalUsd * (sharePct / 100);
+    var myUsd    = localAmt * rate;
     var localStr = localAmt.toLocaleString('en-US',{maximumFractionDigits:0});
     var srcMeta  = state.fxMeta || {};
     var srcName  = srcMeta.source || 'open.er-api.com';
@@ -4980,11 +4983,11 @@ function updateDetailPreview(){
     var lastStr  = lastUpd ? new Date(lastUpd).toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}) : 'never';
     var lines    = [];
     if (rate > 0) {
-      lines.push('<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #c8d8ec"><span>' + localStr + ' ' + cur + ' × ' + rateStr + '</span><span style="font-weight:600">= ' + fmtUSD(totalUsd) + ' USD</span></div>');
-      if (sharePct !== 100) {
-        lines.push('<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #c8d8ec"><span>× ' + sharePct + '% ownership</span><span style="font-weight:600">= ' + fmtUSD(myUsd) + '</span></div>');
+      lines.push('<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed #c8d8ec"><span>' + localStr + ' ' + cur + '</span><span style="color:#5f7791">× ' + rateStr + '</span></div>');
+      lines.push('<div style="display:flex;justify-content:space-between;padding:6px 0 2px;font-weight:700;font-size:14px"><span>My share (USD)</span><span>' + fmtUSD(myUsd) + '</span></div>');
+      if (sharePct && sharePct !== 100) {
+        lines.push('<div style="margin-top:6px;font-size:11px;color:#7a8ba8;font-style:italic">Note: The value you entered already reflects the ' + sharePct + '% ownership share — % is informational only and never multiplied in.</div>');
       }
-      lines.push('<div style="display:flex;justify-content:space-between;padding:6px 0 2px;font-weight:700"><span>My share</span><span>' + fmtUSD(myUsd) + ' USD</span></div>');
     } else {
       lines.push('<div style="color:#c5221f">No FX rate loaded for ' + cur + ' — run Tracker → Refresh FX Rates from the sheet menu.</div>');
     }
