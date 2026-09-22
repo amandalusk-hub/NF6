@@ -988,7 +988,9 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </div>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-        <button id="da-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleAssetArchived()" style="font-size:11px">Archive</button>
+        <button id="da-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleAssetArchived()" style="font-size:11px;background:#f7f0d8;color:#5a4200;border:1px solid #d4b662">Archive</button>
+        <!-- Deliberate wide gap so Archive can't be tapped by mistake when reaching for Close. -->
+        <div style="width:32px"></div>
         <button class="modal-close" onclick="saveAssetDetails(false)" style="margin-left:0">x</button>
       </div>
     </div>
@@ -1656,7 +1658,9 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <div class="detail-meta" id="liab-detail-meta"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button id="ld-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleLiabArchived()" style="font-size:11px">Archive</button>
+        <button id="ld-archive-btn" class="btn btn-secondary btn-sm" onclick="toggleLiabArchived()" style="font-size:11px;background:#f7f0d8;color:#5a4200;border:1px solid #d4b662">Archive</button>
+        <!-- Deliberate wide gap so Archive can't be tapped by mistake when reaching for Close. -->
+        <div style="width:32px"></div>
         <button class="modal-close" onclick="saveLiabilityDetails(false)">x</button>
       </div>
     </div>
