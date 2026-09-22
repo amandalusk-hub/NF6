@@ -44,6 +44,7 @@ function openPlaidLink() {
 
 function handlePlaidSuccess(publicToken) {
   try {
+    _requireEditor_();
     var exchResult = exchangePlaidToken(publicToken);
     if (!exchResult.success) return { success: false, message: exchResult.error };
     var syncResult = syncPlaidAccounts();

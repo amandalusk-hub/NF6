@@ -25,14 +25,14 @@ function getTLMNDConfig_() {
   try { return JSON.parse(raw); } catch(e) { return null; }
 }
 
-function setTLMNDConfig(cfg) {
+function setTLMNDConfig(cfg) { _requireEditor_();
   PropertiesService.getScriptProperties().setProperty('TLMND_CONFIG', JSON.stringify(cfg));
   return { success: true };
 }
 
 // One-time initialization with the account IDs the user provided.
 // Idempotent — safe to re-run; it fully replaces the stored config.
-function initTLMNDConfigDefaults() {
+function initTLMNDConfigDefaults() { _requireEditor_();
   var cfg = {
     plaidAccounts: [
       {
@@ -113,7 +113,7 @@ function _tlmndGetOrCreateTxSheet() {
 // ── MAIN SYNC ───────────────────────────────────────────────────────────────
 // Pulls from every configured account, upserts into TLMND_TRANSACTIONS.
 // Preserves user-editable columns on re-sync.
-function syncTLMNDCashFlow() {
+function syncTLMNDCashFlow() { _requireEditor_();
   var cfg = getTLMNDConfig_();
   if (!cfg) return { success: false, error: 'TLMND config not initialized. Run initTLMNDConfigDefaults first.' };
 
@@ -608,7 +608,7 @@ function _tlmndGetOrCreateRulesSheet() {
 // each time it's run — so you can re-seed after schema changes without
 // creating duplicates. Any custom rules you added by hand will be lost — add
 // them again after re-seeding.
-function seedTLMNDRules() {
+function seedTLMNDRules() { _requireEditor_();
   var ui = SpreadsheetApp.getUi();
   var resp = ui.alert('Seed TLMND Rules',
     'This will REPLACE all rules in TLMND_CATEGORY_RULES with a starter set matched to your ' +
@@ -833,7 +833,7 @@ function _tlmndMatchOne(fieldValue, matchType, pattern) {
 
 // Apply rules to TLMND_TRANSACTIONS. Preserves manually-set Category values
 // (any Category that doesn't match some rule's Category is treated as manual).
-function applyTLMNDRules() {
+function applyTLMNDRules() { _requireEditor_();
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
   if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'No transactions to categorize.' };
 

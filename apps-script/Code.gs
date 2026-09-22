@@ -36,6 +36,85 @@ var CATEGORIES = [
 
 var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP','PYG'];
 
+// ─── Access Control ─────────────────────────────────────────────────────────
+// The web app is read-open (anyone with the link can view) but write-gated.
+// By default only the owner (Amanda) can trigger mutations — saves, deletes,
+// syncs, etc. She can grant edit access to additional emails at runtime via
+// the Access Settings modal (owner-only). Editors are stored in the EDITORS
+// script property as a JSON array of lower-cased email strings.
+//
+// The default owner email is here for bootstrap; it can be overridden with
+// the OWNER_EMAIL script property (e.g. if the sheet transfers ownership).
+var OWNER_EMAIL_DEFAULT = 'amanda.lusk@nf6capital.com';
+
+function _getOwnerEmail_() {
+  return String(PropertiesService.getScriptProperties().getProperty('OWNER_EMAIL') || OWNER_EMAIL_DEFAULT).toLowerCase();
+}
+function _getEditors_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('EDITORS');
+  try { return raw ? JSON.parse(raw) : []; } catch(e) { return []; }
+}
+function _currentUserEmail_() {
+  return String(Session.getActiveUser().getEmail() || '').toLowerCase();
+}
+function _isOwner_() {
+  var me = _currentUserEmail_();
+  return !!me && me === _getOwnerEmail_();
+}
+function _isEditor_() {
+  var me = _currentUserEmail_();
+  if (!me) return false;
+  if (me === _getOwnerEmail_()) return true;
+  return _getEditors_().map(function(e){return String(e).toLowerCase();}).indexOf(me) >= 0;
+}
+function _requireEditor_() {
+  if (!_isEditor_()) {
+    throw new Error('Read-only view — you don\'t have edit access. Contact ' + _getOwnerEmail_() + ' to be added as an editor.');
+  }
+}
+function _requireOwner_() {
+  if (!_isOwner_()) {
+    throw new Error('Owner-only action — only ' + _getOwnerEmail_() + ' can change access settings.');
+  }
+}
+
+// Web-callable: returns the caller's access level + full editor list (for the
+// owner). Frontend uses this to render the read-only banner and the owner's
+// Access Settings modal.
+function getAccessInfo() {
+  var isOwner = _isOwner_();
+  return {
+    userEmail:  _currentUserEmail_(),
+    ownerEmail: _getOwnerEmail_(),
+    isOwner:    isOwner,
+    isEditor:   _isEditor_(),
+    editors:    isOwner ? _getEditors_() : []   // hide list from non-owners
+  };
+}
+
+// Web-callable (owner-only): grant edit access to another email.
+function addEditor(email) {
+  _requireOwner_();
+  email = String(email || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) throw new Error('Invalid email address.');
+  if (email === _getOwnerEmail_()) return { success: true, editors: _getEditors_(), note: 'Owner already has access.' };
+  var list = _getEditors_();
+  if (list.map(function(e){return String(e).toLowerCase();}).indexOf(email) < 0) {
+    list.push(email);
+    PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+  }
+  return { success: true, editors: list };
+}
+
+// Web-callable (owner-only): revoke edit access.
+function removeEditor(email) {
+  _requireOwner_();
+  email = String(email || '').trim().toLowerCase();
+  var list = _getEditors_().filter(function(e){ return String(e).toLowerCase() !== email; });
+  PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+  return { success: true, editors: list };
+}
+
 var SUPPORTED_CURRENCIES = {
   'AED':'UAE Dirham','ARS':'Argentine Peso','AUD':'Australian Dollar',
   'BRL':'Brazilian Real','CAD':'Canadian Dollar','CHF':'Swiss Franc',
@@ -597,7 +676,7 @@ function getHistoryData() {
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────
 
-function fetchExchangeRates() {
+function fetchExchangeRates() { _requireEditor_();
   try {
     var resp = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
     if (resp.getResponseCode() !== 200) return { success: false, error: 'HTTP ' + resp.getResponseCode() };
@@ -712,7 +791,7 @@ function TO_USD(amount, currencyCode) {
 
 // ── Assets CRUD ───────────────────────────────────────────────────────────────
 
-function addAsset(data) {
+function addAsset(data) { _requireEditor_();
   var sheet    = getSheet_('ASSETS');
   var id       = Utilities.getUuid();
   var now      = new Date();
@@ -754,7 +833,7 @@ function addAsset(data) {
   return { success: true, id: id, savedName: nameToSave };
 }
 
-function updateAsset(data) {
+function updateAsset(data) { _requireEditor_();
   var sheet   = getSheet_('ASSETS');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0];
@@ -800,7 +879,7 @@ function updateAsset(data) {
   return { success: false, error: 'Asset not found' };
 }
 
-function saveAssetDetails(id, detailsJson) {
+function saveAssetDetails(id, detailsJson) { _requireEditor_();
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -871,7 +950,7 @@ function saveAssetDetails(id, detailsJson) {
 
 // Combined save: updates core fields + details in one GAS call (half the round-trips).
 // coreData mirrors the updateAsset() payload; detailsJson is the JSON string for Details.
-function saveFullAsset(coreData, id, detailsJson) {
+function saveFullAsset(coreData, id, detailsJson) { _requireEditor_();
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -1004,7 +1083,7 @@ function saveFullAsset(coreData, id, detailsJson) {
 
 // Fast auto-save: reads only the header row + ID column, writes just the Details cell.
 // Called by the 2-second auto-save timer — much faster than saveFullAsset (~300ms vs 1-3s).
-function saveAssetDetailsOnly(id, detailsJson) {
+function saveAssetDetailsOnly(id, detailsJson) { _requireEditor_();
   var sheet   = getSheet_('ASSETS');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: false, error: 'No asset rows' };
@@ -1046,7 +1125,7 @@ function saveAssetDetailsOnly(id, detailsJson) {
   return { success: false, error: 'Asset not found: ' + id };
 }
 
-function deleteAsset(id) {
+function deleteAsset(id) { _requireEditor_();
   var sheet = getSheet_('ASSETS');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -1060,10 +1139,10 @@ function deleteAsset(id) {
 // details capture what actually happened at close time — sale price, payoff
 // amount, or amount received back on a loan — plus a date and free-text
 // notes. Row data is preserved either way — archiving never deletes.
-function setAssetArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
+function setAssetArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
   return _setRowArchived_('ASSETS', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
-function setLiabilityArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
+function setLiabilityArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
   return _setRowArchived_('LIABILITIES', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
 }
 function _setRowArchived_(sheetKey, id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
@@ -1153,7 +1232,7 @@ function convertAssetToLiability(assetId, liabilityType) {
 
 // ── Entities CRUD ─────────────────────────────────────────────────────────────
 
-function addEntity(data) {
+function addEntity(data) { _requireEditor_();
   var sheet   = getSheet_('ENTITIES');
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var row = headers.map(function(h) {
@@ -1178,7 +1257,7 @@ function addEntity(data) {
   return { success: true };
 }
 
-function updateEntity(data) {
+function updateEntity(data) { _requireEditor_();
   var sheet   = getSheet_('ENTITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0];
@@ -1207,7 +1286,7 @@ function updateEntity(data) {
   return { success: false, error: 'Entity not found: ' + data.originalName };
 }
 
-function deleteEntity(name) {
+function deleteEntity(name) { _requireEditor_();
   var sheet = getSheet_('ENTITIES');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -1218,7 +1297,7 @@ function deleteEntity(name) {
 
 // ── Liabilities CRUD ──────────────────────────────────────────────────────────
 
-function addLiability(data) {
+function addLiability(data) { _requireEditor_();
   var sheet  = getSheet_('LIABILITIES');
   var id     = Utilities.getUuid();
   var now    = new Date();
@@ -1228,7 +1307,7 @@ function addLiability(data) {
   return { success: true, id: id };
 }
 
-function updateLiability(data) {
+function updateLiability(data) { _requireEditor_();
   var sheet   = getSheet_('LIABILITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0] || [];
@@ -1253,7 +1332,7 @@ function updateLiability(data) {
   return { success: false, error: 'Liability not found' };
 }
 
-function saveLiabilityDetails(id, detailsJson) {
+function saveLiabilityDetails(id, detailsJson) { _requireEditor_();
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -1336,7 +1415,7 @@ function saveLiabilityDetails(id, detailsJson) {
   return { success: true, balance: balanceNum, usdValue: balanceNum * fxRateForReturn, currency: currency };
 }
 
-function deleteLiability(id) {
+function deleteLiability(id) { _requireEditor_();
   var sheet = getSheet_('LIABILITIES');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -1556,7 +1635,7 @@ function getOrgChart() {
   });
 }
 
-function saveOrgNode(nodeJson) {
+function saveOrgNode(nodeJson) { _requireEditor_();
   var node  = JSON.parse(nodeJson);
   var sheet = getSheet_('ORG_CHART');
   var data  = sheet.getDataRange().getValues();
@@ -1592,7 +1671,7 @@ function saveOrgNode(nodeJson) {
   return { success: true, id: rowMap['ID'] };
 }
 
-function deleteOrgNode(id) {
+function deleteOrgNode(id) { _requireEditor_();
   var sheet = getSheet_('ORG_CHART');
   var data  = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
@@ -1604,7 +1683,7 @@ function deleteOrgNode(id) {
   return { success: false, error: 'Node not found' };
 }
 
-function saveOrgPositions(positionsJson) {
+function saveOrgPositions(positionsJson) { _requireEditor_();
   // positionsJson: [{id, x, y}, ...]
   var positions = JSON.parse(positionsJson);
   var sheet = getSheet_('ORG_CHART');
@@ -1634,7 +1713,7 @@ function saveOrgPositions(positionsJson) {
  * Assets with Category = "Real Estate" and a US address in Notes
  * (format: "address: 123 Main St, City, TX 77001") are auto-updated.
  */
-function refreshPropertyValues() {
+function refreshPropertyValues() { _requireEditor_();
   var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
   if (!apiKey) {
     SpreadsheetApp.getUi().alert(
@@ -2135,7 +2214,7 @@ function handlePlaidStatementsSuccess(publicToken, institutionName) {
   }
 }
 
-function syncPlaidAccounts() {
+function syncPlaidAccounts() { _requireEditor_();
   var cfg     = getPlaidConfig_();
   var p       = PropertiesService.getScriptProperties();
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
@@ -2374,7 +2453,7 @@ function sanitizeName_(s) {
   return String(s || '').replace(/[\/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Untitled';
 }
 
-function syncPlaidStatements() {
+function syncPlaidStatements() { _requireEditor_();
   var cfg = getPlaidConfig_();
   if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
   var props      = PropertiesService.getScriptProperties();
@@ -2527,7 +2606,7 @@ function _monthlyStatementSync() { syncPlaidStatements(); }
 // ···mask]/YYYY-MM-tx.pdf — so both real statements and generated ones live
 // side-by-side per account.
 // ============================================================================
-function syncPlaidTransactionsMonthly(monthsBack) {
+function syncPlaidTransactionsMonthly(monthsBack) { _requireEditor_();
   var cfg = getPlaidConfig_();
   if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
   var props   = PropertiesService.getScriptProperties();
@@ -3084,7 +3163,7 @@ function reorganizePlaidStatements() {
 
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
 
-function syncSnapTradeAccounts() {
+function syncSnapTradeAccounts() { _requireEditor_();
   var accounts;
   try { accounts = listSnapTradeAccounts(); } catch(e) {
     return { success: false, error: 'SnapTrade API error: ' + e.message };
@@ -3699,7 +3778,7 @@ function fixDuplicatePlaidRows() {
 //   - Removes ONE entry from PLAID_TOKENS + its label from PLAID_INSTITUTIONS
 //   - Other connections are completely untouched
 //   - Spreadsheet rows are NOT deleted — they just stop updating from Plaid
-function removeOnePlaidConnection() {
+function removeOnePlaidConnection() { _requireEditor_();
   var ui     = SpreadsheetApp.getUi();
   var props  = PropertiesService.getScriptProperties();
   var txList = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
@@ -3766,7 +3845,7 @@ function removeOnePlaidConnection() {
   );
 }
 
-function setPlaidInstitutionName(index, name) {
+function setPlaidInstitutionName(index, name) { _requireEditor_();
   var p       = PropertiesService.getScriptProperties();
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
   var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
@@ -3776,7 +3855,7 @@ function setPlaidInstitutionName(index, name) {
   return { success: true };
 }
 
-function removePlaidConnection() {
+function removePlaidConnection() { _requireEditor_();
   var ui     = SpreadsheetApp.getUi();
   var props  = PropertiesService.getScriptProperties();
   var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
@@ -4231,7 +4310,7 @@ function setDailyPDFRecipient() {
 
 
 
-function syncAllAccounts() {
+function syncAllAccounts() { _requireEditor_();
   var synced = 0;
   var errors = [];
   try { var p = syncPlaidAccounts();    if (p && p.synced)  synced += p.synced;  } catch(e) { errors.push('Plaid: '     + e.message); }

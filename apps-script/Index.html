@@ -1851,6 +1851,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
 // -- State ------------------------------------------------------------------
 const state = {
   assets: [], entities: [], fxRates: [], fxMeta: null, history: [], snapshots: [], categories: [], currencies: [],
+  access: { isEditor: true, isOwner: false, userEmail: '', ownerEmail: '', editors: [] },
   sort: { assets: { col: 'Name', asc: true }, entities: { col: 'Name', asc: true }, liabilities: { col: 'Name', asc: true } }
 };
 
@@ -1892,8 +1893,129 @@ function catColor(c){return CAT_COLORS[c]||'#90a4ae'}
 window.onload = function(){
   document.getElementById('header-date').textContent = fmtDate(new Date().toISOString());
   document.querySelectorAll('.tab-btn').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+  loadAccessInfo();
   loadData();
 };
+
+// -- Access Control (read/edit permissions) ---------------------------------
+// Loads the caller's edit status from the server, renders a read-only banner
+// for viewers, and unlocks the "Access Settings" gear icon for the owner.
+function loadAccessInfo(){
+  google.script.run
+    .withSuccessHandler(function(info){
+      state.access = info || state.access;
+      renderAccessUi();
+    })
+    .withFailureHandler(function(e){
+      console.warn('access load failed:', e.message);
+    })
+    .getAccessInfo();
+}
+function renderAccessUi(){
+  var a = state.access || {};
+  // Read-only banner: fixed at the top of the page, visible only to non-editors.
+  var bar = document.getElementById('read-only-banner');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'read-only-banner';
+    bar.style.cssText = 'background:#fdecc8;border-bottom:1px solid #d4b662;padding:8px 16px;font-size:13px;color:#5a4200;text-align:center;font-weight:500';
+    document.body.insertBefore(bar, document.body.firstChild);
+  }
+  if (a.isEditor === false) {
+    var contact = a.ownerEmail ? ('<a href="mailto:'+a.ownerEmail+'" style="color:#5a4200;text-decoration:underline">'+a.ownerEmail+'</a>') : 'the owner';
+    bar.innerHTML = '🔒 <strong>Read-only view.</strong> You\'re signed in as ' + (a.userEmail || 'guest') + '. Contact ' + contact + ' to be granted edit access.';
+    bar.style.display = 'block';
+  } else {
+    bar.style.display = 'none';
+  }
+  // Owner-only gear icon in the header — opens the Access Settings modal.
+  var gear = document.getElementById('access-gear');
+  if (a.isOwner) {
+    if (!gear) {
+      gear = document.createElement('button');
+      gear.id = 'access-gear';
+      gear.title = 'Access Settings — manage who can edit';
+      gear.innerHTML = '🔐 Access';
+      gear.style.cssText = 'position:fixed;top:10px;right:14px;z-index:100;background:#0d2137;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;cursor:pointer;font-weight:600';
+      gear.onclick = openAccessModal;
+      document.body.appendChild(gear);
+    }
+    gear.style.display = 'block';
+  } else if (gear) {
+    gear.style.display = 'none';
+  }
+}
+function openAccessModal(){
+  var a = state.access || {};
+  var editors = a.editors || [];
+  var listHtml = editors.length
+    ? editors.map(function(e){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #e6ebf2">'+
+                 '<span style="font-size:13px;color:#0d2137">'+e+'</span>'+
+                 '<button onclick="removeEditorClick(\''+e.replace(/\'/g,"\\'")+'\')" style="background:#fde8e8;color:#7f1d1d;border:1px solid #f0c8c8;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">Remove</button>'+
+               '</div>';
+      }).join('')
+    : '<div style="padding:14px;color:#8091a8;font-size:13px;font-style:italic">No additional editors yet — only you (' + (a.ownerEmail||'owner') + ') can edit.</div>';
+  var body =
+    '<div style="padding:14px 20px">' +
+      '<div style="font-size:12px;color:#5f7791;margin-bottom:12px;line-height:1.5">' +
+        'The dashboard is <strong>read-only</strong> by default. Anyone with the link can view, but only editors can add/edit/delete assets, sync accounts, or run rules.' +
+      '</div>' +
+      '<div style="background:#f4f8fc;border:1px solid #d0dae5;border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px">' +
+        '<div style="color:#5f7791">Owner</div>' +
+        '<div style="font-weight:600;color:#0d2137;margin-top:2px">' + (a.ownerEmail||'—') + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">Editors</div>' +
+      '<div id="access-editors-list" style="background:#fff;border:1px solid #dfe6ee;border-radius:6px;margin-bottom:14px">' + listHtml + '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<input type="email" id="access-new-email" placeholder="new-editor@example.com" style="flex:1;padding:7px 10px;border:1px solid #c0ccd8;border-radius:6px;font-size:13px">' +
+        '<button onclick="addEditorClick()" class="btn btn-primary" style="padding:7px 16px">Add Editor</button>' +
+      '</div>' +
+      '<div style="margin-top:14px;text-align:right">' +
+        '<button onclick="closeModal(\'access-modal\')" class="btn btn-secondary">Close</button>' +
+      '</div>' +
+    '</div>';
+  var m = document.getElementById('access-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'access-modal';
+    m.className = 'modal-overlay';
+    m.innerHTML = '<div class="modal" style="max-width:520px"><div class="modal-header"><div class="modal-title">Access Settings</div><button class="modal-close" onclick="closeModal(\'access-modal\')">x</button></div><div class="modal-body" id="access-modal-body"></div></div>';
+    document.body.appendChild(m);
+  }
+  document.getElementById('access-modal-body').innerHTML = body;
+  openModal('access-modal');
+}
+function addEditorClick(){
+  var inp = document.getElementById('access-new-email');
+  var email = (inp && inp.value || '').trim();
+  if (!email) { toast('Enter an email address','error'); return; }
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (res && res.success) {
+        state.access.editors = res.editors;
+        toast('Added ' + email);
+        openAccessModal();  // refresh list
+      } else {
+        toast('Failed to add editor','error');
+      }
+    })
+    .withFailureHandler(function(e){ toast(e.message||'Failed','error'); })
+    .addEditor(email);
+}
+function removeEditorClick(email){
+  if (!confirm('Remove ' + email + ' from editors?')) return;
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (res && res.success) {
+        state.access.editors = res.editors;
+        toast('Removed ' + email);
+        openAccessModal();
+      }
+    })
+    .withFailureHandler(function(e){ toast(e.message||'Failed','error'); })
+    .removeEditor(email);
+}
 
 function loadData(cb){
   showLoading(true);
