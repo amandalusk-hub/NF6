@@ -191,6 +191,7 @@ function onOpen() {
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
     .addItem('Set Daily PDF Email Recipient',  'setDailyPDFRecipient')
+    .addItem('Preview Net Worth PDF (in browser)',     'previewNetWorthPdfHtml')
     .addItem('Send Weekly Net Worth PDF (test to me)', 'sendWeeklyNetWorthPdfTest')
     .addItem('Send Daily Net Worth PDF (test to me)',  'sendDailyNetWorthPdfTest')
     .addSeparator()
@@ -3944,46 +3945,228 @@ function setWeeklyPDFRecipient() {
 // Shared helper: regenerate the Balances sheet, export it as PDF, send to the
 // given recipient(s) with the given subject prefix. Both weeklyPDFEmail and
 // dailyPDFEmail are thin wrappers around this.
+// Build a dashboard-styled Net Worth PDF via HTML instead of exporting the
+// Balances sheet. Mirrors the web UI (banner + metric cards + two-column
+// grouped list + inline SVG pie charts on their own pages). Fixes the pie
+// chart clipping the sheet exporter suffered from — SVG is native HTML so
+// nothing gets chopped mid-image at page breaks.
+function _buildNetWorthPdfHtml_(subjectPrefix) {
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabs  = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
+
+  assets.forEach(function(a){ a._usd = Number(a['My Share USD']) || 0; a._d = a['Last Updated'] ? new Date(a['Last Updated']) : null; });
+  liabs.forEach(function(l){ l._usd = Number(l['USD Value']) || 0; l._d = l['Last Updated'] ? new Date(l['Last Updated']) : null; });
+
+  var totalAssets = assets.reduce(function(s,a){return s+a._usd;},0);
+  var totalLiabs  = liabs.reduce(function(s,l){return s+l._usd;},0);
+  var netWorth    = totalAssets - totalLiabs;
+  var cashUsd     = assets.filter(function(a){return (a.Category||'').toLowerCase().indexOf('cash')===0;})
+                          .reduce(function(s,a){return s+a._usd;},0);
+
+  // Category color palette (matches the dashboard's CAT_COLORS).
+  var CAT_COLORS = {
+    'Art/Jewelry/Other':'#1B4F8A','Automobile':'#2E6DA4',
+    'Cash - Business':'#4A8DC0','Cash - Personal':'#6AADD4',
+    'Private Equity':'#0D3B6E','Public Equity (Dividends)':'#8FC4E0',
+    'Public Equity (Growth)':'#3A7CA8',
+    'Real Estate - Colombia':'#1A5276','Real Estate - Dominican Republic':'#5B9BBF',
+    'Real Estate - Europe':'#A8CCE0','Real Estate - Puerto Rico':'#2471A3',
+    'Real Estate - United States':'#154360','VIP Medical Group':'#7FB3D3',
+    'Loans Receivable':'#0A2A4A','Promissory Notes':'#123859',
+    'Insurance':'#9DBFCF','Crypto':'#4a90d9','Other':'#B8D4E0'
+  };
+  function catColor(c){ return CAT_COLORS[c] || CAT_COLORS[Object.keys(CAT_COLORS).find(function(k){return k.toLowerCase()===String(c||'').toLowerCase();})] || '#90a4ae'; }
+  var LIAB_COLORS = ['#c5221f','#e07b30','#8b6914','#7f1d1d','#a0522d','#5d3a1a','#b8860b'];
+
+  // Group assets by category, sorted by total desc; items within sorted by value.
+  var byCat = {};
+  assets.forEach(function(a){ var c = a.Category || 'Other'; if(!byCat[c]) byCat[c] = []; byCat[c].push(a); });
+  var catEntries = Object.keys(byCat).map(function(c){
+    var items = byCat[c].sort(function(x,y){return y._usd - x._usd;});
+    return { cat:c, items:items, total:items.reduce(function(s,a){return s+a._usd;},0) };
+  }).sort(function(a,b){ return b.total - a.total; });
+
+  // Group liabilities by type, sorted the same way.
+  var byType = {};
+  liabs.forEach(function(l){ var t = l.Type || 'Other'; if(!byType[t]) byType[t] = []; byType[t].push(l); });
+  var typeEntries = Object.keys(byType).map(function(t){
+    var items = byType[t].sort(function(x,y){return y._usd - x._usd;});
+    return { type:t, items:items, total:items.reduce(function(s,l){return s+l._usd;},0) };
+  }).sort(function(a,b){ return b.total - a.total; });
+
+  function fmt(v){ if(v==null||isNaN(v))return'$0'; var s=Math.abs(Math.round(v)).toLocaleString('en-US'); return (v<0?'−':'')+'$'+s; }
+  function daysAgo(d){
+    if(!d||!(d instanceof Date)||isNaN(d.getTime()))return'';
+    var n=Math.floor((Date.now()-d.getTime())/86400000);
+    if(n===0)return'today'; if(n===1)return'1 day ago'; return n+' days ago';
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+
+  // Inline SVG pie — draws a full pie (not donut) sized for full-page use in PDF.
+  function svgPie(entries, size, colorFn){
+    var total = entries.reduce(function(s,e){return s+e.value;},0) || 1;
+    var cx = size/2, cy = size/2, r = size/2 - 8;
+    var angle = -Math.PI/2, paths = '', labels = '';
+    entries.forEach(function(e, i){
+      var pct = e.value / total;
+      var a2 = angle + pct * 2 * Math.PI;
+      var x1 = cx + r*Math.cos(angle), y1 = cy + r*Math.sin(angle);
+      var x2 = cx + r*Math.cos(a2), y2 = cy + r*Math.sin(a2);
+      var large = pct > 0.5 ? 1 : 0;
+      var color = colorFn(e, i);
+      // Nearly-full-circle sliver: draw as a full circle to avoid degenerate arc rendering.
+      if (Math.abs(pct - 1) < 0.0001) {
+        paths += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
+      } else {
+        paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(2)+','+y1.toFixed(2)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(2)+','+y2.toFixed(2)+' Z" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
+      }
+      if (pct > 0.03) {
+        var mid = (angle + a2) / 2;
+        var lr = r * 0.66;
+        var lx = cx + lr*Math.cos(mid), ly = cy + lr*Math.sin(mid);
+        labels += '<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="13" font-weight="700">'+(pct*100).toFixed(1)+'%</text>';
+      }
+      angle = a2;
+    });
+    return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" xmlns="http://www.w3.org/2000/svg">'+paths+labels+'</svg>';
+  }
+  function legend(entries, colorFn, total){
+    var t = total || entries.reduce(function(s,e){return s+e.value;},0) || 1;
+    return entries.map(function(e, i){
+      var pct = ((e.value/t)*100).toFixed(1);
+      return '<div class="lg-row"><span class="lg-dot" style="background:'+colorFn(e,i)+'"></span>'+
+             '<span class="lg-name">'+esc(e.label)+'</span>'+
+             '<span class="lg-val">'+fmt(e.value)+'</span>'+
+             '<span class="lg-pct">'+pct+'%</span></div>';
+    }).join('');
+  }
+
+  // Build the two-column grouped list HTML.
+  var assetListHtml = catEntries.map(function(g){
+    var itemsHtml = g.items.map(function(a){
+      return '<tr class="row"><td class="nm">'+esc(a.Name||'')+'</td>'+
+             '<td class="ago">'+esc(daysAgo(a._d))+'</td>'+
+             '<td class="val">'+fmt(a._usd)+'</td></tr>';
+    }).join('');
+    var latest = g.items.reduce(function(b,a){ return (a._d && (!b || a._d > b)) ? a._d : b; }, null);
+    return '<tr class="cat-hdr"><td>'+esc(g.cat)+'</td>'+
+           '<td class="ago">'+esc(daysAgo(latest))+'</td>'+
+           '<td class="val">'+fmt(g.total)+'</td></tr>' + itemsHtml;
+  }).join('');
+  var liabListHtml = typeEntries.map(function(g){
+    var itemsHtml = g.items.map(function(l){
+      return '<tr class="row"><td class="nm">'+esc(l.Name||'')+'</td>'+
+             '<td class="ago">'+esc(daysAgo(l._d))+'</td>'+
+             '<td class="val neg">'+fmt(l._usd)+'</td></tr>';
+    }).join('');
+    var latest = g.items.reduce(function(b,l){ return (l._d && (!b || l._d > b)) ? l._d : b; }, null);
+    return '<tr class="cat-hdr"><td>'+esc(g.type)+'</td>'+
+           '<td class="ago">'+esc(daysAgo(latest))+'</td>'+
+           '<td class="val neg">'+fmt(g.total)+'</td></tr>' + itemsHtml;
+  }).join('');
+
+  // Pie chart data (categories with value > 0 only).
+  var assetPie = catEntries.filter(function(g){return g.total>0;}).map(function(g){ return { label:g.cat, value:g.total }; });
+  var liabPie  = typeEntries.filter(function(g){return g.total>0;}).map(function(g){ return { label:g.type, value:g.total }; });
+
+  var dateLabel = Utilities.formatDate(new Date(),'America/New_York','MMMM d, yyyy');
+
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    '@page { size: letter landscape; margin: 0.4in; }' +
+    'body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #0d2137; margin: 0; padding: 0; font-size: 12px; }' +
+    'h1 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #6a7c95; font-weight: 600; }' +
+    '.subj { text-align: center; color: #5f7791; font-size: 11px; margin-bottom: 12px; }' +
+    '.banner { background: linear-gradient(135deg,#0d2137 0%,#1a3a5c 100%); color: #fff; padding: 20px 24px; border-radius: 10px; text-align: center; margin-bottom: 14px; }' +
+    '.banner .label { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8fb3d9; }' +
+    '.banner .val { font-size: 40px; font-weight: 700; margin-top: 4px; letter-spacing: -0.5px; }' +
+    '.metrics { display: table; width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 14px; }' +
+    '.metric { display: table-cell; background: #f4f8fc; border: 1px solid #d0dae5; border-radius: 8px; padding: 12px 14px; text-align: center; width: 25%; }' +
+    '.metric .lbl { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: #6a7c95; margin-bottom: 4px; }' +
+    '.metric .num { font-size: 18px; font-weight: 700; color: #0d2137; }' +
+    '.two-col { display: table; width: 100%; border-spacing: 8px 0; }' +
+    '.col { display: table-cell; width: 50%; vertical-align: top; }' +
+    '.col-inner { background: #fff; border: 1px solid #dfe6ee; border-radius: 8px; overflow: hidden; }' +
+    'table.list { width: 100%; border-collapse: collapse; font-size: 11px; }' +
+    'table.list td { padding: 4px 10px; }' +
+    'table.list .sec-hdr td { background: #0d2137; color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 10px; font-size: 11px; }' +
+    'table.list .sec-hdr .val { text-align: right; font-size: 13px; }' +
+    'table.list .cat-hdr td { background: #eef2f7; font-weight: 700; color: #0d2137; border-top: 1px solid #dfe6ee; padding: 6px 10px; font-size: 11px; }' +
+    'table.list .cat-hdr .val { text-align: right; }' +
+    'table.list .row td { border-top: 1px solid #f0f3f7; }' +
+    'table.list .row .nm { color: #2c4a6b; }' +
+    'table.list .row .ago { color: #8091a8; font-size: 10px; white-space: nowrap; text-align: right; }' +
+    'table.list .row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }' +
+    'table.list .neg { color: #c5221f; }' +
+    '.chart-page { page-break-before: always; padding: 20px 40px; text-align: center; }' +
+    '.chart-page h2 { font-size: 20px; color: #0d2137; margin: 0 0 24px; letter-spacing: 0.3px; }' +
+    '.chart-page svg { display: block; margin: 0 auto 20px; }' +
+    '.chart-legend { display: table; margin: 0 auto; border-collapse: collapse; font-size: 12px; }' +
+    '.chart-legend .lg-row { display: table-row; }' +
+    '.chart-legend .lg-row > * { display: table-cell; padding: 4px 12px 4px 0; vertical-align: middle; }' +
+    '.chart-legend .lg-dot { width: 12px; height: 12px; border-radius: 3px; padding: 0; }' +
+    '.chart-legend .lg-name { color: #0d2137; }' +
+    '.chart-legend .lg-val { color: #4a6b8e; font-variant-numeric: tabular-nums; text-align: right; }' +
+    '.chart-legend .lg-pct { color: #6a7c95; font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }' +
+    '</style></head><body>' +
+    '<h1 style="text-align:center;padding-top:6px">' + esc(subjectPrefix) + '</h1>' +
+    '<div class="subj">' + esc(dateLabel) + '</div>' +
+    '<div class="banner">' +
+      '<div class="label">Net Worth</div>' +
+      '<div class="val">' + fmt(netWorth) + '</div>' +
+    '</div>' +
+    '<div class="metrics">' +
+      '<div class="metric"><div class="lbl">Total Assets</div><div class="num">'+fmt(totalAssets)+'</div></div>' +
+      '<div class="metric"><div class="lbl">Total Liabilities</div><div class="num">'+fmt(totalLiabs)+'</div></div>' +
+      '<div class="metric"><div class="lbl">Liquid Cash</div><div class="num">'+fmt(cashUsd)+'</div></div>' +
+      '<div class="metric"><div class="lbl">Asset Count</div><div class="num">'+assets.length+'</div></div>' +
+    '</div>' +
+    '<div class="two-col">' +
+      '<div class="col"><div class="col-inner"><table class="list">' +
+        '<tr class="sec-hdr"><td>Assets</td><td class="ago"></td><td class="val">'+fmt(totalAssets)+'</td></tr>' +
+        assetListHtml +
+      '</table></div></div>' +
+      '<div class="col"><div class="col-inner"><table class="list">' +
+        '<tr class="sec-hdr"><td>Liabilities</td><td class="ago"></td><td class="val">'+fmt(totalLiabs)+'</td></tr>' +
+        (liabListHtml || '<tr class="row"><td colspan="3" style="text-align:center;color:#8091a8;padding:14px">No liabilities recorded</td></tr>') +
+      '</table></div></div>' +
+    '</div>' +
+    (assetPie.length ?
+      '<div class="chart-page">' +
+        '<h2>Assets by Category</h2>' +
+        svgPie(assetPie, 420, function(e){ return catColor(e.label); }) +
+        '<div class="chart-legend">' + legend(assetPie, function(e){ return catColor(e.label); }, totalAssets) + '</div>' +
+      '</div>' : '') +
+    (liabPie.length ?
+      '<div class="chart-page">' +
+        '<h2>Liabilities by Type</h2>' +
+        svgPie(liabPie, 420, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }) +
+        '<div class="chart-legend">' + legend(liabPie, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }, totalLiabs) + '</div>' +
+      '</div>' : '') +
+    '</body></html>';
+}
+
 function sendBalancesPDF_(recipient, subjectPrefix) {
   if (!recipient) return { success: false, error: 'No recipient configured.' };
 
-  generateBalancesSheet();
-  var ss    = getSpreadsheet_();
-  var sheet = ss.getSheetByName('Balances');
-  if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
-
-  // Single-PDF export. Charts are placed in tall rows near the bottom of
-  // the sheet (each 700px = nearly a full landscape-letter page), so
-  // Google's PDF exporter puts each chart on its own dedicated page at
-  // the end of the same PDF — no image clipping across page breaks.
-  var url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
-            '/export?exportFormat=pdf&format=pdf' +
-            '&size=letter&portrait=false&fitw=true&gridlines=false' +
-            '&sheetnames=false&printtitle=false&pagenumbers=false' +
-            '&horizontal_alignment=CENTER&vertical_alignment=TOP' +
-            '&top_margin=0.3&bottom_margin=0.3&left_margin=0.3&right_margin=0.3' +
-            '&gid=' + sheet.getSheetId();
-
-  var response = UrlFetchApp.fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true
-  });
-  if (response.getResponseCode() !== 200) {
-    return { success: false, error: 'PDF export failed: HTTP ' + response.getResponseCode() };
-  }
+  var html = _buildNetWorthPdfHtml_(subjectPrefix);
+  if (!html) return { success: false, error: 'Failed to build report HTML.' };
 
   var dateStr   = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
   var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
-  var pdfBlob   = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
+  var pdfBlob   = Utilities.newBlob(html, 'text/html', 'Net_Worth_' + dateStr + '.html')
+    .getAs('application/pdf').setName('Net_Worth_' + dateStr + '.pdf');
 
   MailApp.sendEmail({
     to:          recipient,
     subject:     subjectPrefix + ' — ' + dateLabel,
-    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.',
+    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.\n\n' +
+                 'This PDF is generated to mirror the dashboard view (net worth banner,\n' +
+                 'metric cards, grouped assets & liabilities, then pie charts on their\n' +
+                 'own pages).',
     name:        'Net Worth Tracker',
     attachments: [pdfBlob]
   });
-  Logger.log('sendBalancesPDF_: sent to ' + recipient);
+  Logger.log('sendBalancesPDF_: HTML-based PDF sent to ' + recipient);
   return { success: true };
 }
 
@@ -3994,6 +4177,16 @@ function weeklyPDFEmail() {
     return { success: false, error: 'No recipient configured. Use Tracker → Set Weekly PDF Email Recipient.' };
   }
   return sendBalancesPDF_(recipient, 'Weekly Net Worth Summary');
+}
+
+// Menu-callable preview — renders the Net Worth PDF as HTML in a modal
+// dialog so you can see how it will look BEFORE emailing. Same builder
+// used by sendBalancesPDF_, so what you see is what the recipient gets.
+function previewNetWorthPdfHtml() {
+  var html = _buildNetWorthPdfHtml_('Net Worth Preview');
+  if (!html) { SpreadsheetApp.getUi().alert('Failed to build preview HTML.'); return; }
+  var out  = HtmlService.createHtmlOutput(html).setWidth(1100).setHeight(720);
+  SpreadsheetApp.getUi().showModalDialog(out, 'Net Worth PDF Preview');
 }
 
 // Menu-callable test send — Weekly Net Worth PDF to the current user only.
