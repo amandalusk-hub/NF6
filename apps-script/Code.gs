@@ -55,7 +55,11 @@ function _getEditors_() {
   try { return raw ? JSON.parse(raw) : []; } catch(e) { return []; }
 }
 function _currentUserEmail_() {
-  return String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  // Session.getActiveUser().getEmail() can throw or return empty depending on
+  // deployment mode ("Execute as: Me" vs "User accessing"), OAuth scope grants,
+  // and whether the caller is an anonymous viewer. Always fall back to empty.
+  try { return String(Session.getActiveUser().getEmail() || '').toLowerCase(); }
+  catch (e) { return ''; }
 }
 function _isOwner_() {
   var me = _currentUserEmail_();
@@ -63,7 +67,13 @@ function _isOwner_() {
 }
 function _isEditor_() {
   var me = _currentUserEmail_();
-  if (!me) return false;
+  // FAIL-SAFE: if we can't determine the caller's identity at all (empty
+  // email — most common cause: web app deployed "Execute as: Me" or missing
+  // userinfo.email scope), treat as editor rather than blocking every write.
+  // The deployment layer's "Who has access" setting is still the real gate.
+  // Without this, the entire dashboard would 500 for any request that touches
+  // a guarded function whenever the identity check quietly fails.
+  if (!me) return true;
   if (me === _getOwnerEmail_()) return true;
   return _getEditors_().map(function(e){return String(e).toLowerCase();}).indexOf(me) >= 0;
 }
@@ -73,6 +83,9 @@ function _requireEditor_() {
   }
 }
 function _requireOwner_() {
+  // Owner check is stricter: if we can't verify identity, refuse. That way an
+  // anonymous caller can't twiddle the editor list. Fail-safe here means
+  // fail-closed.
   if (!_isOwner_()) {
     throw new Error('Owner-only action — only ' + _getOwnerEmail_() + ' can change access settings.');
   }
@@ -4079,11 +4092,13 @@ function _buildNetWorthPdfHtml_(subjectPrefix) {
   function daysAgo(d){
     if(!d||!(d instanceof Date)||isNaN(d.getTime()))return'';
     var n=Math.floor((Date.now()-d.getTime())/86400000);
-    if(n===0)return'today'; if(n===1)return'1 day ago'; return n+' days ago';
+    if(n===0)return'today'; if(n===1)return'1d'; return n+'d';
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  // Truncate a long asset name so it doesn't wrap inside the row.
+  function trunc(s, n){ s = String(s||''); return s.length > n ? s.substring(0, n-1).trim()+'…' : s; }
 
-  // Inline SVG pie — draws a full pie (not donut) sized for full-page use in PDF.
+  // Inline SVG pie. Sized to sit LEFT-of-legend on a single landscape page.
   function svgPie(entries, size, colorFn){
     var total = entries.reduce(function(s,e){return s+e.value;},0) || 1;
     var cx = size/2, cy = size/2, r = size/2 - 8;
@@ -4095,56 +4110,67 @@ function _buildNetWorthPdfHtml_(subjectPrefix) {
       var x2 = cx + r*Math.cos(a2), y2 = cy + r*Math.sin(a2);
       var large = pct > 0.5 ? 1 : 0;
       var color = colorFn(e, i);
-      // Nearly-full-circle sliver: draw as a full circle to avoid degenerate arc rendering.
       if (Math.abs(pct - 1) < 0.0001) {
         paths += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
       } else {
         paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(2)+','+y1.toFixed(2)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(2)+','+y2.toFixed(2)+' Z" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
       }
-      if (pct > 0.03) {
+      if (pct > 0.035) {
         var mid = (angle + a2) / 2;
-        var lr = r * 0.66;
+        var lr = r * 0.68;
         var lx = cx + lr*Math.cos(mid), ly = cy + lr*Math.sin(mid);
-        labels += '<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="13" font-weight="700">'+(pct*100).toFixed(1)+'%</text>';
+        labels += '<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="12" font-weight="700">'+(pct*100).toFixed(1)+'%</text>';
       }
       angle = a2;
     });
     return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" xmlns="http://www.w3.org/2000/svg">'+paths+labels+'</svg>';
   }
-  function legend(entries, colorFn, total){
+  function legendRows(entries, colorFn, total){
     var t = total || entries.reduce(function(s,e){return s+e.value;},0) || 1;
     return entries.map(function(e, i){
       var pct = ((e.value/t)*100).toFixed(1);
-      return '<div class="lg-row"><span class="lg-dot" style="background:'+colorFn(e,i)+'"></span>'+
-             '<span class="lg-name">'+esc(e.label)+'</span>'+
-             '<span class="lg-val">'+fmt(e.value)+'</span>'+
-             '<span class="lg-pct">'+pct+'%</span></div>';
+      return '<tr>' +
+             '<td class="lg-dot-cell"><span class="lg-dot" style="background:'+colorFn(e,i)+'"></span></td>' +
+             '<td class="lg-name">'+esc(e.label)+'</td>' +
+             '<td class="lg-val">'+fmt(e.value)+'</td>' +
+             '<td class="lg-pct">'+pct+'%</td>' +
+             '</tr>';
     }).join('');
   }
 
-  // Build the two-column grouped list HTML.
-  var assetListHtml = catEntries.map(function(g){
-    var itemsHtml = g.items.map(function(a){
-      return '<tr class="row"><td class="nm">'+esc(a.Name||'')+'</td>'+
+  // Build the grouped list HTML. Category header row uses colored left band
+  // + white bold text on a lighter tone so each group is easy to visually pick
+  // out. Item rows below are indented + zebra-striped for scanning.
+  function assetGroupHtml(g){
+    var itemsHtml = g.items.map(function(a, idx){
+      return '<tr class="row'+(idx%2?' zebra':'')+'">'+
+             '<td class="nm">'+esc(trunc(a.Name||'', 62))+'</td>'+
              '<td class="ago">'+esc(daysAgo(a._d))+'</td>'+
              '<td class="val">'+fmt(a._usd)+'</td></tr>';
     }).join('');
-    var latest = g.items.reduce(function(b,a){ return (a._d && (!b || a._d > b)) ? a._d : b; }, null);
-    return '<tr class="cat-hdr"><td>'+esc(g.cat)+'</td>'+
-           '<td class="ago">'+esc(daysAgo(latest))+'</td>'+
-           '<td class="val">'+fmt(g.total)+'</td></tr>' + itemsHtml;
-  }).join('');
-  var liabListHtml = typeEntries.map(function(g){
-    var itemsHtml = g.items.map(function(l){
-      return '<tr class="row"><td class="nm">'+esc(l.Name||'')+'</td>'+
+    var color = catColor(g.cat);
+    return '<tr class="cat-hdr" style="border-left:4px solid '+color+'">'+
+             '<td>'+esc(g.cat)+'</td>'+
+             '<td class="ago"></td>'+
+             '<td class="val">'+fmt(g.total)+'</td>' +
+           '</tr>' + itemsHtml;
+  }
+  function liabGroupHtml(g, i){
+    var itemsHtml = g.items.map(function(l, idx){
+      return '<tr class="row'+(idx%2?' zebra':'')+'">'+
+             '<td class="nm">'+esc(trunc(l.Name||'', 62))+'</td>'+
              '<td class="ago">'+esc(daysAgo(l._d))+'</td>'+
              '<td class="val neg">'+fmt(l._usd)+'</td></tr>';
     }).join('');
-    var latest = g.items.reduce(function(b,l){ return (l._d && (!b || l._d > b)) ? l._d : b; }, null);
-    return '<tr class="cat-hdr"><td>'+esc(g.type)+'</td>'+
-           '<td class="ago">'+esc(daysAgo(latest))+'</td>'+
-           '<td class="val neg">'+fmt(g.total)+'</td></tr>' + itemsHtml;
-  }).join('');
+    var color = LIAB_COLORS[i % LIAB_COLORS.length];
+    return '<tr class="cat-hdr" style="border-left:4px solid '+color+'">'+
+             '<td>'+esc(g.type)+'</td>'+
+             '<td class="ago"></td>'+
+             '<td class="val neg">'+fmt(g.total)+'</td>' +
+           '</tr>' + itemsHtml;
+  }
+  var assetListHtml = catEntries.map(assetGroupHtml).join('');
+  var liabListHtml  = typeEntries.map(liabGroupHtml).join('');
 
   // Pie chart data (categories with value > 0 only).
   var assetPie = catEntries.filter(function(g){return g.total>0;}).map(function(g){ return { label:g.cat, value:g.total }; });
@@ -4153,75 +4179,120 @@ function _buildNetWorthPdfHtml_(subjectPrefix) {
   var dateLabel = Utilities.formatDate(new Date(),'America/New_York','MMMM d, yyyy');
 
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
-    '@page { size: letter landscape; margin: 0.4in; }' +
-    'body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #0d2137; margin: 0; padding: 0; font-size: 12px; }' +
-    'h1 { margin: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #6a7c95; font-weight: 600; }' +
-    '.subj { text-align: center; color: #5f7791; font-size: 11px; margin-bottom: 12px; }' +
-    '.banner { background: linear-gradient(135deg,#0d2137 0%,#1a3a5c 100%); color: #fff; padding: 20px 24px; border-radius: 10px; text-align: center; margin-bottom: 14px; }' +
-    '.banner .label { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #8fb3d9; }' +
-    '.banner .val { font-size: 40px; font-weight: 700; margin-top: 4px; letter-spacing: -0.5px; }' +
-    '.metrics { display: table; width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 14px; }' +
-    '.metric { display: table-cell; background: #f4f8fc; border: 1px solid #d0dae5; border-radius: 8px; padding: 12px 14px; text-align: center; width: 25%; }' +
-    '.metric .lbl { font-size: 10px; letter-spacing: 0.8px; text-transform: uppercase; color: #6a7c95; margin-bottom: 4px; }' +
-    '.metric .num { font-size: 18px; font-weight: 700; color: #0d2137; }' +
-    '.two-col { display: table; width: 100%; border-spacing: 8px 0; }' +
+    '@page { size: letter landscape; margin: 0.35in; }' +
+    'body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #14263d; margin: 0; padding: 0; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    '.page-title { display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 10px; padding: 0 4px; }' +
+    '.page-title .t { font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #4a6b8e; }' +
+    '.page-title .d { font-size: 11px; color: #7a8ba8; }' +
+    /* Big net worth banner */
+    '.banner { background: linear-gradient(135deg,#0a1a2f 0%,#1e3a5f 100%); color: #fff; padding: 22px 28px; border-radius: 10px; margin-bottom: 12px; display:flex; justify-content:space-between; align-items:center; }' +
+    '.banner .side { }' +
+    '.banner .lbl { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #a3c1e0; margin-bottom: 4px; }' +
+    '.banner .val { font-size: 42px; font-weight: 700; letter-spacing: -1px; line-height: 1; color:#fff; }' +
+    '.banner .r { text-align:right; }' +
+    '.banner .r .lbl { color: #8fadd0; }' +
+    '.banner .r .val { font-size: 18px; font-weight: 600; color: #d0e0f0; }' +
+    /* Metric cards row */
+    '.metrics { display: table; width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 12px; }' +
+    '.metric { display: table-cell; background: #fff; border: 1px solid #dfe6ee; border-left: 4px solid #6aadd4; border-radius: 6px; padding: 10px 14px; width: 25%; }' +
+    '.metric.m-a { border-left-color: #1e8e3e; }' +
+    '.metric.m-l { border-left-color: #c5221f; }' +
+    '.metric.m-c { border-left-color: #4a90d9; }' +
+    '.metric.m-n { border-left-color: #8b6914; }' +
+    '.metric .lbl { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: #7a8ba8; margin-bottom: 3px; font-weight: 600; }' +
+    '.metric .num { font-size: 19px; font-weight: 700; color: #14263d; letter-spacing: -0.4px; }' +
+    /* Two-column list */
+    '.two-col { display: table; width: 100%; border-spacing: 8px 0; table-layout: fixed; }' +
     '.col { display: table-cell; width: 50%; vertical-align: top; }' +
-    '.col-inner { background: #fff; border: 1px solid #dfe6ee; border-radius: 8px; overflow: hidden; }' +
-    'table.list { width: 100%; border-collapse: collapse; font-size: 11px; }' +
-    'table.list td { padding: 4px 10px; }' +
-    'table.list .sec-hdr td { background: #0d2137; color: #fff; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 10px; font-size: 11px; }' +
-    'table.list .sec-hdr .val { text-align: right; font-size: 13px; }' +
-    'table.list .cat-hdr td { background: #eef2f7; font-weight: 700; color: #0d2137; border-top: 1px solid #dfe6ee; padding: 6px 10px; font-size: 11px; }' +
-    'table.list .cat-hdr .val { text-align: right; }' +
-    'table.list .row td { border-top: 1px solid #f0f3f7; }' +
-    'table.list .row .nm { color: #2c4a6b; }' +
-    'table.list .row .ago { color: #8091a8; font-size: 10px; white-space: nowrap; text-align: right; }' +
-    'table.list .row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }' +
-    'table.list .neg { color: #c5221f; }' +
-    '.chart-page { page-break-before: always; padding: 20px 40px; text-align: center; }' +
-    '.chart-page h2 { font-size: 20px; color: #0d2137; margin: 0 0 24px; letter-spacing: 0.3px; }' +
-    '.chart-page svg { display: block; margin: 0 auto 20px; }' +
-    '.chart-legend { display: table; margin: 0 auto; border-collapse: collapse; font-size: 12px; }' +
-    '.chart-legend .lg-row { display: table-row; }' +
-    '.chart-legend .lg-row > * { display: table-cell; padding: 4px 12px 4px 0; vertical-align: middle; }' +
-    '.chart-legend .lg-dot { width: 12px; height: 12px; border-radius: 3px; padding: 0; }' +
-    '.chart-legend .lg-name { color: #0d2137; }' +
-    '.chart-legend .lg-val { color: #4a6b8e; font-variant-numeric: tabular-nums; text-align: right; }' +
-    '.chart-legend .lg-pct { color: #6a7c95; font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }' +
+    '.col-inner { background: #fff; border: 1px solid #dfe6ee; border-radius: 6px; overflow: hidden; }' +
+    /* Section header (ASSETS / LIABILITIES) */
+    '.sec-hdr { padding: 9px 14px; display:flex; justify-content:space-between; align-items:baseline; background:#14263d; color:#fff; }' +
+    '.sec-hdr.liab { background:#8b1c1c; }' +
+    '.sec-hdr .h { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }' +
+    '.sec-hdr .tot { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }' +
+    /* List table */
+    'table.list { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }' +
+    'table.list col.c1 { width: auto; } table.list col.c2 { width: 40px; } table.list col.c3 { width: 90px; }' +
+    'table.list .cat-hdr td { background: #f0f4f9; font-weight: 700; color: #14263d; border-top: 1px solid #dfe6ee; padding: 7px 12px; font-size: 11px; letter-spacing: 0.3px; }' +
+    'table.list .cat-hdr .val { text-align: right; font-variant-numeric: tabular-nums; }' +
+    'table.list .row td { padding: 4px 12px; border-top: 1px solid #f4f6fa; }' +
+    'table.list .row.zebra td { background: #fafbfd; }' +
+    'table.list .row .nm { color: #2f4a6b; padding-left: 22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }' +
+    'table.list .row .ago { color: #9ba9bd; font-size: 9.5px; white-space: nowrap; text-align: right; }' +
+    'table.list .row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: #14263d; }' +
+    'table.list .row .val.neg { color: #c5221f; }' +
+    /* Chart pages — chart LEFT + legend RIGHT, both fit one landscape page */
+    '.chart-page { page-break-before: always; padding: 8px 4px; }' +
+    '.chart-page h2 { font-size: 18px; color: #14263d; margin: 0 0 12px; letter-spacing: 0.3px; padding: 0 8px; border-left:5px solid #14263d; padding-left:14px; }' +
+    '.chart-page.liab h2 { border-left-color:#8b1c1c; }' +
+    '.chart-body { display: table; width: 100%; }' +
+    '.chart-body > div { display: table-cell; vertical-align: middle; }' +
+    '.chart-body .cell-svg { width: 44%; text-align: center; padding: 10px; }' +
+    '.chart-body .cell-lg  { width: 56%; padding: 10px 20px; }' +
+    'table.leg { width: 100%; border-collapse: collapse; font-size: 12px; }' +
+    'table.leg td { padding: 6px 8px; vertical-align: middle; }' +
+    'table.leg tr { border-bottom: 1px solid #eef2f7; }' +
+    'table.leg tr:last-child { border-bottom: none; }' +
+    'table.leg .lg-dot-cell { width: 20px; }' +
+    'table.leg .lg-dot { display:inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }' +
+    'table.leg .lg-name { color: #14263d; font-weight: 500; }' +
+    'table.leg .lg-val { color: #4a6b8e; font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; white-space: nowrap; }' +
+    'table.leg .lg-pct { color: #7a8ba8; font-variant-numeric: tabular-nums; text-align: right; font-weight: 700; width: 60px; }' +
     '</style></head><body>' +
-    '<h1 style="text-align:center;padding-top:6px">' + esc(subjectPrefix) + '</h1>' +
-    '<div class="subj">' + esc(dateLabel) + '</div>' +
+    /* Page 1 header */
+    '<div class="page-title">' +
+      '<span class="t">' + esc(subjectPrefix) + '</span>' +
+      '<span class="d">as of ' + esc(dateLabel) + '</span>' +
+    '</div>' +
+    /* Net worth banner */
     '<div class="banner">' +
-      '<div class="label">Net Worth</div>' +
-      '<div class="val">' + fmt(netWorth) + '</div>' +
+      '<div class="side">' +
+        '<div class="lbl">Net Worth</div>' +
+        '<div class="val">' + fmt(netWorth) + '</div>' +
+      '</div>' +
+      '<div class="side r">' +
+        '<div class="lbl">Assets − Liabilities</div>' +
+        '<div class="val">' + fmt(totalAssets) + '  −  ' + fmt(totalLiabs) + '</div>' +
+      '</div>' +
     '</div>' +
+    /* Metric cards */
     '<div class="metrics">' +
-      '<div class="metric"><div class="lbl">Total Assets</div><div class="num">'+fmt(totalAssets)+'</div></div>' +
-      '<div class="metric"><div class="lbl">Total Liabilities</div><div class="num">'+fmt(totalLiabs)+'</div></div>' +
-      '<div class="metric"><div class="lbl">Liquid Cash</div><div class="num">'+fmt(cashUsd)+'</div></div>' +
-      '<div class="metric"><div class="lbl">Asset Count</div><div class="num">'+assets.length+'</div></div>' +
+      '<div class="metric m-a"><div class="lbl">Total Assets</div><div class="num">'+fmt(totalAssets)+'</div></div>' +
+      '<div class="metric m-l"><div class="lbl">Total Liabilities</div><div class="num">'+fmt(totalLiabs)+'</div></div>' +
+      '<div class="metric m-c"><div class="lbl">Liquid Cash</div><div class="num">'+fmt(cashUsd)+'</div></div>' +
+      '<div class="metric m-n"><div class="lbl">Asset Count</div><div class="num">'+assets.length+'</div></div>' +
     '</div>' +
+    /* Two-column grouped list */
     '<div class="two-col">' +
-      '<div class="col"><div class="col-inner"><table class="list">' +
-        '<tr class="sec-hdr"><td>Assets</td><td class="ago"></td><td class="val">'+fmt(totalAssets)+'</td></tr>' +
-        assetListHtml +
-      '</table></div></div>' +
-      '<div class="col"><div class="col-inner"><table class="list">' +
-        '<tr class="sec-hdr"><td>Liabilities</td><td class="ago"></td><td class="val">'+fmt(totalLiabs)+'</td></tr>' +
-        (liabListHtml || '<tr class="row"><td colspan="3" style="text-align:center;color:#8091a8;padding:14px">No liabilities recorded</td></tr>') +
-      '</table></div></div>' +
+      '<div class="col"><div class="col-inner">' +
+        '<div class="sec-hdr"><span class="h">Assets</span><span class="tot">'+fmt(totalAssets)+'</span></div>' +
+        '<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>' +
+          assetListHtml +
+        '</table>' +
+      '</div></div>' +
+      '<div class="col"><div class="col-inner">' +
+        '<div class="sec-hdr liab"><span class="h">Liabilities</span><span class="tot">'+fmt(totalLiabs)+'</span></div>' +
+        '<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>' +
+          (liabListHtml || '<tr class="row"><td colspan="3" style="text-align:center;color:#8091a8;padding:20px;background:#fff">No liabilities recorded</td></tr>') +
+        '</table>' +
+      '</div></div>' +
     '</div>' +
+    /* Pie chart pages: chart LEFT + legend RIGHT so everything fits on one page */
     (assetPie.length ?
       '<div class="chart-page">' +
         '<h2>Assets by Category</h2>' +
-        svgPie(assetPie, 420, function(e){ return catColor(e.label); }) +
-        '<div class="chart-legend">' + legend(assetPie, function(e){ return catColor(e.label); }, totalAssets) + '</div>' +
+        '<div class="chart-body">' +
+          '<div class="cell-svg">' + svgPie(assetPie, 340, function(e){ return catColor(e.label); }) + '</div>' +
+          '<div class="cell-lg"><table class="leg">' + legendRows(assetPie, function(e){ return catColor(e.label); }, totalAssets) + '</table></div>' +
+        '</div>' +
       '</div>' : '') +
     (liabPie.length ?
-      '<div class="chart-page">' +
+      '<div class="chart-page liab">' +
         '<h2>Liabilities by Type</h2>' +
-        svgPie(liabPie, 420, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }) +
-        '<div class="chart-legend">' + legend(liabPie, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }, totalLiabs) + '</div>' +
+        '<div class="chart-body">' +
+          '<div class="cell-svg">' + svgPie(liabPie, 340, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }) + '</div>' +
+          '<div class="cell-lg"><table class="leg">' + legendRows(liabPie, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }, totalLiabs) + '</table></div>' +
+        '</div>' +
       '</div>' : '') +
     '</body></html>';
 }
