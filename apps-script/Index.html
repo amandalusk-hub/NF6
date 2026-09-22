@@ -144,6 +144,7 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
   <nav>
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="tlmnd">TLMND Cash Flow</button>
+    <button class="tab-btn" data-tab="loans">Loans</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="summary">Summary</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
@@ -657,7 +658,99 @@ tbody td{padding:9px 12px;font-size:13px;vertical-align:middle}
       <div class="tl-empty">Loading TLMND cash flow…</div>
     </div>
   </div>
+
+  <!-- Loans -->
+  <div class="tab-panel" id="tab-loans">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="font-size:20px;color:#0d2137;margin:0">Loans Receivable</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="openLoanModal()">+ Add Loan</button>
+        <button class="btn btn-secondary" onclick="loadLoans()">↻ Refresh</button>
+      </div>
+    </div>
+    <div id="loans-content">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading loans…</div>
+    </div>
+  </div>
 </main>
+
+<!-- Loan Add/Edit Modal -->
+<div class="modal-overlay" id="loan-modal">
+  <div class="modal" style="max-width:640px">
+    <div class="modal-header">
+      <div class="modal-title" id="loan-modal-title">Add Loan</div>
+      <button class="modal-close" onclick="closeModal('loan-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="loan-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;font-size:12px">
+        <div style="grid-column:1/3">
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Loan Name</label>
+          <input type="text" id="loan-name" placeholder="e.g. Solaris-FL Holding LLC Loan" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Lender Entity</label>
+          <input type="text" id="loan-entity" placeholder="e.g. TLMND" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Status</label>
+          <select id="loan-status" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+            <option>Active</option><option>Paid Off</option><option>Delinquent</option><option>Deferred</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Original Principal ($)</label>
+          <input type="number" id="loan-orig-principal" step="0.01" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Accrued Interest ($)</label>
+          <input type="number" id="loan-accrued" step="0.01" placeholder="0" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Effective Principal ($) <span style="color:#8091a8">(orig + accrued)</span></label>
+          <input type="number" id="loan-eff-principal" step="0.01" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Annual Rate (%)</label>
+          <input type="number" id="loan-rate" step="0.01" placeholder="e.g. 10.25" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Term (Months)</label>
+          <input type="number" id="loan-term" placeholder="e.g. 120" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">First Payment Date</label>
+          <input type="date" id="loan-first-date" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Monthly Payment ($)</label>
+          <input type="number" id="loan-payment" step="0.01" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Payment Type</label>
+          <select id="loan-payment-type" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+            <option>End of Period</option><option>Beginning of Period</option>
+          </select>
+        </div>
+        <div style="grid-column:1/3">
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Plaid Match Pattern <span style="color:#8091a8">(text that identifies this borrower's payments in your bank feed)</span></label>
+          <input type="text" id="loan-plaid-pattern" placeholder="e.g. SOLARIS-FL HOLDI" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div style="grid-column:1/3">
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Notes</label>
+          <textarea id="loan-notes" rows="2" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-family:inherit"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="padding:12px 20px;border-top:1px solid #e6ebf2;display:flex;justify-content:space-between;gap:10px">
+      <button id="loan-delete-btn" class="btn btn-danger" onclick="deleteLoanClick()" style="display:none">Delete Loan</button>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn btn-secondary" onclick="closeModal('loan-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveLoanClick()">Save Loan</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- Org Chart Node Modal -->
 <div class="modal-overlay" id="oc-node-modal">
@@ -2132,6 +2225,215 @@ function switchTab(name){
   if(name==='history')  ensureHistoryLoaded();
   if(name==='summary')  renderSummary();
   if(name==='tlmnd')    loadTLMNDCashFlow();
+  if(name==='loans')    loadLoans();
+}
+
+// ─── LOANS TAB ──────────────────────────────────────────────────────────
+// Loan registry + amortization schedule + Plaid auto-match view. Backed by
+// the LOANS sheet on the server side; each row = one loan the family is
+// owed (Solaris etc.). Payments coming in through Plaid are auto-matched
+// against each loan's schedule.
+var _loansState = { data: null, loading: false, expandedId: null };
+
+function loadLoans() {
+  var content = document.getElementById('loans-content');
+  content.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading loans…</div>';
+  _loansState.loading = true;
+  google.script.run
+    .withSuccessHandler(function(loans){
+      _loansState.loading = false;
+      _loansState.data = loans || [];
+      renderLoans();
+    })
+    .withFailureHandler(function(err){
+      _loansState.loading = false;
+      content.innerHTML = '<div style="padding:40px;text-align:center;color:#c5221f">Error: '+(err.message||err)+'</div>';
+    })
+    .getLoansStatus();
+}
+
+function renderLoans() {
+  var content = document.getElementById('loans-content');
+  var loans = _loansState.data || [];
+  if (!loans.length) {
+    content.innerHTML =
+      '<div style="background:#fff;border:1px solid #dfe6ee;border-radius:8px;padding:40px;text-align:center">' +
+        '<div style="font-size:15px;color:#5f7791;margin-bottom:8px">No loans yet.</div>' +
+        '<div style="font-size:12px;color:#8091a8;margin-bottom:16px">Click <strong>+ Add Loan</strong> to register your first one. For Solaris, run <em>Tracker → Loans → Init Solaris Loan</em> in the sheet menu.</div>' +
+      '</div>';
+    return;
+  }
+  content.innerHTML = loans.map(_renderLoanCard).join('');
+}
+
+function _renderLoanCard(status) {
+  var loan = status.loan;
+  var s = status.summary || {};
+  var isExpanded = _loansState.expandedId === loan.ID;
+  var pctPaid = Math.round((s.pctPaid||0) * 100);
+  var nextDue = s.nextDue;
+  var nextDueStr = nextDue
+    ? new Date(nextDue.dueDate + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+    : 'All paid';
+  return '<div class="loan-card" style="background:#fff;border:1px solid #dfe6ee;border-radius:8px;margin-bottom:14px;overflow:hidden">' +
+    // Header row (always visible)
+    '<div style="padding:14px 18px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;background:linear-gradient(180deg,#f7fafd,#f0f4f9);border-bottom:1px solid #e6ebf2" onclick="toggleLoanCard(\''+loan.ID+'\')">' +
+      '<div style="flex:1">' +
+        '<div style="font-size:15px;font-weight:700;color:#0d2137">'+esc(loan.Name||'')+' <span style="font-size:11px;color:#8091a8;font-weight:500;margin-left:6px">'+esc(loan.Entity||'')+' · '+esc(loan.Status||'')+'</span></div>' +
+        '<div style="font-size:11px;color:#5f7791;margin-top:2px">'+
+          fmtUSD(Number(loan['Monthly Payment'])||0)+' /mo · '+esc(loan['Annual Rate']||'')+'% · '+esc(loan['Term (Months)']||'')+' mo term · Pattern: <code style="background:#f0f4f9;padding:1px 6px;border-radius:3px">'+esc(loan['Plaid Match Pattern']||'—')+'</code>'+
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:right;margin-left:20px">' +
+        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Balance Remaining</div>' +
+        '<div style="font-size:19px;font-weight:700;color:#0d2137">'+fmtUSD(s.currentBalance||0)+'</div>' +
+      '</div>' +
+      '<button onclick="event.stopPropagation();openLoanModal(\''+loan.ID+'\')" style="margin-left:14px;background:#f0f4f9;border:1px solid #dfe6ee;color:#4a6b8e;padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer">Edit</button>' +
+    '</div>' +
+    // Summary row
+    '<div style="padding:12px 18px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;border-bottom:1px solid #e6ebf2">' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Payments Received</div><div style="font-size:15px;font-weight:600;color:#14263d">'+s.paymentsReceived+' / '+s.paymentsScheduled+'</div></div>' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Total Received</div><div style="font-size:15px;font-weight:600;color:#1e8e3e">'+fmtUSD(s.totalReceived||0)+'</div></div>' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Next Due</div><div style="font-size:15px;font-weight:600;color:#14263d">'+esc(nextDueStr)+'</div></div>' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Progress</div>' +
+        '<div style="background:#eef2f7;border-radius:4px;height:8px;margin-top:4px;overflow:hidden"><div style="background:#1e8e3e;height:100%;width:'+pctPaid+'%"></div></div>' +
+        '<div style="font-size:10px;color:#5f7791;margin-top:2px">'+pctPaid+'% paid</div>' +
+      '</div>' +
+    '</div>' +
+    // Expanded schedule
+    (isExpanded ? _renderLoanSchedule(status) : '<div style="padding:8px 18px;text-align:center;color:#4a6b8e;font-size:11px;cursor:pointer" onclick="toggleLoanCard(\''+loan.ID+'\')">▼ Show full amortization schedule ('+s.paymentsScheduled+' payments)</div>') +
+  '</div>';
+}
+
+function _renderLoanSchedule(status) {
+  var rows = status.schedule.map(function(r) {
+    var received = r.received;
+    var color = received ? '#1e8e3e' : (new Date(r.dueDate) < new Date() ? '#c5221f' : '#8091a8');
+    var badge = received
+      ? '<span style="background:#e6f4ea;color:#1e8e3e;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">✓ Received</span>'
+      : (new Date(r.dueDate) < new Date()
+          ? '<span style="background:#fce8e6;color:#c5221f;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">Overdue</span>'
+          : '<span style="background:#f0f4f9;color:#5f7791;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:500">Pending</span>');
+    var actualCell = received
+      ? '<span style="color:#1e8e3e;font-weight:600">'+fmtUSD(r.actualAmount)+'</span>' +
+        (Math.abs(r.variance) > 0.5 ? '<div style="font-size:9px;color:'+(r.variance<0?'#c5221f':'#e07b30')+'">'+(r.variance<0?'':'+')+fmtUSD(r.variance)+'</div>' : '')
+      : '<span style="color:#aab5c4">—</span>';
+    var actualDateCell = received
+      ? new Date(r.actualDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})
+      : '';
+    return '<tr>' +
+      '<td style="padding:5px 8px;color:#5f7791;text-align:center">'+r.n+'</td>' +
+      '<td style="padding:5px 8px;color:'+color+'">'+new Date(r.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">'+fmtUSD(r.payment)+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#c5221f">'+fmtUSD(r.interest)+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#1e8e3e">'+fmtUSD(r.principal)+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#5f7791">'+fmtUSD(r.balanceAfter)+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;color:#5f7791">'+actualDateCell+'</td>' +
+      '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">'+actualCell+'</td>' +
+      '<td style="padding:5px 8px;text-align:center">'+badge+'</td>' +
+    '</tr>';
+  }).join('');
+  return '<div style="padding:0 18px 18px;max-height:520px;overflow-y:auto">' +
+    '<div style="text-align:center;padding:8px 0;color:#4a6b8e;font-size:11px;cursor:pointer" onclick="toggleLoanCard(\''+status.loan.ID+'\')">▲ Hide schedule</div>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:11px">' +
+      '<thead><tr style="background:#f7fafd;color:#5f7791;text-transform:uppercase;font-size:10px;letter-spacing:0.5px;border-bottom:1px solid #dfe6ee">' +
+        '<th style="padding:8px;text-align:center">#</th>' +
+        '<th style="padding:8px;text-align:left">Due</th>' +
+        '<th style="padding:8px;text-align:right">Payment</th>' +
+        '<th style="padding:8px;text-align:right">Interest</th>' +
+        '<th style="padding:8px;text-align:right">Principal</th>' +
+        '<th style="padding:8px;text-align:right">Balance After</th>' +
+        '<th style="padding:8px;text-align:right">Actual Date</th>' +
+        '<th style="padding:8px;text-align:right">Actual $</th>' +
+        '<th style="padding:8px;text-align:center">Status</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>' +
+  '</div>';
+}
+
+function toggleLoanCard(id) {
+  _loansState.expandedId = (_loansState.expandedId === id) ? null : id;
+  renderLoans();
+}
+
+function openLoanModal(id) {
+  var loan = null;
+  if (id) {
+    var loans = _loansState.data || [];
+    var st = loans.find(function(s){ return s.loan.ID === id; });
+    loan = st ? st.loan : null;
+  }
+  document.getElementById('loan-modal-title').textContent = loan ? 'Edit Loan' : 'Add Loan';
+  document.getElementById('loan-id').value = loan ? loan.ID : '';
+  document.getElementById('loan-name').value = loan ? (loan.Name || '') : '';
+  document.getElementById('loan-entity').value = loan ? (loan.Entity || '') : '';
+  document.getElementById('loan-status').value = loan ? (loan.Status || 'Active') : 'Active';
+  document.getElementById('loan-orig-principal').value = loan ? (loan['Original Principal'] || '') : '';
+  document.getElementById('loan-accrued').value = loan ? (loan['Accrued Interest'] || 0) : 0;
+  document.getElementById('loan-eff-principal').value = loan ? (loan['Effective Principal'] || '') : '';
+  document.getElementById('loan-rate').value = loan ? (loan['Annual Rate'] || '') : '';
+  document.getElementById('loan-term').value = loan ? (loan['Term (Months)'] || '') : '';
+  document.getElementById('loan-first-date').value = loan ? (loan['First Payment Date'] || '') : '';
+  document.getElementById('loan-payment').value = loan ? (loan['Monthly Payment'] || '') : '';
+  document.getElementById('loan-payment-type').value = loan ? (loan['Payment Type'] || 'End of Period') : 'End of Period';
+  document.getElementById('loan-plaid-pattern').value = loan ? (loan['Plaid Match Pattern'] || '') : '';
+  document.getElementById('loan-notes').value = loan ? (loan.Notes || '') : '';
+  document.getElementById('loan-delete-btn').style.display = loan ? 'inline-block' : 'none';
+  openModal('loan-modal');
+}
+
+function saveLoanClick() {
+  var id = document.getElementById('loan-id').value;
+  var data = {
+    name: document.getElementById('loan-name').value.trim(),
+    entity: document.getElementById('loan-entity').value.trim(),
+    status: document.getElementById('loan-status').value,
+    originalPrincipal: Number(document.getElementById('loan-orig-principal').value) || 0,
+    accruedInterest: Number(document.getElementById('loan-accrued').value) || 0,
+    effectivePrincipal: Number(document.getElementById('loan-eff-principal').value) || 0,
+    annualRate: Number(document.getElementById('loan-rate').value) || 0,
+    termMonths: Number(document.getElementById('loan-term').value) || 0,
+    firstPaymentDate: document.getElementById('loan-first-date').value,
+    monthlyPayment: Number(document.getElementById('loan-payment').value) || 0,
+    paymentType: document.getElementById('loan-payment-type').value,
+    plaidPattern: document.getElementById('loan-plaid-pattern').value.trim(),
+    notes: document.getElementById('loan-notes').value.trim()
+  };
+  if (!data.name) { toast('Loan name required','error'); return; }
+  if (!data.effectivePrincipal && !data.originalPrincipal) { toast('Principal required','error'); return; }
+  if (!data.termMonths || !data.monthlyPayment || !data.firstPaymentDate) {
+    toast('Need term, payment, and first payment date','error'); return;
+  }
+  showLoading(true);
+  var call = id
+    ? google.script.run.withSuccessHandler(_onLoanSaved).withFailureHandler(_onLoanErr).updateLoan(id, data)
+    : google.script.run.withSuccessHandler(_onLoanSaved).withFailureHandler(_onLoanErr).addLoan(data);
+}
+function _onLoanSaved(res) {
+  showLoading(false);
+  if (res && res.success) {
+    toast('Loan saved');
+    closeModal('loan-modal');
+    loadLoans();
+  } else {
+    toast((res && res.error) || 'Save failed', 'error');
+  }
+}
+function _onLoanErr(e) { showLoading(false); toast(e.message||'Error','error'); }
+function deleteLoanClick() {
+  var id = document.getElementById('loan-id').value;
+  if (!id) return;
+  if (!confirm('Delete this loan? This does NOT delete any payments from Plaid — just removes the loan tracking.')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res){
+      showLoading(false);
+      if (res && res.success) { toast('Loan deleted'); closeModal('loan-modal'); loadLoans(); }
+      else { toast((res && res.error) || 'Delete failed','error'); }
+    })
+    .withFailureHandler(_onLoanErr)
+    .deleteLoan(id);
 }
 
 // ─── TLMND CASH FLOW TAB ────────────────────────────────────────────────

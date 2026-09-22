@@ -290,6 +290,8 @@ function onOpen() {
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
+    .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
+    .addSeparator()
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
     .addSeparator()
     .addItem('Take Net Worth Snapshot (1st of month)', 'takeNWSnapshot')
