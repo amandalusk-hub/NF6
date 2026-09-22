@@ -113,11 +113,14 @@ function _tlmndGetOrCreateTxSheet() {
 // ── MAIN SYNC ───────────────────────────────────────────────────────────────
 // Pulls from every configured account, upserts into TLMND_TRANSACTIONS.
 // Preserves user-editable columns on re-sync.
-function syncTLMNDCashFlow() { _requireEditor_();
+function syncTLMNDCashFlow(opts) { _requireEditor_();
   var cfg = getTLMNDConfig_();
   if (!cfg) return { success: false, error: 'TLMND config not initialized. Run initTLMNDConfigDefaults first.' };
 
-  var lookback = cfg.lookbackMonths || 3;
+  // opts.monthsBack lets a caller override the config for a one-time deep
+  // pull (backfilling old months that weren't captured by earlier syncs).
+  // Defaults to the config's rolling lookback (3 months).
+  var lookback = (opts && Number(opts.monthsBack)) || cfg.lookbackMonths || 3;
   var end   = new Date();
   var start = new Date(end.getFullYear(), end.getMonth() - lookback, 1);
 
@@ -440,6 +443,29 @@ function _tlmndUpsertRecords(records) {
 }
 
 // ── MENU WRAPPERS + TRIGGER ─────────────────────────────────────────────────
+// One-time deep backfill — pulls the last 24 months of Plaid transactions
+// into TLMND_TRANSACTIONS. Use this to recover months that weren't captured
+// by earlier rolling 3-month syncs (e.g. Solaris's January 2026 payment
+// that came in before any sync ran).
+function syncTLMNDCashFlowDeepMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt(
+    'Deep TLMND Sync',
+    'Pull how many months of Plaid history? (default: 24)\n\nThis backfills TLMND_TRANSACTIONS so older payments (like Solaris\'s January 2026 payment) can be matched. It\'s safe to run — existing rows are upserted, not duplicated.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var months = Number(resp.getResponseText()) || 24;
+  if (months < 1 || months > 24) { ui.alert('Enter 1–24 months.'); return; }
+  var r = syncTLMNDCashFlow({ monthsBack: months });
+  var msg = 'Deep sync (' + months + ' months back):\n\n' +
+            'Plaid transactions:       ' + (r.plaidCount || 0) +
+            '\nSnapTrade activities:  ' + (r.snapTradeCount || 0) +
+            '\nUpserts:                        ' + (r.upserts || 0) +
+            '\nNew rows:                     ' + (r.newRows || 0);
+  ui.alert(r.success ? 'Deep Sync Complete' : 'Deep Sync Errors', msg, ui.ButtonSet.OK);
+}
+
 function syncTLMNDCashFlowMenu() {
   var ui = SpreadsheetApp.getUi();
   var r  = syncTLMNDCashFlow();
