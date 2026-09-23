@@ -655,22 +655,24 @@ function addManualLoanPayment(loanId, dateStr, amount, notes, principal, interes
   var amt = type === 'missed' ? 0 : (Number(amount) || 0);
   var pVal = type === 'missed' ? 0 : (principal != null && principal !== '' ? Number(principal) : '');
   var iVal = type === 'missed' ? 0 : (interest  != null && interest  !== '' ? Number(interest)  : '');
-  // Row must be built in LOAN_MANUAL_HEADERS order to survive schema drift.
-  var row = LOAN_MANUAL_HEADERS.map(function(h){
-    switch(h) {
-      case 'ID':         return id;
-      case 'Loan ID':    return loanId;
-      case 'Date':       return dateStr;
-      case 'Amount':     return amt;
-      case 'Principal':  return pVal;
-      case 'Interest':   return iVal;
-      case 'Type':       return type;
-      case 'Notes':      return notes || '';
-      case 'Entered By': return _currentUserEmail_() || '(unknown)';
-      case 'Entered At': return new Date();
-      default:           return '';
-    }
-  });
+  // Build defaults keyed by header NAME, then map onto the sheet's ACTUAL
+  // header row. This survives schema drift — the same issue that hit LOANS
+  // when the Type column was auto-appended after existing data.
+  var defaults = {
+    'ID':         id,
+    'Loan ID':    loanId,
+    'Date':       dateStr,
+    'Amount':     amt,
+    'Principal':  pVal,
+    'Interest':   iVal,
+    'Type':       type,
+    'Notes':      notes || '',
+    'Entered By': _currentUserEmail_() || '(unknown)',
+    'Entered At': new Date()
+  };
+  var lastCol = Math.max(sheet.getLastColumn(), LOAN_MANUAL_HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var row = headerRow.map(function(h){ return h && defaults.hasOwnProperty(h) ? defaults[h] : ''; });
   sheet.appendRow(row);
   var splitNote = type === 'missed' ? ' [MISSED]' : ((pVal !== '' && iVal !== '') ? ' (P $' + pVal + ' / I $' + iVal + ')' : '');
   _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amt + splitNote + (notes ? ' — ' + notes : ''));
