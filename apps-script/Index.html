@@ -2310,6 +2310,7 @@ function loadLoans() {
 function renderLoans() {
   var content = document.getElementById('loans-content');
   var loans = _loansState.data || [];
+  console.log('[Loans] renderLoans — loans.length =', loans.length);
   if (!loans.length) {
     content.innerHTML =
       '<div style="background:#fff;border:1px solid #dfe6ee;border-radius:8px;padding:40px;text-align:center">' +
@@ -2318,7 +2319,16 @@ function renderLoans() {
       '</div>';
     return;
   }
-  content.innerHTML = loans.map(_renderLoanCard).join('');
+  // Per-card try/catch — one broken loan card won't kill the whole list.
+  content.innerHTML = loans.map(function(s, i){
+    try { return _renderLoanCard(s); }
+    catch(e){
+      console.error('[Loans] _renderLoanCard failed for loan #' + i + ':', e, s);
+      return '<div style="background:#fce8e6;border:1px solid #f0c8c8;color:#7f1d1d;padding:14px;border-radius:6px;margin-bottom:14px">' +
+             '<strong>Card render failed for loan #' + (i+1) + ':</strong> ' + (e.message||e) +
+             '<br><span style="font-size:11px">Check the browser console for the loan object.</span></div>';
+    }
+  }).join('');
 }
 
 function _renderLoanCard(status) {
