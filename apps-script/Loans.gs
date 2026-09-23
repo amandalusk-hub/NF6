@@ -414,13 +414,52 @@ function getLoansStatus() {
     var schedule = _generateAmortizationSchedule_(loan);
     var payments = _matchLoanPayments_(loan);
 
-    // Greedy match: payment i → schedule row i. Simple and matches how
-    // amortization is meant to work (one payment per period). If payments
-    // arrive out of order or partial, we can refine later.
-    // Attaches the full Plaid transaction (name, account) on matched rows
-    // so the frontend drilldown can show the underlying transaction.
+    // Month-based matching: each payment goes to the schedule row whose due
+    // date is in the same calendar month. Handles late payments, missing
+    // months (Amanda's Jan/Feb/Mar Solaris rows stay Pending until she
+    // manually enters them), and multiple payments in one month (extras
+    // spill to the next open month). Prior naive-greedy-by-index was
+    // matching Apr 3 → Jan 1 which was very wrong.
+    //
+    // Build a month → row index map.
+    var monthToRow = {};
+    schedule.forEach(function(r, i) {
+      var ym = r.dueDate.substring(0, 7);   // YYYY-MM
+      if (monthToRow[ym] == null) monthToRow[ym] = i;
+    });
+    // Match each payment to a schedule row. Preference: same month; if the
+    // month is already taken, spill to the next open row after it.
+    var matchIdxByPayment = new Array(payments.length).fill(-1);
+    var rowTaken = new Array(schedule.length).fill(false);
+    payments.forEach(function(p, pi) {
+      var ym = p.date.substring(0, 7);
+      var start = monthToRow[ym];
+      if (start == null) {
+        // No schedule row for this month (payment before the first due, or
+        // after the last). Fall back to closest un-taken row overall.
+        var bestI = -1, bestDelta = Infinity;
+        for (var i = 0; i < schedule.length; i++) {
+          if (rowTaken[i]) continue;
+          var delta = Math.abs(new Date(schedule[i].dueDate + 'T00:00:00').getTime() -
+                               new Date(p.date + 'T00:00:00').getTime());
+          if (delta < bestDelta) { bestDelta = delta; bestI = i; }
+        }
+        if (bestI >= 0) { matchIdxByPayment[pi] = bestI; rowTaken[bestI] = true; }
+        return;
+      }
+      // Try same-month row first; if taken, walk forward.
+      for (var j = start; j < schedule.length; j++) {
+        if (!rowTaken[j]) { matchIdxByPayment[pi] = j; rowTaken[j] = true; return; }
+      }
+    });
+    // Invert: rowIdx → paymentIdx.
+    var paymentByRow = {};
+    matchIdxByPayment.forEach(function(rowI, payI) {
+      if (rowI >= 0) paymentByRow[rowI] = payments[payI];
+    });
+
     var scheduleWithStatus = schedule.map(function(row, i) {
-      var p = payments[i] || null;
+      var p = paymentByRow[i] || null;
       return {
         n: row.n,
         dueDate: row.dueDate,
@@ -441,15 +480,15 @@ function getLoansStatus() {
     var totalReceived = received.reduce(function(s, r){ return s + (r.actualAmount||0); }, 0);
     var totalScheduled = schedule.reduce(function(s, r){ return s + r.payment; }, 0);
 
-    // Current outstanding balance based on payments received so far.
-    var currentBalance;
-    if (received.length === 0) {
-      currentBalance = Number(loan['Effective Principal']) || 0;
-    } else if (received.length <= schedule.length) {
-      currentBalance = scheduleWithStatus[received.length - 1].balanceAfter;
-    } else {
-      currentBalance = 0;
-    }
+    // Current outstanding balance = effective principal minus principal
+    // actually paid down by received rows. Works whether the received rows
+    // are contiguous or scattered (e.g. Apr–Sep matched, Jan–Mar still
+    // pending), because we're summing what actually happened rather than
+    // trusting the schedule's precomputed balanceAfter (which assumes all
+    // prior rows were paid on time).
+    var principalPaid = received.reduce(function(s, r){ return s + (r.principal || 0); }, 0);
+    var effective = Number(loan['Effective Principal']) || 0;
+    var currentBalance = Math.max(0, effective - principalPaid);
 
     // Next expected payment (first row that isn't yet received).
     var nextDue = scheduleWithStatus.find(function(r){ return !r.received; }) || null;
