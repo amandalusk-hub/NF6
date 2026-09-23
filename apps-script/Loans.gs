@@ -66,6 +66,69 @@ function ensureLoansSheet_() {
   return sheet;
 }
 
+// Menu-callable one-time seed for the Waskar loan (Wasica Holdings, LLC).
+// Terms from Amanda's amortization calculator: $793,026.46 principal, 7%,
+// 15 years, $7,127.95/mo. Plaid Match Pattern uses pipe-delimited "WASICA
+// HOLDINGS|WASKAR" so both book transfers ("BOOK TRANSFER CREDIT B/O: WASICA
+// HOLDINGS, LLC…") and wire descriptions ("WASKAR TEJEDA…") are caught.
+//
+// Also seeds ONE big manual catch-up entry for 04/18/2026 ($220,966.34)
+// representing the back-payments covered by that lump wire.
+//
+// First payment date is a PLACEHOLDER (2023-07-01) — Amanda should edit it
+// to the actual start date from the loan docs (Loans tab → Edit → change
+// First Payment Date → Save). The schedule will regenerate.
+function seedWaskarLoan() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var existing = loans.filter(function(l){
+    var n = String(l.Name||'').toLowerCase();
+    return n.indexOf('waskar') >= 0 || n.indexOf('wasica') >= 0;
+  })[0];
+  if (existing) {
+    ui.alert('A Waskar / Wasica loan already exists in the LOANS sheet — no change made.');
+    return;
+  }
+  var resp = ui.alert(
+    'Seed Waskar Loan?',
+    'Add the Waskar / Wasica Holdings loan with these terms:\n\n' +
+    '  Principal:        $793,026.46\n' +
+    '  Rate:             7% annual\n' +
+    '  Term:             180 months (15 years)\n' +
+    '  Monthly payment:  $7,127.95\n' +
+    '  Match pattern:    WASICA HOLDINGS|WASKAR\n' +
+    '  First payment:    2023-07-01  (PLACEHOLDER — edit to real start date)\n\n' +
+    'Also adds one manual catch-up entry for 04/18/2026 ($220,966.34) covering back-payments.\n\n' +
+    'Proceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+  var res = addLoan({
+    name: 'Waskar Loan (Wasica Holdings, LLC)',
+    entity: 'TLMND',
+    originalPrincipal: 793026.46,
+    accruedInterest: 0,
+    effectivePrincipal: 793026.46,
+    annualRate: 7,
+    termMonths: 180,
+    firstPaymentDate: '2023-07-01',
+    monthlyPayment: 7127.95,
+    paymentType: 'End of Period',
+    plaidPattern: 'WASICA HOLDINGS|WASKAR',
+    status: 'Active',
+    notes: 'Terms from amortization calculator: $793,026.46 @ 7% × 15y, $7,127.95/mo. ' +
+           'Plaid pattern catches both BOOK TRANSFER CREDIT B/O: WASICA and WASKAR wires. ' +
+           'First payment date is a placeholder — update to the real start date from loan docs.'
+  });
+  if (!res.success) { ui.alert('Failed to add loan: ' + (res.error || 'unknown')); return; }
+  // Add the catch-up manual entry.
+  addManualLoanPayment(res.id, '2026-04-18', 220966.34,
+    'Catch-up wire — covers back-payments (per your log: $84,746.09 principal + $136,220.25 interest). ' +
+    'Enter individual monthly wires as separate manual entries if you want them itemized.');
+  ui.alert('Waskar loan added. Go to the Loans tab → Edit to set the correct First Payment Date and Linked Asset.');
+}
+
 // Menu-callable backfill for Solaris pre-Plaid payments (Jan / Feb / Mar
 // 2026). Uses Jan 7 (from Amanda's bank statement) + estimated Feb/Mar
 // dates matching the observed Plaid pattern (payments arrive ~2–7 days
@@ -307,9 +370,15 @@ function _matchLoanPayments_(loan) {
   var payments = [];
 
   // (1) Plaid-matched payments from TLMND_TRANSACTIONS.
+  // The Plaid Match Pattern supports multiple patterns separated by |
+  // (e.g. "WASICA HOLDINGS|WASKAR") so loans that arrive under different
+  // bank descriptions can all be caught. Match on ANY pattern (OR).
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
-  var pattern = String(loan['Plaid Match Pattern'] || '').toLowerCase().trim();
-  if (sheet && sheet.getLastRow() >= 2 && pattern) {
+  var rawPattern = String(loan['Plaid Match Pattern'] || '').trim();
+  var patterns = rawPattern
+    ? rawPattern.split('|').map(function(p){ return p.toLowerCase().trim(); }).filter(function(p){ return p.length > 0; })
+    : [];
+  if (sheet && sheet.getLastRow() >= 2 && patterns.length) {
     var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
     var iDate = headers.indexOf('Date');
     var iAccount = headers.indexOf('Account');
@@ -319,7 +388,12 @@ function _matchLoanPayments_(loan) {
       var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
       rows.forEach(function(r) {
         var name = String(r[iName] || '').toLowerCase();
-        if (name.indexOf(pattern) < 0) return;
+        // ANY of the patterns matches → match.
+        var hit = false;
+        for (var pi = 0; pi < patterns.length; pi++) {
+          if (name.indexOf(patterns[pi]) >= 0) { hit = true; break; }
+        }
+        if (!hit) return;
         var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
         if (isNaN(d.getTime())) return;
         var amount = Number(r[iAmount] || 0);
