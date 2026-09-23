@@ -346,6 +346,7 @@ function onOpen() {
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
+    .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')

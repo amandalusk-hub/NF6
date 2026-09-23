@@ -658,9 +658,29 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
 // Web-callable — full status for the dashboard Loans tab. Returns an array
 // per active loan with:
 //   { loan, schedule (rows w/ received flag + actual date+amount), summary }
+// Wrapped in try/catch per-loan so ONE loan with bad data can't zero out the
+// whole response — the frontend gets partial results plus an _error field
+// per broken loan.
 function getLoansStatus() {
-  var loans = getLoans().filter(function(l){ return String(l.Status||'').toLowerCase() !== 'deleted'; });
+  var all = getLoans();
+  Logger.log('getLoansStatus: getLoans returned ' + all.length + ' rows');
+  var loans = all.filter(function(l){ return String(l.Status||'').toLowerCase() !== 'deleted'; });
+  Logger.log('getLoansStatus: after status-filter, ' + loans.length + ' active loans');
   return loans.map(function(loan) {
+    try { return _computeLoanStatus_(loan); }
+    catch(e) {
+      Logger.log('getLoansStatus: loan "' + loan.Name + '" errored: ' + e.message + '\n' + (e.stack || ''));
+      return {
+        loan: loan,
+        schedule: [],
+        summary: { paymentsReceived: 0, paymentsScheduled: 0, totalReceived: 0, totalScheduled: 0, currentBalance: 0, nextDue: null, pctPaid: 0 },
+        _error: e.message
+      };
+    }
+  });
+}
+
+function _computeLoanStatus_(loan) {
     var schedule = _generateAmortizationSchedule_(loan);
     var payments = _matchLoanPayments_(loan);
 
@@ -778,7 +798,6 @@ function getLoansStatus() {
         linkedAssetSync:   linkSync
       }
     };
-  });
 }
 
 // Update the linked asset's stored balance to match the loan's current
@@ -811,6 +830,27 @@ function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
     return { updated: true, oldValue: oldMine, newValue: newMine };
   }
   return null;
+}
+
+// Diagnostic — runs getLoansStatus and shows what it returned. Answers
+// "the sheet has data but the Loans tab is empty — what's actually happening
+// server-side?" Any per-loan errors are surfaced.
+function debugLoansStatus() {
+  var r = getLoansStatus();
+  var report = 'getLoansStatus returned ' + r.length + ' loan status object(s).\n\n';
+  r.forEach(function(s, i) {
+    report += '── Loan ' + (i+1) + ' ──\n';
+    report += '  Name: ' + (s.loan && s.loan.Name || '(missing)') + '\n';
+    report += '  ID:   ' + (s.loan && s.loan.ID   || '(missing)') + '\n';
+    report += '  Schedule rows: ' + (s.schedule ? s.schedule.length : 0) + '\n';
+    report += '  Payments received: ' + (s.summary && s.summary.paymentsReceived) + '\n';
+    report += '  Current balance:   $' + (s.summary && s.summary.currentBalance) + '\n';
+    if (s._error) report += '  ⚠ ERROR: ' + s._error + '\n';
+    report += '\n';
+  });
+  if (!r.length) report += '(empty — check LOANS sheet + browser console)';
+  Logger.log(report);
+  SpreadsheetApp.getUi().alert('getLoansStatus Diagnostic', report, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 // Diagnostic — dumps the raw contents of the LOANS sheet as an alert so we
