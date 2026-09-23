@@ -666,7 +666,7 @@ function getLoansStatus() {
   Logger.log('getLoansStatus: getLoans returned ' + all.length + ' rows');
   var loans = all.filter(function(l){ return String(l.Status||'').toLowerCase() !== 'deleted'; });
   Logger.log('getLoansStatus: after status-filter, ' + loans.length + ' active loans');
-  return loans.map(function(loan) {
+  var result = loans.map(function(loan) {
     try { return _computeLoanStatus_(loan); }
     catch(e) {
       Logger.log('getLoansStatus: loan "' + loan.Name + '" errored: ' + e.message + '\n' + (e.stack || ''));
@@ -678,6 +678,16 @@ function getLoansStatus() {
       };
     }
   });
+  // Normalize the entire response before returning to the client. google.script.run's
+  // serializer silently returns null if any nested value is unserializable (e.g. an
+  // undefined field, a shared object reference, or a Date snuck in). JSON round-trip
+  // guarantees the return is a clean tree of primitives + arrays + plain objects.
+  try {
+    return JSON.parse(JSON.stringify(result));
+  } catch(e) {
+    Logger.log('getLoansStatus: JSON round-trip failed: ' + e.message);
+    return [];
+  }
 }
 
 function _computeLoanStatus_(loan) {
