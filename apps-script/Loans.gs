@@ -214,12 +214,19 @@ function initSolarisLoan() {
 function getLoans() {
   var sheet = ensureLoansSheet_();
   if (sheet.getLastRow() < 2) return [];
-  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, LOANS_HEADERS.length).getValues();
+  // Read by ACTUAL header row (not LOANS_HEADERS order) so a schema that
+  // evolved by appending columns (Linked Asset ID) still maps correctly to
+  // existing data rows. Prevents the "No loans yet" bug where the Linked
+  // Asset ID column was appended but LOANS_HEADERS put it before Date Added
+  // — every field after position 13 was being read from the wrong column.
+  var lastCol = Math.max(sheet.getLastColumn(), LOANS_HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
   return vals.map(function(r) {
     var obj = {};
-    LOANS_HEADERS.forEach(function(h, i){
+    headerRow.forEach(function(h, i){
+      if (!h) return;   // skip trailing empty header cells
       var v = r[i];
-      // Normalize dates to ISO strings for the frontend.
       if (v instanceof Date) v = Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
       obj[h] = v;
     });
@@ -227,34 +234,46 @@ function getLoans() {
   }).filter(function(o){ return o.ID; });
 }
 
+// Map a data payload to a sheet row that matches the ACTUAL header order
+// in the LOANS sheet (which may have Linked Asset ID appended at the end
+// after auto-migration). Header-name-based so schema drift can't corrupt.
+function _loanRowForData_(sheet, data, defaults) {
+  var lastCol = Math.max(sheet.getLastColumn(), LOANS_HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  return headerRow.map(function(h){
+    if (!h) return '';
+    if (defaults.hasOwnProperty(h)) return defaults[h];
+    return '';
+  });
+}
+function _loanDataToDefaults_(data, id, now) {
+  return {
+    'ID': id,
+    'Name': data.name || '',
+    'Entity': data.entity || '',
+    'Original Principal': Number(data.originalPrincipal) || 0,
+    'Accrued Interest': Number(data.accruedInterest) || 0,
+    'Effective Principal': Number(data.effectivePrincipal) || Number(data.originalPrincipal) || 0,
+    'Annual Rate': Number(data.annualRate) || 0,
+    'Term (Months)': Number(data.termMonths) || 0,
+    'First Payment Date': data.firstPaymentDate || '',
+    'Monthly Payment': Number(data.monthlyPayment) || 0,
+    'Payment Type': data.paymentType || 'End of Period',
+    'Plaid Match Pattern': data.plaidPattern || '',
+    'Status': data.status || 'Active',
+    'Notes': data.notes || '',
+    'Linked Asset ID': data.linkedAssetId || '',
+    'Date Added': now,
+    'Last Updated': now
+  };
+}
 function addLoan(data) {
   _requireEditor_();
   _logAudit_('addLoan', 'loan', '', data && data.name, 'Added loan: ' + (data && data.name || ''));
   var sheet = ensureLoansSheet_();
   var now = new Date();
   var id = 'l_' + Utilities.getUuid().substring(0, 8);
-  var row = LOANS_HEADERS.map(function(h){
-    switch(h) {
-      case 'ID': return id;
-      case 'Name': return data.name || '';
-      case 'Entity': return data.entity || '';
-      case 'Original Principal': return Number(data.originalPrincipal) || 0;
-      case 'Accrued Interest': return Number(data.accruedInterest) || 0;
-      case 'Effective Principal': return Number(data.effectivePrincipal) || Number(data.originalPrincipal) || 0;
-      case 'Annual Rate': return Number(data.annualRate) || 0;
-      case 'Term (Months)': return Number(data.termMonths) || 0;
-      case 'First Payment Date': return data.firstPaymentDate || '';
-      case 'Monthly Payment': return Number(data.monthlyPayment) || 0;
-      case 'Payment Type': return data.paymentType || 'End of Period';
-      case 'Plaid Match Pattern': return data.plaidPattern || '';
-      case 'Status': return data.status || 'Active';
-      case 'Notes': return data.notes || '';
-      case 'Linked Asset ID': return data.linkedAssetId || '';
-      case 'Date Added': return now;
-      case 'Last Updated': return now;
-      default: return '';
-    }
-  });
+  var row = _loanRowForData_(sheet, data, _loanDataToDefaults_(data, id, now));
   sheet.appendRow(row);
   return { success: true, id: id };
 }
@@ -264,32 +283,42 @@ function updateLoan(id, data) {
   _logAudit_('updateLoan', 'loan', id, data && data.name, 'Updated loan: ' + (data && data.name || ''));
   var sheet = ensureLoansSheet_();
   if (sheet.getLastRow() < 2) return { success: false, error: 'No loans found.' };
-  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, LOANS_HEADERS.length).getValues();
+  var lastCol = Math.max(sheet.getLastColumn(), LOANS_HEADERS.length);
+  var headerRow = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var idCol = headerRow.indexOf('ID');
+  if (idCol < 0) return { success: false, error: 'LOANS sheet is missing an ID column.' };
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  // Header-name-based partial update — only touch fields the caller sent.
+  var fieldMap = {
+    'Name': ['name', function(v){ return v; }],
+    'Entity': ['entity', function(v){ return v; }],
+    'Original Principal': ['originalPrincipal', function(v){ return Number(v); }],
+    'Accrued Interest': ['accruedInterest', function(v){ return Number(v); }],
+    'Effective Principal': ['effectivePrincipal', function(v){ return Number(v); }],
+    'Annual Rate': ['annualRate', function(v){ return Number(v); }],
+    'Term (Months)': ['termMonths', function(v){ return Number(v); }],
+    'First Payment Date': ['firstPaymentDate', function(v){ return v; }],
+    'Monthly Payment': ['monthlyPayment', function(v){ return Number(v); }],
+    'Payment Type': ['paymentType', function(v){ return v; }],
+    'Plaid Match Pattern': ['plaidPattern', function(v){ return v; }],
+    'Status': ['status', function(v){ return v; }],
+    'Notes': ['notes', function(v){ return v; }],
+    'Linked Asset ID': ['linkedAssetId', function(v){ return v; }]
+  };
   for (var i = 0; i < vals.length; i++) {
-    if (String(vals[i][0]) === String(id)) {
-      var row = vals[i].slice();
-      LOANS_HEADERS.forEach(function(h, idx) {
-        switch(h) {
-          case 'Name': if (data.name !== undefined) row[idx] = data.name; break;
-          case 'Entity': if (data.entity !== undefined) row[idx] = data.entity; break;
-          case 'Original Principal': if (data.originalPrincipal !== undefined) row[idx] = Number(data.originalPrincipal); break;
-          case 'Accrued Interest': if (data.accruedInterest !== undefined) row[idx] = Number(data.accruedInterest); break;
-          case 'Effective Principal': if (data.effectivePrincipal !== undefined) row[idx] = Number(data.effectivePrincipal); break;
-          case 'Annual Rate': if (data.annualRate !== undefined) row[idx] = Number(data.annualRate); break;
-          case 'Term (Months)': if (data.termMonths !== undefined) row[idx] = Number(data.termMonths); break;
-          case 'First Payment Date': if (data.firstPaymentDate !== undefined) row[idx] = data.firstPaymentDate; break;
-          case 'Monthly Payment': if (data.monthlyPayment !== undefined) row[idx] = Number(data.monthlyPayment); break;
-          case 'Payment Type': if (data.paymentType !== undefined) row[idx] = data.paymentType; break;
-          case 'Plaid Match Pattern': if (data.plaidPattern !== undefined) row[idx] = data.plaidPattern; break;
-          case 'Status': if (data.status !== undefined) row[idx] = data.status; break;
-          case 'Notes': if (data.notes !== undefined) row[idx] = data.notes; break;
-          case 'Linked Asset ID': if (data.linkedAssetId !== undefined) row[idx] = data.linkedAssetId; break;
-          case 'Last Updated': row[idx] = new Date(); break;
-        }
-      });
-      sheet.getRange(i + 2, 1, 1, LOANS_HEADERS.length).setValues([row]);
-      return { success: true };
-    }
+    if (String(vals[i][idCol]) !== String(id)) continue;
+    var row = vals[i].slice();
+    headerRow.forEach(function(h, colIdx) {
+      if (!h) return;
+      if (fieldMap[h]) {
+        var m = fieldMap[h];
+        if (data[m[0]] !== undefined) row[colIdx] = m[1](data[m[0]]);
+      } else if (h === 'Last Updated') {
+        row[colIdx] = new Date();
+      }
+    });
+    sheet.getRange(i + 2, 1, 1, lastCol).setValues([row]);
+    return { success: true };
   }
   return { success: false, error: 'Loan not found: ' + id };
 }
