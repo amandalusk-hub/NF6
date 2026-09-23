@@ -93,13 +93,21 @@ function seedWaskarLoan() {
   var resp = ui.alert(
     'Seed Waskar Loan?',
     'Add the Waskar / Wasica Holdings loan with these terms:\n\n' +
+    '  Lender:           TLMND LLC\n' +
+    '  Borrower:         Waskar Tejeda / Wasica Holdings, LLC\n' +
+    '  Agreement date:   June 28, 2023\n' +
     '  Principal:        $793,026.46\n' +
     '  Rate:             7% annual\n' +
     '  Term:             180 months (15 years)\n' +
     '  Monthly payment:  $7,127.95\n' +
-    '  Match pattern:    WASICA HOLDINGS|WASKAR\n' +
-    '  First payment:    2023-07-01  (PLACEHOLDER — edit to real start date)\n\n' +
-    'Also adds one manual catch-up entry for 04/18/2026 ($220,966.34) covering back-payments.\n\n' +
+    '  First payment:    2023-07-01\n' +
+    '  Match pattern:    WASICA HOLDINGS|WASKAR\n\n' +
+    'Also adds ONE manual catch-up entry for 04/18/2026:\n' +
+    '  Amount:     $220,966.34\n' +
+    '  Principal:  $84,746.09\n' +
+    '  Interest:   $136,220.25\n' +
+    '  Represents back-payments covered by that lump wire.\n\n' +
+    'Plaid should then match Feb/Mar/Jul/Aug 2026 monthly wires automatically.\n\n' +
     'Proceed?',
     ui.ButtonSet.OK_CANCEL
   );
@@ -117,16 +125,27 @@ function seedWaskarLoan() {
     paymentType: 'End of Period',
     plaidPattern: 'WASICA HOLDINGS|WASKAR',
     status: 'Active',
-    notes: 'Terms from amortization calculator: $793,026.46 @ 7% × 15y, $7,127.95/mo. ' +
-           'Plaid pattern catches both BOOK TRANSFER CREDIT B/O: WASICA and WASKAR wires. ' +
-           'First payment date is a placeholder — update to the real start date from loan docs.'
+    notes: 'Loan Agreement dated June 28, 2023. Lender TLMND LLC, Borrower Waskar Tejeda ' +
+           '(Wasica Holdings, LLC). Terms from amortization calculator: $793,026.46 @ 7% × ' +
+           '15y, $7,127.95/mo. Plaid pattern catches both "BOOK TRANSFER CREDIT B/O: WASICA" ' +
+           'and "WASKAR" wires. First payment July 1, 2023.'
   });
   if (!res.success) { ui.alert('Failed to add loan: ' + (res.error || 'unknown')); return; }
-  // Add the catch-up manual entry.
+  // Add the catch-up manual entry WITH the real principal/interest split so
+  // the current-balance calc correctly drops by $84,746 (not just the one
+  // schedule row's ~$2,500 expected split).
   addManualLoanPayment(res.id, '2026-04-18', 220966.34,
-    'Catch-up wire — covers back-payments (per your log: $84,746.09 principal + $136,220.25 interest). ' +
-    'Enter individual monthly wires as separate manual entries if you want them itemized.');
-  ui.alert('Waskar loan added. Go to the Loans tab → Edit to set the correct First Payment Date and Linked Asset.');
+    'Catch-up wire covering back-payments (Jul 2023 – Apr 2026). Per Amanda\'s Payment Log: ' +
+    '$84,746.09 principal + $136,220.25 interest.',
+    84746.09,   // principal
+    136220.25); // interest
+  ui.alert(
+    'Waskar loan added.\n\n' +
+    'Next steps:\n' +
+    '1. Loans tab → Refresh — the schedule shows all 180 months. Feb/Mar/Jul/Aug 2026 rows should auto-match from Plaid.\n' +
+    '2. The 04/18/2026 catch-up entry lands on the April 2026 row (blue "✓ Manual" badge).\n' +
+    '3. Edit the loan → set Linked Asset if you want the asset balance to auto-sync.'
+  );
 }
 
 // Menu-callable backfill for Solaris pre-Plaid payments (Jan / Feb / Mar
@@ -416,6 +435,8 @@ function _matchLoanPayments_(loan) {
     var mLoan = mh.indexOf('Loan ID');
     var mDate = mh.indexOf('Date');
     var mAmount = mh.indexOf('Amount');
+    var mPrincipal = mh.indexOf('Principal');
+    var mInterest = mh.indexOf('Interest');
     var mNotes = mh.indexOf('Notes');
     var mRows = manualSheet.getRange(2, 1, manualSheet.getLastRow() - 1, mh.length).getValues();
     var loanId = String(loan.ID || '');
@@ -425,12 +446,16 @@ function _matchLoanPayments_(loan) {
       if (isNaN(d.getTime())) return;
       var amount = Number(r[mAmount] || 0);
       if (amount <= 0) return;
+      var manualPrincipal = mPrincipal >= 0 && r[mPrincipal] !== '' ? Number(r[mPrincipal]) : null;
+      var manualInterest = mInterest >= 0 && r[mInterest] !== '' ? Number(r[mInterest]) : null;
       payments.push({
         date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
         amount: amount,
         account: '(manual entry)',
         name: mNotes >= 0 ? (String(r[mNotes] || '') || 'Manual payment entry') : 'Manual payment entry',
-        source: 'manual'
+        source: 'manual',
+        manualPrincipal: manualPrincipal,   // null = use schedule row's expected split
+        manualInterest:  manualInterest
       });
     });
   }
@@ -444,7 +469,7 @@ function _matchLoanPayments_(loan) {
 // etc.). Stored in LOAN_MANUAL_PAYMENTS. UI: click a Pending/Overdue row
 // in the Loans tab → "Mark as received" → creates a row here.
 var LOAN_MANUAL_HEADERS = [
-  'ID', 'Loan ID', 'Date', 'Amount', 'Notes', 'Entered By', 'Entered At'
+  'ID', 'Loan ID', 'Date', 'Amount', 'Principal', 'Interest', 'Notes', 'Entered By', 'Entered At'
 ];
 
 function ensureManualPaymentsSheet_() {
@@ -456,17 +481,50 @@ function ensureManualPaymentsSheet_() {
       .setValues([LOAN_MANUAL_HEADERS])
       .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
     sheet.setFrozenRows(1);
+    return sheet;
+  }
+  // Auto-add any headers we've since introduced (Principal, Interest were
+  // added when Waskar's lump-sum catch-up needed a real principal split).
+  var existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  var missing = LOAN_MANUAL_HEADERS.filter(function(h){ return existing.indexOf(h) < 0; });
+  if (missing.length) {
+    var startCol = existing.length + 1;
+    sheet.getRange(1, startCol, 1, missing.length)
+      .setValues([missing])
+      .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
   }
   return sheet;
 }
 
-function addManualLoanPayment(loanId, dateStr, amount, notes) {
+// principal + interest are OPTIONAL. When provided (e.g. for a lump-sum
+// catch-up that covers many periods at once), they override the schedule
+// row's expected split when computing current balance. When omitted, the
+// balance formula falls back to the schedule row's expected principal.
+function addManualLoanPayment(loanId, dateStr, amount, notes, principal, interest) {
   _requireEditor_();
   if (!loanId || !dateStr || !amount) return { success: false, error: 'Loan ID, date, and amount required.' };
   var sheet = ensureManualPaymentsSheet_();
   var id = 'mp_' + Utilities.getUuid().substring(0, 8);
-  sheet.appendRow([id, loanId, dateStr, Number(amount) || 0, notes || '', _currentUserEmail_() || '(unknown)', new Date()]);
-  _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amount + (notes ? ' — ' + notes : ''));
+  var pVal = principal != null && principal !== '' ? Number(principal) : '';
+  var iVal = interest  != null && interest  !== '' ? Number(interest)  : '';
+  // Row must be built in LOAN_MANUAL_HEADERS order to survive schema drift.
+  var row = LOAN_MANUAL_HEADERS.map(function(h){
+    switch(h) {
+      case 'ID':         return id;
+      case 'Loan ID':    return loanId;
+      case 'Date':       return dateStr;
+      case 'Amount':     return Number(amount) || 0;
+      case 'Principal':  return pVal;
+      case 'Interest':   return iVal;
+      case 'Notes':      return notes || '';
+      case 'Entered By': return _currentUserEmail_() || '(unknown)';
+      case 'Entered At': return new Date();
+      default:           return '';
+    }
+  });
+  sheet.appendRow(row);
+  var splitNote = (pVal !== '' && iVal !== '') ? ' (P $' + pVal + ' / I $' + iVal + ')' : '';
+  _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amount + splitNote + (notes ? ' — ' + notes : ''));
   return { success: true, id: id };
 }
 
@@ -579,7 +637,13 @@ function getLoansStatus() {
         actualAmount: p ? p.amount : null,
         variance: p ? (p.amount - row.payment) : 0,
         source: p ? (p.source || 'plaid') : null,
-        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid' } : null
+        // Effective principal reduction for THIS row. Manual entries can
+        // override the schedule's expected split (needed for lump-sum
+        // catch-ups covering many months of back-payments).
+        principalPaid: p
+          ? (p.manualPrincipal != null ? p.manualPrincipal : (row.principal || 0))
+          : 0,
+        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid', manualPrincipal: p.manualPrincipal, manualInterest: p.manualInterest } : null
       };
     });
 
@@ -593,7 +657,10 @@ function getLoansStatus() {
     // pending), because we're summing what actually happened rather than
     // trusting the schedule's precomputed balanceAfter (which assumes all
     // prior rows were paid on time).
-    var principalPaid = received.reduce(function(s, r){ return s + (r.principal || 0); }, 0);
+    // Uses each row's principalPaid (manual override if provided, else the
+    // schedule's expected split) so a $220,966 catch-up wire correctly
+    // credits its $84,746 principal portion instead of just $2,500.
+    var principalPaid = received.reduce(function(s, r){ return s + (r.principalPaid || 0); }, 0);
     var effective = Number(loan['Effective Principal']) || 0;
     var currentBalance = Math.max(0, effective - principalPaid);
 
