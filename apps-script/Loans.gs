@@ -66,6 +66,39 @@ function ensureLoansSheet_() {
   return sheet;
 }
 
+// Menu-callable backfill for Solaris pre-Plaid payments (Jan / Feb / Mar
+// 2026). Uses Jan 7 (from Amanda's bank statement) + estimated Feb/Mar
+// dates matching the observed Plaid pattern (payments arrive ~2–7 days
+// after the 1st). Amanda can edit dates later from the Loans tab by
+// removing + re-adding a payment if she has the exact bank statement date.
+function seedSolarisMissingPayments() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var solaris = loans.filter(function(l){ return String(l.Name||'').toLowerCase().indexOf('solaris') >= 0; })[0];
+  if (!solaris) { ui.alert('No Solaris loan found. Run "Loans → Init Solaris Loan" first.'); return; }
+  var resp = ui.alert(
+    'Backfill Solaris payments?',
+    'This will add MANUAL payment entries for Jan / Feb / Mar 2026 (payments Plaid doesn\'t have).\n\n' +
+    'Amount: $16,655.63 each\n' +
+    'Dates: 1/7/2026 (from bank statement), 2/6/2026 (estimated), 3/5/2026 (estimated)\n\n' +
+    'You can adjust dates later by removing + re-adding on the Loans tab.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+  var seeds = [
+    { date: '2026-01-07', amount: 16655.63, notes: 'Backfilled: Jan 2026 payment (pre-Plaid, per bank statement)' },
+    { date: '2026-02-06', amount: 16655.63, notes: 'Backfilled: Feb 2026 payment (pre-Plaid, estimated date)' },
+    { date: '2026-03-05', amount: 16655.63, notes: 'Backfilled: Mar 2026 payment (pre-Plaid, estimated date)' }
+  ];
+  var added = 0;
+  seeds.forEach(function(s) {
+    addManualLoanPayment(solaris.ID, s.date, s.amount, s.notes);
+    added++;
+  });
+  ui.alert('Seeded ' + added + ' backfill payments. Refresh the Loans tab to see them.');
+}
+
 // Menu-callable one-time seed for Solaris — uses the exact terms Amanda
 // pulled off her existing amortization schedule.
 function initSolarisLoan() {
@@ -630,6 +663,22 @@ function debugLoanMatches() {
   // Alert dialog has a size limit; truncate if huge.
   var alertText = report.length > 6000 ? report.substring(0, 6000) + '\n\n… (truncated — full report in Executions log)' : report;
   ui.alert('Loan Matcher Diagnostic', alertText, ui.ButtonSet.OK);
+}
+
+// Web-callable — returns the loan (if any) linked to a given asset ID.
+// Used by the asset detail modal to show a banner directing users to the
+// Loans tab instead of maintaining a separate manual Payment Log.
+function getLoanLinkedToAsset(assetId) {
+  if (!assetId) return null;
+  var loans = getLoans();
+  var linked = loans.filter(function(l){ return String(l['Linked Asset ID']||'') === String(assetId); })[0];
+  if (!linked) return null;
+  return {
+    loanId: linked.ID,
+    loanName: linked.Name,
+    plaidPattern: linked['Plaid Match Pattern'],
+    monthlyPayment: linked['Monthly Payment']
+  };
 }
 
 // Web-callable — for the "Linked Asset" dropdown in the Loans modal.

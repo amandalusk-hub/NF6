@@ -1131,16 +1131,29 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <div class="form-row"><label>Collateral</label><input type="text" id="d-loan-collateral" placeholder="e.g. Real estate, equity stake"></div>
         </div>
 
-        <!-- Payment Log -->
-        <div style="margin-top:14px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-            <span style="font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px">Payment Log</span>
-            <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="addLoanPaymentRow()">+ Add Payment</button>
+        <!-- Loan-linked banner: shows when this asset is linked to a Loans-tab
+             loan. Directs Amanda to use the Loans tab instead of maintaining
+             a stale manual Payment Log here. Populated by openAssetDetail. -->
+        <div id="d-loan-linked-banner" style="display:none;background:#eef4fb;border:1px solid #c8d8ec;border-left:4px solid #1e5fa8;border-radius:6px;padding:10px 14px;margin-top:14px;font-size:12px;color:#0d2137"></div>
+
+        <!-- Payment Log — collapsible section. Defaults collapsed when the
+             asset is linked to a Loans-tab loan (real data lives there), or
+             expanded otherwise. Amanda can toggle either way. -->
+        <div id="d-loan-payment-log-section" style="margin-top:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;cursor:pointer;user-select:none" onclick="toggleLoanPaymentLog()">
+            <span style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px">
+              <span id="d-loan-payment-log-caret" style="display:inline-block;transition:transform .15s;font-size:10px">▼</span>
+              Payment Log
+              <span id="d-loan-payment-log-count" style="font-weight:500;color:#8091a8;text-transform:none;letter-spacing:0;font-size:11px"></span>
+            </span>
+            <button type="button" class="btn btn-secondary" style="font-size:11px;padding:3px 9px" onclick="event.stopPropagation();addLoanPaymentRow()">+ Add Payment</button>
           </div>
-          <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px">
-            <span>Date</span><span>Principal</span><span>Interest</span><span>Notes</span><span></span>
+          <div id="d-loan-payment-log-body">
+            <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;display:grid;grid-template-columns:130px 110px 110px 1fr 26px;gap:4px">
+              <span>Date</span><span>Principal</span><span>Interest</span><span>Notes</span><span></span>
+            </div>
+            <div id="d-loan-payments-list"></div>
           </div>
-          <div id="d-loan-payments-list"></div>
         </div>
 
         <div class="form-row" style="margin-top:14px"><label>Total Interest Accrued</label><input type="text" id="d-loan-interest-accrued" placeholder="$0" onblur="onAcctBlur(this,recalcLoan)" onfocus="onAcctFocus(this)"><span style="font-size:11px;color:#8ab;margin-top:3px;display:block">Total interest owed to date (used to calculate Interest Outstanding)</span></div>
@@ -5911,6 +5924,34 @@ function openAssetDetail(id){
   });
   recalcLoan();
 
+  // Payment Log defaults expanded, count the entries for the collapsed label.
+  _setLoanPaymentLogCollapsed(false);
+  _updateLoanPaymentLogCount();
+
+  // Loan-link check: if this asset is linked to a Loans-tab loan, show a
+  // banner pointing to the Loans tab AND default-collapse the manual
+  // Payment Log (Amanda can still expand it if she needs to reference or
+  // edit the legacy manual entries).
+  var linkBanner = document.getElementById('d-loan-linked-banner');
+  if (linkBanner) linkBanner.style.display = 'none';
+  google.script.run
+    .withSuccessHandler(function(link){
+      if (!link || !linkBanner) return;
+      linkBanner.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px">' +
+          '<div>' +
+            '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Linked Loan</div>' +
+            '<div style="font-weight:700;color:#0d2137">' + esc(link.loanName || '') + '</div>' +
+            '<div style="font-size:11px;color:#5f7791;margin-top:4px">Payments for this loan live on the <strong>Loans</strong> tab (Plaid + manual entries). The manual Payment Log below is collapsed by default — click to expand if you need to reference or edit legacy entries.</div>' +
+          '</div>' +
+          '<button onclick="closeModal(\'detail-modal\');switchTab(\'loans\')" class="btn btn-primary" style="white-space:nowrap">Open Loans Tab →</button>' +
+        '</div>';
+      linkBanner.style.display = 'block';
+      _setLoanPaymentLogCollapsed(true);
+    })
+    .withFailureHandler(function(e){ console.warn('loan-link check failed:', e && e.message); })
+    .getLoanLinkedToAsset(id);
+
   // Asset-specific history -- loaded lazily from server
   const hDiv=document.getElementById('detail-history');
   hDiv.innerHTML='<p style="color:#999;font-size:13px;padding:8px 0">Loading history...</p>';
@@ -6435,6 +6476,31 @@ function recalcPE() {
 }
 
 // -- Loans Receivable Payment Log ------------------------------------------
+// Collapse/expand toggle for the Payment Log section in the asset detail
+// modal. Called by the header click handler; also set programmatically by
+// openAssetDetail to default-collapse when the asset is linked to a loan.
+function _setLoanPaymentLogCollapsed(collapsed) {
+  var body = document.getElementById('d-loan-payment-log-body');
+  var caret = document.getElementById('d-loan-payment-log-caret');
+  if (!body || !caret) return;
+  body.style.display = collapsed ? 'none' : '';
+  caret.style.transform = collapsed ? 'rotate(-90deg)' : '';
+}
+function toggleLoanPaymentLog() {
+  var body = document.getElementById('d-loan-payment-log-body');
+  if (!body) return;
+  _setLoanPaymentLogCollapsed(body.style.display !== 'none');
+}
+// Updates the "(N entries)" label next to the Payment Log header so Amanda
+// can see the count without expanding.
+function _updateLoanPaymentLogCount() {
+  var list = document.getElementById('d-loan-payments-list');
+  var label = document.getElementById('d-loan-payment-log-count');
+  if (!list || !label) return;
+  var n = list.querySelectorAll('.loan-pmt-row').length;
+  label.textContent = n === 0 ? '(none)' : ('(' + n + (n === 1 ? ' entry' : ' entries') + ')');
+}
+
 function addLoanPaymentRow(date, principal, interest, notes) {
   var list = document.getElementById('d-loan-payments-list');
   var row  = document.createElement('div');
@@ -6445,7 +6511,7 @@ function addLoanPaymentRow(date, principal, interest, notes) {
     '<input type="text" class="loan-pmt-principal" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
     '<input type="text" class="loan-pmt-interest" placeholder="$0" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;text-align:right">' +
     '<input type="text" class="loan-pmt-notes" placeholder="Notes" style="font-size:12px;padding:4px 6px;border:1px solid #ddd;border-radius:4px">' +
-    '<button type="button" onclick="this.closest(\'.loan-pmt-row\').remove();recalcLoan()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
+    '<button type="button" onclick="this.closest(\'.loan-pmt-row\').remove();recalcLoan();_updateLoanPaymentLogCount()" style="background:none;border:none;cursor:pointer;color:#c5221f;font-size:18px;line-height:1;padding:0">x</button>';
   list.appendChild(row);
   var prinEl = row.querySelector('.loan-pmt-principal');
   var intEl  = row.querySelector('.loan-pmt-interest');
@@ -6457,6 +6523,7 @@ function addLoanPaymentRow(date, principal, interest, notes) {
   if (principal) prinEl.value = fmtAcct(principal);
   if (interest)  intEl.value  = fmtAcct(interest);
   if (notes)     row.querySelector('.loan-pmt-notes').value = notes;
+  _updateLoanPaymentLogCount();
 }
 
 // -- Liability Payment Log ------------------------------------------------

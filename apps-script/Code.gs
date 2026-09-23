@@ -341,6 +341,7 @@ function onOpen() {
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
+    .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
