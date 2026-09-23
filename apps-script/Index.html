@@ -2376,11 +2376,15 @@ function _renderLoanSchedule(status) {
   var rows = status.schedule.map(function(r, idx) {
     var received = r.received;
     var isManual = r.source === 'manual';
+    var isMixed  = r.source === 'mixed';
     var color = received ? '#1e8e3e' : (new Date(r.dueDate) < new Date() ? '#c5221f' : '#8091a8');
+    var multiSuffix = r.txns && r.txns.length > 1 ? ' <span style="font-weight:500;opacity:.75">×' + r.txns.length + '</span>' : '';
     var badge = received
-      ? (isManual
-          ? '<span style="background:#eef4fb;color:#1e5fa8;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Entered manually">✓ Manual</span>'
-          : '<span style="background:#e6f4ea;color:#1e8e3e;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">✓ Received</span>')
+      ? (isMixed
+          ? '<span style="background:#f0f4f9;color:#5f6c85;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Combined Plaid + manual entries">✓ Mixed'+multiSuffix+'</span>'
+          : isManual
+          ? '<span style="background:#eef4fb;color:#1e5fa8;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Entered manually">✓ Manual'+multiSuffix+'</span>'
+          : '<span style="background:#e6f4ea;color:#1e8e3e;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">✓ Received'+multiSuffix+'</span>')
       : (new Date(r.dueDate) < new Date()
           ? '<span style="background:#fce8e6;color:#c5221f;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">Overdue</span>'
           : '<span style="background:#f0f4f9;color:#5f7791;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:500">Pending</span>');
@@ -2450,6 +2454,7 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
   }
   var t = row.txn;
   if (!t) { toast('No transaction data on that row', 'error'); return; }
+  var multi = (row.txns && row.txns.length > 1) ? row.txns : null;
   var variance = row.variance || 0;
   var vLine = Math.abs(variance) < 0.5
     ? '<span style="color:#1e8e3e">$0 — matched exactly</span>'
@@ -2471,6 +2476,25 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
     : '<div style="margin-top:14px;text-align:right">' +
         '<button onclick="closeModal(\'loan-txn-modal\')" class="btn btn-secondary">Close</button>' +
       '</div>';
+  // Multi-transaction section (only when 2+ payments covered this row).
+  var multiSection = '';
+  if (multi) {
+    multiSection =
+      '<div style="margin:10px 0;padding:10px 12px;background:#f7fafd;border:1px solid #dfe6ee;border-radius:5px">' +
+        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">This row combines ' + multi.length + ' transactions</div>' +
+        '<table style="width:100%;font-size:12px;border-collapse:collapse">' +
+          multi.map(function(tx){
+            var badge = tx.source === 'manual'
+              ? '<span style="background:#eef4fb;color:#1e5fa8;padding:1px 6px;border-radius:3px;font-size:10px">Manual</span>'
+              : '<span style="background:#e6f4ea;color:#1e8e3e;padding:1px 6px;border-radius:3px;font-size:10px">Plaid</span>';
+            return '<tr><td style="padding:3px 6px;color:#5f7791">'+new Date(tx.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</td>' +
+                   '<td style="padding:3px 6px;font-family:monospace;font-size:11px;color:#4a6b8e;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(tx.name||'')+'</td>' +
+                   '<td style="padding:3px 6px;text-align:right;font-weight:600;color:#1e8e3e">'+fmtUSD(tx.amount)+'</td>' +
+                   '<td style="padding:3px 6px;text-align:right">'+badge+'</td></tr>';
+          }).join('') +
+        '</table>' +
+      '</div>';
+  }
   var body =
     '<div style="padding:14px 20px">' +
       '<div style="background:#f0f4f9;border-left:4px solid '+(isManual?'#1e5fa8':'#14263d')+';padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
@@ -2478,15 +2502,16 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
         '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(st.loan.Name||'')+'</div>' +
       '</div>' +
       '<table style="width:100%;font-size:13px;border-collapse:collapse">' +
-        '<tr><td style="padding:6px 0;color:#5f7791;width:140px">Actual Date</td><td style="padding:6px 0;font-weight:600">'+new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})+'</td></tr>' +
-        '<tr><td style="padding:6px 0;color:#5f7791">Actual Amount</td><td style="padding:6px 0;font-weight:600;color:#1e8e3e">'+fmtUSD(t.amount)+'</td></tr>' +
+        '<tr><td style="padding:6px 0;color:#5f7791;width:140px">Actual Date' + (multi?' (first)':'') + '</td><td style="padding:6px 0;font-weight:600">'+new Date(t.date+'T00:00:00').toLocaleDateString('en-US',{weekday:'short',month:'long',day:'numeric',year:'numeric'})+'</td></tr>' +
+        '<tr><td style="padding:6px 0;color:#5f7791">Actual Amount' + (multi?' (total)':'') + '</td><td style="padding:6px 0;font-weight:600;color:#1e8e3e">'+fmtUSD(row.actualAmount || t.amount)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Expected (Scheduled)</td><td style="padding:6px 0">'+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Variance</td><td style="padding:6px 0">'+vLine+'</td></tr>' +
-        sourceLine +
+        (multi ? '' : sourceLine) +
         '<tr><td style="padding:6px 0;color:#5f7791">Applied To Principal</td><td style="padding:6px 0;color:#1e8e3e;font-weight:600">'+fmtUSD(row.principal)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Applied To Interest</td><td style="padding:6px 0;color:#c5221f;font-weight:600">'+fmtUSD(row.interest)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Balance After</td><td style="padding:6px 0;font-weight:600">'+fmtUSD(row.balanceAfter)+'</td></tr>' +
       '</table>' +
+      multiSection +
       footer +
     '</div>';
   var m = document.getElementById('loan-txn-modal');

@@ -694,71 +694,80 @@ function _computeLoanStatus_(loan) {
     var schedule = _generateAmortizationSchedule_(loan);
     var payments = _matchLoanPayments_(loan);
 
-    // Month-based matching: each payment goes to the schedule row whose due
-    // date is in the same calendar month. Handles late payments, missing
-    // months (Amanda's Jan/Feb/Mar Solaris rows stay Pending until she
-    // manually enters them), and multiple payments in one month (extras
-    // spill to the next open month). Prior naive-greedy-by-index was
-    // matching Apr 3 → Jan 1 which was very wrong.
+    // Month-based matching: ALL payments in a calendar month go to that
+    // month's schedule row as a COMPOSITE entry. Handles the common case
+    // where one monthly payment arrives as two wires a day apart (e.g.
+    // Waskar's $1,000 on Apr 6 + $6,128 on Apr 7 = one $7,128 April
+    // payment). If no schedule row exists for a payment's month (payment
+    // before first due or after last), fall back to the closest row.
     //
-    // Build a month → row index map.
+    // Build month → row index map.
     var monthToRow = {};
     schedule.forEach(function(r, i) {
-      var ym = r.dueDate.substring(0, 7);   // YYYY-MM
+      var ym = r.dueDate.substring(0, 7);
       if (monthToRow[ym] == null) monthToRow[ym] = i;
     });
-    // Match each payment to a schedule row. Preference: same month; if the
-    // month is already taken, spill to the next open row after it.
-    var matchIdxByPayment = new Array(payments.length).fill(-1);
-    var rowTaken = new Array(schedule.length).fill(false);
-    payments.forEach(function(p, pi) {
+    // Group payments by target row.
+    var paymentsByRow = {};   // rowIdx → [payment, payment, ...]
+    payments.forEach(function(p) {
       var ym = p.date.substring(0, 7);
-      var start = monthToRow[ym];
-      if (start == null) {
-        // No schedule row for this month (payment before the first due, or
-        // after the last). Fall back to closest un-taken row overall.
+      var rowIdx = monthToRow[ym];
+      if (rowIdx == null) {
+        // No schedule row for this month — find closest by date distance.
         var bestI = -1, bestDelta = Infinity;
         for (var i = 0; i < schedule.length; i++) {
-          if (rowTaken[i]) continue;
           var delta = Math.abs(new Date(schedule[i].dueDate + 'T00:00:00').getTime() -
                                new Date(p.date + 'T00:00:00').getTime());
           if (delta < bestDelta) { bestDelta = delta; bestI = i; }
         }
-        if (bestI >= 0) { matchIdxByPayment[pi] = bestI; rowTaken[bestI] = true; }
-        return;
+        rowIdx = bestI;
       }
-      // Try same-month row first; if taken, walk forward.
-      for (var j = start; j < schedule.length; j++) {
-        if (!rowTaken[j]) { matchIdxByPayment[pi] = j; rowTaken[j] = true; return; }
-      }
-    });
-    // Invert: rowIdx → paymentIdx.
-    var paymentByRow = {};
-    matchIdxByPayment.forEach(function(rowI, payI) {
-      if (rowI >= 0) paymentByRow[rowI] = payments[payI];
+      if (rowIdx < 0) return;
+      if (!paymentsByRow[rowIdx]) paymentsByRow[rowIdx] = [];
+      paymentsByRow[rowIdx].push(p);
     });
 
     var scheduleWithStatus = schedule.map(function(row, i) {
-      var p = paymentByRow[i] || null;
+      var ps = paymentsByRow[i] || [];
+      if (!ps.length) {
+        return {
+          n: row.n, dueDate: row.dueDate, payment: row.payment,
+          interest: row.interest, principal: row.principal, balanceAfter: row.balanceAfter,
+          received: false, actualDate: null, actualAmount: null, variance: 0,
+          source: null, principalPaid: 0, txn: null, txns: []
+        };
+      }
+      // Composite math: sum the payment amounts; sum the principal portions
+      // (manual entries use their stored split, Plaid entries pro-rate the
+      // row's expected principal by the payment's share of expected total).
+      var totalAmount = ps.reduce(function(s, p){ return s + (p.amount||0); }, 0);
+      var totalPrincipal = 0;
+      ps.forEach(function(p){
+        if (p.manualPrincipal != null) {
+          totalPrincipal += p.manualPrincipal;
+        } else {
+          var expected = row.payment || 1;
+          totalPrincipal += (row.principal || 0) * (p.amount / expected);
+        }
+      });
+      var earliestDate = ps[0].date;   // payments are already sorted oldest-first
+      var dominantSource = ps.every(function(p){ return p.source === 'manual'; })
+        ? 'manual'
+        : (ps.some(function(p){ return p.source === 'manual'; }) ? 'mixed' : 'plaid');
+      var txnList = ps.map(function(p){
+        return { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid', manualPrincipal: p.manualPrincipal, manualInterest: p.manualInterest };
+      });
       return {
-        n: row.n,
-        dueDate: row.dueDate,
-        payment: row.payment,
-        interest: row.interest,
-        principal: row.principal,
-        balanceAfter: row.balanceAfter,
-        received: !!p,
-        actualDate: p ? p.date : null,
-        actualAmount: p ? p.amount : null,
-        variance: p ? (p.amount - row.payment) : 0,
-        source: p ? (p.source || 'plaid') : null,
-        // Effective principal reduction for THIS row. Manual entries can
-        // override the schedule's expected split (needed for lump-sum
-        // catch-ups covering many months of back-payments).
-        principalPaid: p
-          ? (p.manualPrincipal != null ? p.manualPrincipal : (row.principal || 0))
-          : 0,
-        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid', manualPrincipal: p.manualPrincipal, manualInterest: p.manualInterest } : null
+        n: row.n, dueDate: row.dueDate, payment: row.payment,
+        interest: row.interest, principal: row.principal, balanceAfter: row.balanceAfter,
+        received: true,
+        actualDate: earliestDate,
+        actualAmount: totalAmount,
+        variance: totalAmount - row.payment,
+        source: dominantSource,
+        principalPaid: totalPrincipal,
+        txn: txnList[0],   // primary — first chronologically (kept for backward compat)
+        txns: txnList      // full list — frontend can show all in drilldown
       };
     });
 
