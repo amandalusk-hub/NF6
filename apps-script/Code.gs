@@ -340,6 +340,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
     .addSeparator()
+    .addItem('Loans → Reset LOANS sheet (move legacy aside)', 'resetLoansSheet')
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
     .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')

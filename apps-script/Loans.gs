@@ -43,19 +43,32 @@ function ensureLoansSheet_() {
   var sheet = ss.getSheetByName('LOANS');
   if (!sheet) {
     sheet = ss.insertSheet('LOANS');
-    sheet.getRange(1, 1, 1, LOANS_HEADERS.length)
-      .setValues([LOANS_HEADERS])
-      .setFontWeight('bold')
-      .setBackground('#14263d')
-      .setFontColor('#ffffff');
-    sheet.setFrozenRows(1);
-    sheet.autoResizeColumns(1, LOANS_HEADERS.length);
+    _writeLoansHeader_(sheet);
     return sheet;
   }
-  // Sheet exists — check the header row and add any missing columns (like
-  // "Linked Asset ID" added after Amanda already seeded Solaris). Data in
-  // existing rows stays intact; new columns just show up as blank cells.
-  var existing = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+  // Detect a legacy / foreign LOANS sheet (from a prior loans tracker with
+  // completely different columns: Borrower, Amount, Currency, etc.). If the
+  // header row doesn't look like ours (Name should be at col 2 per our
+  // schema), rename the old sheet aside as LOANS_LEGACY_<timestamp> and
+  // create a fresh LOANS sheet with our headers.
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var col2 = String(existing[1] || '').toLowerCase();
+  var isOurs = col2 === 'name';
+  if (!isOurs && sheet.getLastRow() >= 1 && existing[0]) {
+    // Not our schema — preserve the legacy sheet by renaming, then create
+    // a fresh LOANS sheet. Idempotent: if a rename target already exists,
+    // append -2, -3, etc.
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
+    var newName = 'LOANS_LEGACY_' + stamp;
+    var suffix = 1;
+    while (ss.getSheetByName(newName)) { suffix++; newName = 'LOANS_LEGACY_' + stamp + '-' + suffix; }
+    sheet.setName(newName);
+    sheet = ss.insertSheet('LOANS');
+    _writeLoansHeader_(sheet);
+    return sheet;
+  }
+  // Our schema — auto-add any missing columns (schema drift).
   var missing = LOANS_HEADERS.filter(function(h){ return existing.indexOf(h) < 0; });
   if (missing.length) {
     var startCol = existing.length + 1;
@@ -64,6 +77,49 @@ function ensureLoansSheet_() {
       .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
   }
   return sheet;
+}
+function _writeLoansHeader_(sheet) {
+  sheet.getRange(1, 1, 1, LOANS_HEADERS.length)
+    .setValues([LOANS_HEADERS])
+    .setFontWeight('bold')
+    .setBackground('#14263d')
+    .setFontColor('#ffffff');
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, LOANS_HEADERS.length);
+}
+
+// Menu-callable: rename the current LOANS sheet aside (if it exists) and
+// create a fresh one. Used to recover from schema corruption. Existing data
+// is NOT lost — it's just moved to a LOANS_LEGACY_<timestamp> sheet Amanda
+// can inspect or delete manually. After this, re-run the loan seeds.
+function resetLoansSheet() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('LOANS');
+  if (!sheet) {
+    _writeLoansHeader_(ss.insertSheet('LOANS'));
+    ui.alert('Created fresh LOANS sheet. Now run Init Solaris Loan / Init Waskar Loan again.');
+    return;
+  }
+  var resp = ui.alert(
+    'Reset LOANS sheet?',
+    'This renames the current LOANS sheet aside (as LOANS_LEGACY_<timestamp> — nothing deleted) and creates a fresh one with the correct column order.\n\n' +
+    'After reset, run:\n' +
+    '  Tracker → Loans → Init Solaris Loan\n' +
+    '  Tracker → Loans → Backfill Solaris Jan-Mar payments\n' +
+    '  Tracker → Loans → Init Waskar Loan\n\n' +
+    'Proceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
+  var newName = 'LOANS_LEGACY_' + stamp;
+  var suffix = 1;
+  while (ss.getSheetByName(newName)) { suffix++; newName = 'LOANS_LEGACY_' + stamp + '-' + suffix; }
+  sheet.setName(newName);
+  _writeLoansHeader_(ss.insertSheet('LOANS'));
+  ui.alert('Renamed old sheet to "' + newName + '" and created a fresh LOANS sheet.\n\nNow run:\n  Init Solaris Loan\n  Backfill Solaris Jan-Mar payments\n  Init Waskar Loan');
 }
 
 // Menu-callable one-time seed for the Waskar loan (Wasica Holdings, LLC).
