@@ -204,6 +204,58 @@ function seedWaskarLoan() {
   );
 }
 
+// Menu-callable: backfill Waskar's historical monthly payments as N
+// individual manual entries with correct amortization principal/interest
+// split per month, and remove the single big catch-up entry if present.
+// N defaults to 31 (Jul 2023 - Jan 2026, i.e. everything before Amanda's
+// Feb 2026 Plaid tracking started).
+function seedWaskarHistoricalPayments() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var waskar = loans.filter(function(l){
+    var n = String(l.Name||'').toLowerCase();
+    return n.indexOf('waskar') >= 0 || n.indexOf('wasica') >= 0;
+  })[0];
+  if (!waskar) { ui.alert('No Waskar loan found. Run Init Waskar Loan first.'); return; }
+
+  var resp = ui.prompt(
+    'Backfill Waskar historical monthlies',
+    'Backfill how many monthly payments from loan start? (default 31 = Jul 2023 → Jan 2026, right before Feb 2026 Plaid tracking starts).\n\n' +
+    'This will:\n' +
+    '  1. Remove the existing $220,966 catch-up entry (if present)\n' +
+    '  2. Add N separate manual entries with correct principal/interest split per month\n\n' +
+    'Enter number of months (or Cancel):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var n = Number(resp.getResponseText()) || 31;
+  if (n < 1 || n > 180) { ui.alert('Enter between 1 and 180.'); return; }
+
+  var schedule = _generateAmortizationSchedule_(waskar);
+  if (schedule.length < n) { ui.alert('Schedule only has ' + schedule.length + ' rows.'); return; }
+
+  // Remove the old lump catch-up if it's there ($220,966.34 on 2026-04-18).
+  try { _removeManualPaymentByLoanAndDate(waskar.ID, '2026-04-18', 220966.34); } catch(e) {}
+
+  // Add N monthly entries — one per schedule row.
+  var added = 0;
+  for (var i = 0; i < n; i++) {
+    var r = schedule[i];
+    addManualLoanPayment(
+      waskar.ID,
+      r.dueDate,
+      r.payment,
+      'Backfilled: month ' + (i+1) + ' historical payment (pre-Plaid tracking)',
+      r.principal,
+      r.interest,
+      'received'
+    );
+    added++;
+  }
+  ui.alert('Backfilled ' + added + ' monthly payments for Waskar (' + schedule[0].dueDate + ' → ' + schedule[n-1].dueDate + '). Removed old lump catch-up entry.');
+}
+
 // Menu-callable backfill for Solaris pre-Plaid payments (Jan / Feb / Mar
 // 2026). Uses Jan 7 (from Amanda's bank statement) + estimated Feb/Mar
 // dates matching the observed Plaid pattern (payments arrive ~2–7 days
@@ -513,7 +565,7 @@ function _matchLoanPayments_(loan) {
     }
   }
 
-  // (2) Manual entries for this loan.
+  // (2) Manual entries for this loan (both received AND missed).
   var manualSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOAN_MANUAL_PAYMENTS');
   if (manualSheet && manualSheet.getLastRow() >= 2) {
     var mh = manualSheet.getRange(1, 1, 1, manualSheet.getLastColumn()).getValues()[0];
@@ -522,6 +574,7 @@ function _matchLoanPayments_(loan) {
     var mAmount = mh.indexOf('Amount');
     var mPrincipal = mh.indexOf('Principal');
     var mInterest = mh.indexOf('Interest');
+    var mType = mh.indexOf('Type');
     var mNotes = mh.indexOf('Notes');
     var mRows = manualSheet.getRange(2, 1, manualSheet.getLastRow() - 1, mh.length).getValues();
     var loanId = String(loan.ID || '');
@@ -529,18 +582,21 @@ function _matchLoanPayments_(loan) {
       if (String(r[mLoan] || '') !== loanId) return;
       var d = r[mDate] instanceof Date ? r[mDate] : new Date(r[mDate]);
       if (isNaN(d.getTime())) return;
+      var type = mType >= 0 ? String(r[mType] || 'received').toLowerCase() : 'received';
       var amount = Number(r[mAmount] || 0);
-      if (amount <= 0) return;
+      // Missed entries have amount=0; received need amount > 0.
+      if (type !== 'missed' && amount <= 0) return;
       var manualPrincipal = mPrincipal >= 0 && r[mPrincipal] !== '' ? Number(r[mPrincipal]) : null;
       var manualInterest = mInterest >= 0 && r[mInterest] !== '' ? Number(r[mInterest]) : null;
       payments.push({
         date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
         amount: amount,
         account: '(manual entry)',
-        name: mNotes >= 0 ? (String(r[mNotes] || '') || 'Manual payment entry') : 'Manual payment entry',
+        name: mNotes >= 0 ? (String(r[mNotes] || '') || (type === 'missed' ? 'Missed payment' : 'Manual payment entry')) : (type === 'missed' ? 'Missed payment' : 'Manual payment entry'),
         source: 'manual',
-        manualPrincipal: manualPrincipal,   // null = use schedule row's expected split
-        manualInterest:  manualInterest
+        type: type,           // 'received' | 'missed'
+        manualPrincipal: type === 'missed' ? 0 : manualPrincipal,
+        manualInterest:  type === 'missed' ? 0 : manualInterest
       });
     });
   }
@@ -554,7 +610,7 @@ function _matchLoanPayments_(loan) {
 // etc.). Stored in LOAN_MANUAL_PAYMENTS. UI: click a Pending/Overdue row
 // in the Loans tab → "Mark as received" → creates a row here.
 var LOAN_MANUAL_HEADERS = [
-  'ID', 'Loan ID', 'Date', 'Amount', 'Principal', 'Interest', 'Notes', 'Entered By', 'Entered At'
+  'ID', 'Loan ID', 'Date', 'Amount', 'Principal', 'Interest', 'Type', 'Notes', 'Entered By', 'Entered At'
 ];
 
 function ensureManualPaymentsSheet_() {
@@ -581,26 +637,34 @@ function ensureManualPaymentsSheet_() {
   return sheet;
 }
 
+// type: 'received' (default) marks the row paid with amount/principal/interest.
+//       'missed' marks the row as intentionally not paid (borrower defaulted
+//       for that month). Missed entries have amount=0, don't count as
+//       received, and don't reduce the loan balance.
 // principal + interest are OPTIONAL. When provided (e.g. for a lump-sum
 // catch-up that covers many periods at once), they override the schedule
 // row's expected split when computing current balance. When omitted, the
 // balance formula falls back to the schedule row's expected principal.
-function addManualLoanPayment(loanId, dateStr, amount, notes, principal, interest) {
+function addManualLoanPayment(loanId, dateStr, amount, notes, principal, interest, type) {
   _requireEditor_();
-  if (!loanId || !dateStr || !amount) return { success: false, error: 'Loan ID, date, and amount required.' };
+  if (!loanId || !dateStr) return { success: false, error: 'Loan ID and date required.' };
+  type = (type === 'missed') ? 'missed' : 'received';
+  if (type === 'received' && !amount) return { success: false, error: 'Amount required for a received payment.' };
   var sheet = ensureManualPaymentsSheet_();
   var id = 'mp_' + Utilities.getUuid().substring(0, 8);
-  var pVal = principal != null && principal !== '' ? Number(principal) : '';
-  var iVal = interest  != null && interest  !== '' ? Number(interest)  : '';
+  var amt = type === 'missed' ? 0 : (Number(amount) || 0);
+  var pVal = type === 'missed' ? 0 : (principal != null && principal !== '' ? Number(principal) : '');
+  var iVal = type === 'missed' ? 0 : (interest  != null && interest  !== '' ? Number(interest)  : '');
   // Row must be built in LOAN_MANUAL_HEADERS order to survive schema drift.
   var row = LOAN_MANUAL_HEADERS.map(function(h){
     switch(h) {
       case 'ID':         return id;
       case 'Loan ID':    return loanId;
       case 'Date':       return dateStr;
-      case 'Amount':     return Number(amount) || 0;
+      case 'Amount':     return amt;
       case 'Principal':  return pVal;
       case 'Interest':   return iVal;
+      case 'Type':       return type;
       case 'Notes':      return notes || '';
       case 'Entered By': return _currentUserEmail_() || '(unknown)';
       case 'Entered At': return new Date();
@@ -608,8 +672,8 @@ function addManualLoanPayment(loanId, dateStr, amount, notes, principal, interes
     }
   });
   sheet.appendRow(row);
-  var splitNote = (pVal !== '' && iVal !== '') ? ' (P $' + pVal + ' / I $' + iVal + ')' : '';
-  _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amount + splitNote + (notes ? ' — ' + notes : ''));
+  var splitNote = type === 'missed' ? ' [MISSED]' : ((pVal !== '' && iVal !== '') ? ' (P $' + pVal + ' / I $' + iVal + ')' : '');
+  _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amt + splitNote + (notes ? ' — ' + notes : ''));
   return { success: true, id: id };
 }
 
@@ -733,16 +797,35 @@ function _computeLoanStatus_(loan) {
         return {
           n: row.n, dueDate: row.dueDate, payment: row.payment,
           interest: row.interest, principal: row.principal, balanceAfter: row.balanceAfter,
-          received: false, actualDate: null, actualAmount: null, variance: 0,
+          received: false, missed: false,
+          actualDate: null, actualAmount: null, variance: 0,
           source: null, principalPaid: 0, txn: null, txns: []
         };
       }
-      // Composite math: sum the payment amounts; sum the principal portions
-      // (manual entries use their stored split, Plaid entries pro-rate the
-      // row's expected principal by the payment's share of expected total).
-      var totalAmount = ps.reduce(function(s, p){ return s + (p.amount||0); }, 0);
+      // If ALL entries on this row are missed, mark the row missed (not
+      // received, no principal credited, no amount). If mixed missed +
+      // received, the received portion wins — the missed markers become
+      // just notes in the drilldown.
+      var allMissed = ps.every(function(p){ return p.type === 'missed'; });
+      if (allMissed) {
+        return {
+          n: row.n, dueDate: row.dueDate, payment: row.payment,
+          interest: row.interest, principal: row.principal, balanceAfter: row.balanceAfter,
+          received: false, missed: true,
+          actualDate: ps[0].date, actualAmount: 0, variance: 0,
+          source: 'manual', principalPaid: 0,
+          txn: { date: ps[0].date, amount: 0, account: '(missed)', name: ps[0].name || 'Missed payment', source: 'manual', type: 'missed' },
+          txns: ps.map(function(p){ return { date: p.date, amount: 0, account: '(missed)', name: p.name || 'Missed payment', source: 'manual', type: 'missed' }; })
+        };
+      }
+      // Composite math (received): sum the payment amounts; sum the principal
+      // portions (manual entries use their stored split, Plaid entries
+      // pro-rate the row's expected principal by the payment's share of
+      // expected total). Ignore any missed entries mixed in.
+      var received = ps.filter(function(p){ return p.type !== 'missed'; });
+      var totalAmount = received.reduce(function(s, p){ return s + (p.amount||0); }, 0);
       var totalPrincipal = 0;
-      ps.forEach(function(p){
+      received.forEach(function(p){
         if (p.manualPrincipal != null) {
           totalPrincipal += p.manualPrincipal;
         } else {
@@ -750,17 +833,17 @@ function _computeLoanStatus_(loan) {
           totalPrincipal += (row.principal || 0) * (p.amount / expected);
         }
       });
-      var earliestDate = ps[0].date;   // payments are already sorted oldest-first
-      var dominantSource = ps.every(function(p){ return p.source === 'manual'; })
+      var earliestDate = received[0].date;
+      var dominantSource = received.every(function(p){ return p.source === 'manual'; })
         ? 'manual'
-        : (ps.some(function(p){ return p.source === 'manual'; }) ? 'mixed' : 'plaid');
+        : (received.some(function(p){ return p.source === 'manual'; }) ? 'mixed' : 'plaid');
       var txnList = ps.map(function(p){
-        return { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid', manualPrincipal: p.manualPrincipal, manualInterest: p.manualInterest };
+        return { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid', type: p.type || 'received', manualPrincipal: p.manualPrincipal, manualInterest: p.manualInterest };
       });
       return {
         n: row.n, dueDate: row.dueDate, payment: row.payment,
         interest: row.interest, principal: row.principal, balanceAfter: row.balanceAfter,
-        received: true,
+        received: true, missed: false,
         actualDate: earliestDate,
         actualAmount: totalAmount,
         variance: totalAmount - row.payment,
@@ -772,6 +855,7 @@ function _computeLoanStatus_(loan) {
     });
 
     var received = scheduleWithStatus.filter(function(r){ return r.received; });
+    var missed   = scheduleWithStatus.filter(function(r){ return r.missed;   });
     var totalReceived = received.reduce(function(s, r){ return s + (r.actualAmount||0); }, 0);
     var totalScheduled = schedule.reduce(function(s, r){ return s + r.payment; }, 0);
 
@@ -788,8 +872,8 @@ function _computeLoanStatus_(loan) {
     var effective = Number(loan['Effective Principal']) || 0;
     var currentBalance = Math.max(0, effective - principalPaid);
 
-    // Next expected payment (first row that isn't yet received).
-    var nextDue = scheduleWithStatus.find(function(r){ return !r.received; }) || null;
+    // Next expected payment (first row that isn't yet received OR missed).
+    var nextDue = scheduleWithStatus.find(function(r){ return !r.received && !r.missed; }) || null;
 
     // If this loan is linked to an asset, push the current outstanding
     // balance up to that asset row on the Assets sheet so the dashboard
@@ -808,6 +892,7 @@ function _computeLoanStatus_(loan) {
       schedule: scheduleWithStatus,
       summary: {
         paymentsReceived:  received.length,
+        paymentsMissed:    missed.length,
         paymentsScheduled: schedule.length,
         totalReceived:     totalReceived,
         totalScheduled:    totalScheduled,

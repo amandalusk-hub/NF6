@@ -344,6 +344,7 @@ function onOpen() {
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
     .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
+    .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
     .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')

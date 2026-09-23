@@ -2358,7 +2358,7 @@ function _renderLoanCard(status) {
     '</div>' +
     // Summary row
     '<div style="padding:12px 18px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;border-bottom:1px solid #e6ebf2">' +
-      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Payments Received</div><div style="font-size:15px;font-weight:600;color:#14263d">'+s.paymentsReceived+' / '+s.paymentsScheduled+'</div></div>' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Payments Received</div><div style="font-size:15px;font-weight:600;color:#14263d">'+s.paymentsReceived+' / '+s.paymentsScheduled+ (s.paymentsMissed?' <span style="color:#8b1c1c;font-size:11px;font-weight:500" title="Missed payments">('+s.paymentsMissed+' missed)</span>':'') +'</div></div>' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Total Received</div><div style="font-size:15px;font-weight:600;color:#1e8e3e">'+fmtUSD(s.totalReceived||0)+'</div></div>' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Next Due</div><div style="font-size:15px;font-weight:600;color:#14263d">'+esc(nextDueStr)+'</div></div>' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Progress</div>' +
@@ -2375,11 +2375,16 @@ function _renderLoanSchedule(status) {
   var loanId = status.loan.ID;
   var rows = status.schedule.map(function(r, idx) {
     var received = r.received;
+    var missed   = r.missed;
     var isManual = r.source === 'manual';
     var isMixed  = r.source === 'mixed';
-    var color = received ? '#1e8e3e' : (new Date(r.dueDate) < new Date() ? '#c5221f' : '#8091a8');
+    var color = missed ? '#8b1c1c'
+              : received ? '#1e8e3e'
+              : (new Date(r.dueDate) < new Date() ? '#c5221f' : '#8091a8');
     var multiSuffix = r.txns && r.txns.length > 1 ? ' <span style="font-weight:500;opacity:.75">×' + r.txns.length + '</span>' : '';
-    var badge = received
+    var badge = missed
+      ? '<span style="background:#fce8e6;color:#8b1c1c;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Marked as missed">⚠ Missed</span>'
+      : received
       ? (isMixed
           ? '<span style="background:#f0f4f9;color:#5f6c85;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Combined Plaid + manual entries">✓ Mixed'+multiSuffix+'</span>'
           : isManual
@@ -2541,22 +2546,31 @@ function _openMarkPaymentReceivedModal(status, scheduleIdx) {
   var body =
     '<div style="padding:14px 20px">' +
       '<div style="background:#eef4fb;border-left:4px solid #1e5fa8;padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
-        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Mark as Received · Payment #'+row.n+'</div>' +
+        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Record Payment · #'+row.n+'</div>' +
         '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(loan.Name||'')+'</div>' +
         '<div style="font-size:11px;color:#5f7791;margin-top:4px">Expected: '+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div>' +
       '</div>' +
-      '<div style="font-size:11px;color:#5f7791;margin-bottom:14px;line-height:1.5">Use this to record payments Plaid doesn\'t have — for example, payments received before your Plaid connection was set up, or into an account not synced by Plaid. Once entered here, the row shows as ✓ Manual (blue badge) and counts toward the loan\'s balance.</div>' +
+      /* Received / Missed toggle */
+      '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        '<label style="flex:1;border:2px solid #1e8e3e;background:#e6f4ea;color:#1e8e3e;padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px" onclick="_setPaymentType(\'received\')" id="mp-lbl-received">' +
+          '<input type="radio" name="mp-type" value="received" checked style="margin:0"> ✓ Received' +
+        '</label>' +
+        '<label style="flex:1;border:2px solid #dfe6ee;background:#fff;color:#5f7791;padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px" onclick="_setPaymentType(\'missed\')" id="mp-lbl-missed">' +
+          '<input type="radio" name="mp-type" value="missed" style="margin:0"> ⚠ Missed' +
+        '</label>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#5f7791;margin-bottom:14px;line-height:1.5" id="mp-help">Use <strong>Received</strong> for payments Plaid doesn\'t have (predates connection, wrong account, etc.). Use <strong>Missed</strong> to mark a period as unpaid (borrower defaulted) — doesn\'t reduce the loan balance.</div>' +
       '<div style="display:grid;grid-template-columns:120px 1fr;gap:10px 12px;font-size:13px;align-items:center">' +
-        '<label style="color:#5f7791">Date Received</label>' +
+        '<label style="color:#5f7791">Date' + '<span id="mp-date-suffix" style="color:#8091a8">' + ' Received' + '</span>' + '</label>' +
         '<input type="date" id="mp-date" value="'+defaultDate+'" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
-        '<label style="color:#5f7791">Amount ($)</label>' +
+        '<label style="color:#5f7791" id="mp-amount-lbl">Amount ($)</label>' +
         '<input type="number" id="mp-amount" step="0.01" value="'+defaultAmount+'" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
         '<label style="color:#5f7791">Notes (optional)</label>' +
-        '<input type="text" id="mp-notes" placeholder="e.g. paid via wire, statement Jan 2026" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
+        '<input type="text" id="mp-notes" placeholder="e.g. paid via wire, or borrower missed this month" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
       '</div>' +
       '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">' +
         '<button onclick="closeModal(\'loan-mark-modal\')" class="btn btn-secondary">Cancel</button>' +
-        '<button onclick="saveManualPaymentClick(\''+loan.ID+'\')" class="btn btn-primary">Save Payment</button>' +
+        '<button onclick="saveManualPaymentClick(\''+loan.ID+'\')" class="btn btn-primary" id="mp-save-btn">Save Payment</button>' +
       '</div>' +
     '</div>';
   var m = document.getElementById('loan-mark-modal');
@@ -2570,17 +2584,44 @@ function _openMarkPaymentReceivedModal(status, scheduleIdx) {
   document.getElementById('loan-mark-modal-body').innerHTML = body;
   openModal('loan-mark-modal');
 }
+// Switch the Received/Missed toggle. Called by clicking either label.
+function _setPaymentType(t) {
+  var recRadio = document.querySelector('input[name="mp-type"][value="received"]');
+  var misRadio = document.querySelector('input[name="mp-type"][value="missed"]');
+  var recLbl = document.getElementById('mp-lbl-received');
+  var misLbl = document.getElementById('mp-lbl-missed');
+  var amountLbl = document.getElementById('mp-amount-lbl');
+  var amountInp = document.getElementById('mp-amount');
+  var dateSuf = document.getElementById('mp-date-suffix');
+  var saveBtn = document.getElementById('mp-save-btn');
+  var help = document.getElementById('mp-help');
+  var isMissed = t === 'missed';
+  if (recRadio) recRadio.checked = !isMissed;
+  if (misRadio) misRadio.checked = isMissed;
+  if (recLbl) recLbl.style.cssText = 'flex:1;border:2px solid ' + (isMissed?'#dfe6ee':'#1e8e3e') + ';background:' + (isMissed?'#fff':'#e6f4ea') + ';color:' + (isMissed?'#5f7791':'#1e8e3e') + ';padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px';
+  if (misLbl) misLbl.style.cssText = 'flex:1;border:2px solid ' + (isMissed?'#8b1c1c':'#dfe6ee') + ';background:' + (isMissed?'#fce8e6':'#fff') + ';color:' + (isMissed?'#8b1c1c':'#5f7791') + ';padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px';
+  if (amountLbl) amountLbl.style.opacity = isMissed ? '0.4' : '1';
+  if (amountInp) { amountInp.disabled = isMissed; amountInp.style.opacity = isMissed ? '0.4' : '1'; }
+  if (dateSuf) dateSuf.textContent = isMissed ? ' Missed' : ' Received';
+  if (saveBtn) { saveBtn.textContent = isMissed ? 'Save Missed' : 'Save Payment'; saveBtn.style.background = isMissed ? '#8b1c1c' : ''; }
+  if (help) help.innerHTML = isMissed
+    ? '<strong>Missed:</strong> the borrower did not pay for this period. The row stays at $0 received, balance is unchanged, and the schedule flags this month as ⚠ Missed.'
+    : 'Use <strong>Received</strong> for payments Plaid doesn\'t have (predates connection, wrong account, etc.). Use <strong>Missed</strong> to mark a period as unpaid (borrower defaulted) — doesn\'t reduce the loan balance.';
+}
 function saveManualPaymentClick(loanId) {
   var dateStr = document.getElementById('mp-date').value;
   var amount = Number(document.getElementById('mp-amount').value) || 0;
   var notes = document.getElementById('mp-notes').value.trim();
-  if (!dateStr || !amount) { toast('Date and amount required', 'error'); return; }
+  var typeRadio = document.querySelector('input[name="mp-type"]:checked');
+  var type = typeRadio ? typeRadio.value : 'received';
+  if (!dateStr) { toast('Date required', 'error'); return; }
+  if (type === 'received' && !amount) { toast('Amount required for received payment', 'error'); return; }
   showLoading(true);
   google.script.run
     .withSuccessHandler(function(res){
       showLoading(false);
       if (res && res.success) {
-        toast('Payment recorded');
+        toast(type === 'missed' ? 'Marked as missed' : 'Payment recorded');
         closeModal('loan-mark-modal');
         loadLoans();
       } else {
@@ -2588,7 +2629,7 @@ function saveManualPaymentClick(loanId) {
       }
     })
     .withFailureHandler(function(e){ showLoading(false); toast(e.message||'Failed','error'); })
-    .addManualLoanPayment(loanId, dateStr, amount, notes);
+    .addManualLoanPayment(loanId, dateStr, amount, notes, null, null, type);
 }
 // Remove a manual payment. Called from the drilldown modal on a manually-
 // entered row. Locates the underlying LOAN_MANUAL_PAYMENTS row via server
