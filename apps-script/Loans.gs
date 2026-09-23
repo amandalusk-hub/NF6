@@ -757,6 +757,36 @@ function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
   return null;
 }
 
+// Diagnostic — dumps the raw contents of the LOANS sheet as an alert so we
+// can see whether the header row and data rows are actually aligned. Useful
+// after schema migrations or when the Loans tab shows shifted / empty data.
+function debugLoansSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('LOANS');
+  if (!sheet) { SpreadsheetApp.getUi().alert('LOANS sheet does not exist.'); return; }
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  var report = 'LOANS sheet: ' + lastRow + ' rows × ' + lastCol + ' columns\n\n';
+  if (lastRow < 1) { report += '(sheet is empty)'; SpreadsheetApp.getUi().alert('Debug LOANS', report, SpreadsheetApp.getUi().ButtonSet.OK); return; }
+  var allVals = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+  report += 'HEADER ROW:\n';
+  allVals[0].forEach(function(h, i){ report += '  Col ' + (i+1) + ': "' + h + '"\n'; });
+  report += '\n';
+  for (var r = 1; r < allVals.length; r++) {
+    report += 'ROW ' + (r+1) + ':\n';
+    allVals[r].forEach(function(v, i){
+      var vDisp = v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm') : String(v);
+      if (vDisp.length > 60) vDisp = vDisp.substring(0, 57) + '...';
+      report += '  Col ' + (i+1) + ' (' + (allVals[0][i] || '?') + '): ' + vDisp + '\n';
+    });
+    report += '\n';
+  }
+  Logger.log(report);
+  var ui = SpreadsheetApp.getUi();
+  var alertText = report.length > 6000 ? report.substring(0, 6000) + '\n\n… (truncated — full report in Executions log)' : report;
+  ui.alert('LOANS Sheet Debug', alertText, ui.ButtonSet.OK);
+}
+
 // Diagnostic — shows Amanda what the Plaid matcher is actually seeing for a
 // given loan. Menu-callable. Answers: is the January payment missing because
 // (a) the sheet doesn't have January data at all, or (b) the January

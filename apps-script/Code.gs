@@ -344,6 +344,7 @@ function onOpen() {
     .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
+    .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
