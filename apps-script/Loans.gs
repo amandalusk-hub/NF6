@@ -721,6 +721,23 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
   return { success: false, error: 'Manual payment not found for that date/amount.' };
 }
 
+// Trigger-callable: recompute every loan's status, which internally syncs
+// each loan's outstanding balance to its Linked Asset. Called from the daily
+// 7 AM trigger so dashboard asset values stay fresh without needing anyone
+// to visit the Loans tab. No return value; errors logged, never thrown.
+function syncAllLoanLinkedAssets() {
+  try {
+    var results = getLoansStatus();
+    var synced = 0;
+    (results || []).forEach(function(s){
+      if (s && s.summary && s.summary.linkedAssetSync && s.summary.linkedAssetSync.updated) synced++;
+    });
+    Logger.log('syncAllLoanLinkedAssets: ran across ' + (results||[]).length + ' loans, ' + synced + ' asset balances updated.');
+  } catch(e) {
+    Logger.log('syncAllLoanLinkedAssets failed: ' + e.message);
+  }
+}
+
 // Web-callable — full status for the dashboard Loans tab. Returns an array
 // per active loan with:
 //   { loan, schedule (rows w/ received flag + actual date+amount), summary }

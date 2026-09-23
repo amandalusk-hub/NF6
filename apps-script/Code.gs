@@ -4533,6 +4533,10 @@ function dailySync_() {
   fetchExchangeRates();
   syncAllAccounts();
   refreshPropertyValues();
+  // Push each loan's current outstanding balance to its Linked Asset row on
+  // the Assets sheet. Fresh dashboard shows the right net worth without
+  // needing anyone to visit the Loans tab first.
+  try { syncAllLoanLinkedAssets(); } catch(e) { Logger.log('dailySync_: syncAllLoanLinkedAssets failed: ' + e.message); }
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
     takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet
