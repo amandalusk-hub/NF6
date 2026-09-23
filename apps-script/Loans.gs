@@ -265,40 +265,144 @@ function _generateAmortizationSchedule_(loan) {
   return schedule;
 }
 
-// Scan TLMND_TRANSACTIONS for received payments matching this loan's pattern.
-// Returns oldest-first list.
+// Scan TLMND_TRANSACTIONS for received payments matching this loan's pattern,
+// plus any manually-entered payments (from LOAN_MANUAL_PAYMENTS sheet).
+// Manual entries are for payments that Plaid doesn't have — e.g. loan
+// payments received before the Plaid connection was set up, or into an
+// account not synced by Plaid. Merged list is sorted oldest-first.
 function _matchLoanPayments_(loan) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  var iDate = headers.indexOf('Date');
-  var iAccount = headers.indexOf('Account');
-  var iName = headers.indexOf('Name');
-  var iAmount = headers.indexOf('Amount USD');
-  if (iDate < 0 || iAmount < 0 || iName < 0) return [];
-
-  var pattern = String(loan['Plaid Match Pattern'] || '').toLowerCase().trim();
-  if (!pattern) return [];
-
-  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
   var payments = [];
-  rows.forEach(function(r) {
-    var name = String(r[iName] || '').toLowerCase();
-    if (name.indexOf(pattern) < 0) return;
-    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
-    if (isNaN(d.getTime())) return;
-    var amount = Number(r[iAmount] || 0);
-    // Loan repayment income should be positive (money in). Skip outflows.
-    if (amount <= 0) return;
-    payments.push({
-      date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-      amount: amount,
-      account: String(r[iAccount] || ''),
-      name: String(r[iName] || '')
+
+  // (1) Plaid-matched payments from TLMND_TRANSACTIONS.
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  var pattern = String(loan['Plaid Match Pattern'] || '').toLowerCase().trim();
+  if (sheet && sheet.getLastRow() >= 2 && pattern) {
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iDate = headers.indexOf('Date');
+    var iAccount = headers.indexOf('Account');
+    var iName = headers.indexOf('Name');
+    var iAmount = headers.indexOf('Amount USD');
+    if (iDate >= 0 && iAmount >= 0 && iName >= 0) {
+      var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+      rows.forEach(function(r) {
+        var name = String(r[iName] || '').toLowerCase();
+        if (name.indexOf(pattern) < 0) return;
+        var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+        if (isNaN(d.getTime())) return;
+        var amount = Number(r[iAmount] || 0);
+        if (amount <= 0) return;   // outflow — skip
+        payments.push({
+          date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+          amount: amount,
+          account: String(r[iAccount] || ''),
+          name: String(r[iName] || ''),
+          source: 'plaid'
+        });
+      });
+    }
+  }
+
+  // (2) Manual entries for this loan.
+  var manualSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOAN_MANUAL_PAYMENTS');
+  if (manualSheet && manualSheet.getLastRow() >= 2) {
+    var mh = manualSheet.getRange(1, 1, 1, manualSheet.getLastColumn()).getValues()[0];
+    var mLoan = mh.indexOf('Loan ID');
+    var mDate = mh.indexOf('Date');
+    var mAmount = mh.indexOf('Amount');
+    var mNotes = mh.indexOf('Notes');
+    var mRows = manualSheet.getRange(2, 1, manualSheet.getLastRow() - 1, mh.length).getValues();
+    var loanId = String(loan.ID || '');
+    mRows.forEach(function(r) {
+      if (String(r[mLoan] || '') !== loanId) return;
+      var d = r[mDate] instanceof Date ? r[mDate] : new Date(r[mDate]);
+      if (isNaN(d.getTime())) return;
+      var amount = Number(r[mAmount] || 0);
+      if (amount <= 0) return;
+      payments.push({
+        date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        amount: amount,
+        account: '(manual entry)',
+        name: mNotes >= 0 ? (String(r[mNotes] || '') || 'Manual payment entry') : 'Manual payment entry',
+        source: 'manual'
+      });
     });
-  });
+  }
+
   payments.sort(function(a, b) { return a.date.localeCompare(b.date); });
   return payments;
+}
+
+// ─── Manual Payments ──────────────────────────────────────────────────────
+// For payments Plaid doesn't have (predates the connection, wrong account,
+// etc.). Stored in LOAN_MANUAL_PAYMENTS. UI: click a Pending/Overdue row
+// in the Loans tab → "Mark as received" → creates a row here.
+var LOAN_MANUAL_HEADERS = [
+  'ID', 'Loan ID', 'Date', 'Amount', 'Notes', 'Entered By', 'Entered At'
+];
+
+function ensureManualPaymentsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('LOAN_MANUAL_PAYMENTS');
+  if (!sheet) {
+    sheet = ss.insertSheet('LOAN_MANUAL_PAYMENTS');
+    sheet.getRange(1, 1, 1, LOAN_MANUAL_HEADERS.length)
+      .setValues([LOAN_MANUAL_HEADERS])
+      .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function addManualLoanPayment(loanId, dateStr, amount, notes) {
+  _requireEditor_();
+  if (!loanId || !dateStr || !amount) return { success: false, error: 'Loan ID, date, and amount required.' };
+  var sheet = ensureManualPaymentsSheet_();
+  var id = 'mp_' + Utilities.getUuid().substring(0, 8);
+  sheet.appendRow([id, loanId, dateStr, Number(amount) || 0, notes || '', _currentUserEmail_() || '(unknown)', new Date()]);
+  _logAudit_('addManualPayment', 'loan', loanId, '', 'Manual payment: ' + dateStr + ' $' + amount + (notes ? ' — ' + notes : ''));
+  return { success: true, id: id };
+}
+
+function deleteManualLoanPayment(id) {
+  _requireEditor_();
+  var sheet = ensureManualPaymentsSheet_();
+  if (sheet.getLastRow() < 2) return { success: false, error: 'No manual payments.' };
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0]) === String(id)) {
+      _logAudit_('deleteManualPayment', 'loan', vals[i][1], '', 'Removed manual payment: ' + id);
+      sheet.deleteRow(i + 2);
+      return { success: true };
+    }
+  }
+  return { success: false, error: 'Manual payment not found: ' + id };
+}
+
+// Frontend-friendly: remove a manual payment by (loanId, date, amount) so the
+// client doesn't need to know the mp_xxx id. Used from the drilldown's
+// "Remove Manual Entry" button.
+function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
+  _requireEditor_();
+  var sheet = ensureManualPaymentsSheet_();
+  if (sheet.getLastRow() < 2) return { success: false, error: 'No manual payments.' };
+  var mh = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iId = mh.indexOf('ID');
+  var iLoan = mh.indexOf('Loan ID');
+  var iDate = mh.indexOf('Date');
+  var iAmount = mh.indexOf('Amount');
+  var vals = sheet.getRange(2, 1, sheet.getLastRow() - 1, mh.length).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][iLoan]) !== String(loanId)) continue;
+    var rowDate = vals[i][iDate] instanceof Date
+      ? Utilities.formatDate(vals[i][iDate], Session.getScriptTimeZone(), 'yyyy-MM-dd')
+      : String(vals[i][iDate] || '');
+    if (rowDate !== String(dateStr || '')) continue;
+    if (Math.abs(Number(vals[i][iAmount]) - Number(amount)) > 0.01) continue;
+    _logAudit_('deleteManualPayment', 'loan', loanId, '', 'Removed manual payment: ' + dateStr + ' $' + amount);
+    sheet.deleteRow(i + 2);
+    return { success: true };
+  }
+  return { success: false, error: 'Manual payment not found for that date/amount.' };
 }
 
 // Web-callable — full status for the dashboard Loans tab. Returns an array
@@ -328,7 +432,8 @@ function getLoansStatus() {
         actualDate: p ? p.date : null,
         actualAmount: p ? p.amount : null,
         variance: p ? (p.amount - row.payment) : 0,
-        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name } : null
+        source: p ? (p.source || 'plaid') : null,
+        txn: p ? { date: p.date, amount: p.amount, account: p.account, name: p.name, source: p.source || 'plaid' } : null
       };
     });
 

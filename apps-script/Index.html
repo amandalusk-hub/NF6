@@ -2348,9 +2348,12 @@ function _renderLoanSchedule(status) {
   var loanId = status.loan.ID;
   var rows = status.schedule.map(function(r, idx) {
     var received = r.received;
+    var isManual = r.source === 'manual';
     var color = received ? '#1e8e3e' : (new Date(r.dueDate) < new Date() ? '#c5221f' : '#8091a8');
     var badge = received
-      ? '<span style="background:#e6f4ea;color:#1e8e3e;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">✓ Received</span>'
+      ? (isManual
+          ? '<span style="background:#eef4fb;color:#1e5fa8;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600" title="Entered manually">✓ Manual</span>'
+          : '<span style="background:#e6f4ea;color:#1e8e3e;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">✓ Received</span>')
       : (new Date(r.dueDate) < new Date()
           ? '<span style="background:#fce8e6;color:#c5221f;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600">Overdue</span>'
           : '<span style="background:#f0f4f9;color:#5f7791;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:500">Pending</span>');
@@ -2361,11 +2364,14 @@ function _renderLoanSchedule(status) {
     var actualDateCell = received
       ? new Date(r.actualDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})
       : '';
-    // Clickable when received — opens the Plaid transaction drilldown.
-    var rowStyle = received ? 'cursor:pointer' : '';
-    var rowClick = received ? 'onclick="openLoanTxnDrilldown(\''+loanId+'\','+idx+')"' : '';
-    var rowHover = received ? 'onmouseover="this.style.background=\'#f4f8fc\'" onmouseout="this.style.background=\'\'"' : '';
-    return '<tr style="'+rowStyle+'" '+rowClick+' '+rowHover+' title="'+(received?'Click to see the Plaid transaction':'')+'">' +
+    // Every row is clickable — received rows open the drilldown, pending/overdue
+    // rows open the "Mark as received" modal so Amanda can enter payments Plaid
+    // doesn't have.
+    var rowStyle = 'cursor:pointer';
+    var rowClick = 'onclick="openLoanTxnDrilldown(\''+loanId+'\','+idx+')"';
+    var rowHover = 'onmouseover="this.style.background=\'#f4f8fc\'" onmouseout="this.style.background=\'\'"';
+    var rowTitle = received ? 'Click to see the payment details' : 'Click to mark this payment as received';
+    return '<tr style="'+rowStyle+'" '+rowClick+' '+rowHover+' title="'+rowTitle+'">' +
       '<td style="padding:5px 8px;color:#5f7791;text-align:center">'+r.n+'</td>' +
       '<td style="padding:5px 8px;color:'+color+'">'+new Date(r.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</td>' +
       '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">'+fmtUSD(r.payment)+'</td>' +
@@ -2401,24 +2407,46 @@ function toggleLoanCard(id) {
   renderLoans();
 }
 
-// Show the underlying Plaid transaction for a received payment. Reuses a
-// dynamically-created small modal (no dedicated HTML container needed).
+// Row-click handler: opens the payment drilldown for a received row, or the
+// "mark as received" modal for a pending/overdue row. This lets Amanda enter
+// payments that Plaid doesn't have (predates Plaid connection, wrong account,
+// etc.) without leaving the Loans tab.
 function openLoanTxnDrilldown(loanId, scheduleIdx) {
   var loans = _loansState.data || [];
   var st = loans.find(function(s){ return s.loan.ID === loanId; });
   if (!st) return;
   var row = st.schedule[scheduleIdx];
-  if (!row || !row.txn) { toast('No matched transaction on that row', 'error'); return; }
+  if (!row) return;
+  if (!row.received) {
+    _openMarkPaymentReceivedModal(st, scheduleIdx);
+    return;
+  }
   var t = row.txn;
+  if (!t) { toast('No transaction data on that row', 'error'); return; }
   var variance = row.variance || 0;
   var vLine = Math.abs(variance) < 0.5
     ? '<span style="color:#1e8e3e">$0 — matched exactly</span>'
     : (variance > 0
         ? '<span style="color:#e07b30">+'+fmtUSD(variance)+' overpayment</span>'
         : '<span style="color:#c5221f">'+fmtUSD(variance)+' short payment</span>');
+  var isManual = t.source === 'manual';
+  var sourceLine = isManual
+    ? '<tr><td style="padding:6px 0;color:#5f7791;vertical-align:top">Entry Type</td><td style="padding:6px 0"><span style="background:#eef4fb;color:#1e5fa8;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600">Manual entry</span></td></tr>' +
+      '<tr><td style="padding:6px 0;color:#5f7791;vertical-align:top">Notes</td><td style="padding:6px 0;font-size:12px;color:#4a6b8e">'+esc(t.name||'')+'</td></tr>'
+    : '<tr><td style="padding:6px 0;color:#5f7791;vertical-align:top">Plaid Description</td><td style="padding:6px 0;font-family:monospace;font-size:12px;color:#4a6b8e">'+esc(t.name||'')+'</td></tr>' +
+      '<tr><td style="padding:6px 0;color:#5f7791">Deposited To</td><td style="padding:6px 0">'+esc(t.account||'')+'</td></tr>';
+  // Manual entries get a Remove button so Amanda can clean up if Plaid catches up later.
+  var footer = isManual
+    ? '<div style="margin-top:14px;display:flex;justify-content:space-between">' +
+        '<button onclick="removeManualPaymentClick(\''+loanId+'\','+scheduleIdx+')" class="btn btn-danger" style="background:#fde8e8;color:#7f1d1d;border:1px solid #f0c8c8">Remove Manual Entry</button>' +
+        '<button onclick="closeModal(\'loan-txn-modal\')" class="btn btn-secondary">Close</button>' +
+      '</div>'
+    : '<div style="margin-top:14px;text-align:right">' +
+        '<button onclick="closeModal(\'loan-txn-modal\')" class="btn btn-secondary">Close</button>' +
+      '</div>';
   var body =
     '<div style="padding:14px 20px">' +
-      '<div style="background:#f0f4f9;border-left:4px solid #14263d;padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
+      '<div style="background:#f0f4f9;border-left:4px solid '+(isManual?'#1e5fa8':'#14263d')+';padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
         '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Loan · Payment #'+row.n+'</div>' +
         '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(st.loan.Name||'')+'</div>' +
       '</div>' +
@@ -2427,15 +2455,12 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
         '<tr><td style="padding:6px 0;color:#5f7791">Actual Amount</td><td style="padding:6px 0;font-weight:600;color:#1e8e3e">'+fmtUSD(t.amount)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Expected (Scheduled)</td><td style="padding:6px 0">'+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Variance</td><td style="padding:6px 0">'+vLine+'</td></tr>' +
-        '<tr><td style="padding:6px 0;color:#5f7791;vertical-align:top">Plaid Description</td><td style="padding:6px 0;font-family:monospace;font-size:12px;color:#4a6b8e">'+esc(t.name||'')+'</td></tr>' +
-        '<tr><td style="padding:6px 0;color:#5f7791">Deposited To</td><td style="padding:6px 0">'+esc(t.account||'')+'</td></tr>' +
+        sourceLine +
         '<tr><td style="padding:6px 0;color:#5f7791">Applied To Principal</td><td style="padding:6px 0;color:#1e8e3e;font-weight:600">'+fmtUSD(row.principal)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Applied To Interest</td><td style="padding:6px 0;color:#c5221f;font-weight:600">'+fmtUSD(row.interest)+'</td></tr>' +
         '<tr><td style="padding:6px 0;color:#5f7791">Balance After</td><td style="padding:6px 0;font-weight:600">'+fmtUSD(row.balanceAfter)+'</td></tr>' +
       '</table>' +
-      '<div style="margin-top:14px;text-align:right">' +
-        '<button onclick="closeModal(\'loan-txn-modal\')" class="btn btn-secondary">Close</button>' +
-      '</div>' +
+      footer +
     '</div>';
   var m = document.getElementById('loan-txn-modal');
   if (!m) {
@@ -2447,6 +2472,96 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
   }
   document.getElementById('loan-txn-modal-body').innerHTML = body;
   openModal('loan-txn-modal');
+}
+
+// Modal for marking a Pending/Overdue schedule row as received manually.
+// Used for payments Plaid doesn't have (e.g. received before Plaid connection
+// went live, or into an account not synced by Plaid).
+function _openMarkPaymentReceivedModal(status, scheduleIdx) {
+  if (state.access && state.access.isEditor === false) {
+    toast('Read-only — you can\'t add manual payments','error'); return;
+  }
+  var row = status.schedule[scheduleIdx];
+  var loan = status.loan;
+  // Default: expected date + expected amount.
+  var defaultDate = row.dueDate;
+  var defaultAmount = row.payment;
+  var body =
+    '<div style="padding:14px 20px">' +
+      '<div style="background:#eef4fb;border-left:4px solid #1e5fa8;padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Mark as Received · Payment #'+row.n+'</div>' +
+        '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(loan.Name||'')+'</div>' +
+        '<div style="font-size:11px;color:#5f7791;margin-top:4px">Expected: '+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#5f7791;margin-bottom:14px;line-height:1.5">Use this to record payments Plaid doesn\'t have — for example, payments received before your Plaid connection was set up, or into an account not synced by Plaid. Once entered here, the row shows as ✓ Manual (blue badge) and counts toward the loan\'s balance.</div>' +
+      '<div style="display:grid;grid-template-columns:120px 1fr;gap:10px 12px;font-size:13px;align-items:center">' +
+        '<label style="color:#5f7791">Date Received</label>' +
+        '<input type="date" id="mp-date" value="'+defaultDate+'" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
+        '<label style="color:#5f7791">Amount ($)</label>' +
+        '<input type="number" id="mp-amount" step="0.01" value="'+defaultAmount+'" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
+        '<label style="color:#5f7791">Notes (optional)</label>' +
+        '<input type="text" id="mp-notes" placeholder="e.g. paid via wire, statement Jan 2026" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">' +
+      '</div>' +
+      '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px">' +
+        '<button onclick="closeModal(\'loan-mark-modal\')" class="btn btn-secondary">Cancel</button>' +
+        '<button onclick="saveManualPaymentClick(\''+loan.ID+'\')" class="btn btn-primary">Save Payment</button>' +
+      '</div>' +
+    '</div>';
+  var m = document.getElementById('loan-mark-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'loan-mark-modal';
+    m.className = 'modal-overlay';
+    m.innerHTML = '<div class="modal" style="max-width:520px"><div class="modal-header"><div class="modal-title">Mark Payment as Received</div><button class="modal-close" onclick="closeModal(\'loan-mark-modal\')">x</button></div><div class="modal-body" id="loan-mark-modal-body"></div></div>';
+    document.body.appendChild(m);
+  }
+  document.getElementById('loan-mark-modal-body').innerHTML = body;
+  openModal('loan-mark-modal');
+}
+function saveManualPaymentClick(loanId) {
+  var dateStr = document.getElementById('mp-date').value;
+  var amount = Number(document.getElementById('mp-amount').value) || 0;
+  var notes = document.getElementById('mp-notes').value.trim();
+  if (!dateStr || !amount) { toast('Date and amount required', 'error'); return; }
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res){
+      showLoading(false);
+      if (res && res.success) {
+        toast('Payment recorded');
+        closeModal('loan-mark-modal');
+        loadLoans();
+      } else {
+        toast((res && res.error) || 'Save failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast(e.message||'Failed','error'); })
+    .addManualLoanPayment(loanId, dateStr, amount, notes);
+}
+// Remove a manual payment. Called from the drilldown modal on a manually-
+// entered row. Locates the underlying LOAN_MANUAL_PAYMENTS row via server
+// lookup — we don't have the manual-payment ID on the client.
+function removeManualPaymentClick(loanId, scheduleIdx) {
+  var loans = _loansState.data || [];
+  var st = loans.find(function(s){ return s.loan.ID === loanId; });
+  if (!st) return;
+  var row = st.schedule[scheduleIdx];
+  if (!row || row.source !== 'manual') return;
+  if (!confirm('Remove this manual payment entry?\n\n' + row.actualDate + ' — ' + fmtUSD(row.actualAmount) + '\n\nThe row will go back to Pending / Overdue. This does not affect Plaid data.')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res){
+      showLoading(false);
+      if (res && res.success) {
+        toast('Manual entry removed');
+        closeModal('loan-txn-modal');
+        loadLoans();
+      } else {
+        toast((res && res.error) || 'Remove failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast(e.message||'Failed','error'); })
+    ._removeManualPaymentByLoanAndDate(loanId, row.actualDate, row.actualAmount);
 }
 
 function openLoanModal(id) {
