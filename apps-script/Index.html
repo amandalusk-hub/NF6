@@ -2290,14 +2290,18 @@ function loadLoans() {
   var content = document.getElementById('loans-content');
   content.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading loans…</div>';
   _loansState.loading = true;
+  console.log('[Loans] calling getLoansStatus…');
   google.script.run
     .withSuccessHandler(function(loans){
       _loansState.loading = false;
+      console.log('[Loans] getLoansStatus returned:', loans);
+      console.log('[Loans] Array?', Array.isArray(loans), 'length:', loans && loans.length);
       _loansState.data = loans || [];
       renderLoans();
     })
     .withFailureHandler(function(err){
       _loansState.loading = false;
+      console.error('[Loans] getLoansStatus failed:', err);
       content.innerHTML = '<div style="padding:40px;text-align:center;color:#c5221f">Error: '+(err.message||err)+'</div>';
     })
     .getLoansStatus();
