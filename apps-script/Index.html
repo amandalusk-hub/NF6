@@ -258,6 +258,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <button class="btn btn-secondary" onclick="updatePlaidConnectionUI()">Update Plaid Connection</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('SCHWAB')">Connect Schwab</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('FIDELITY')">Connect Fidelity</button>
+        <button class="btn btn-secondary" onclick="connectBrokerage('LPL')">Connect LPL Financial</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
         <button class="btn btn-secondary" onclick="manageBankNames()" style="opacity:.75;font-size:12px">Bank Names</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
@@ -7377,7 +7378,8 @@ function syncAccounts(){
 }
 
 function connectBrokerage(broker){
-  var label = broker==='SCHWAB' ? 'Charles Schwab' : 'Fidelity';
+  var LABELS = { SCHWAB: 'Charles Schwab', FIDELITY: 'Fidelity', LPL: 'LPL Financial' };
+  var label = LABELS[broker] || broker;
   toast('Generating '+label+' connection link...','success');
   google.script.run
     .withSuccessHandler(function(r){
