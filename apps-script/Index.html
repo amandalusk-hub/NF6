@@ -442,11 +442,6 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <h2 style="margin:0;font-size:16px;color:#0d2137">Entity Structure</h2>
-        <div style="display:flex;gap:4px;background:#eef2f7;border-radius:8px;padding:3px">
-          <button id="oc-btn-current" class="btn btn-primary btn-sm" onclick="setOCView('current')" style="font-size:12px">Current</button>
-          <button id="oc-btn-post" class="btn btn-secondary btn-sm" onclick="setOCView('post')" style="font-size:12px">Post (2026 Trust)</button>
-          <button id="oc-btn-both" class="btn btn-secondary btn-sm" onclick="setOCView('both')" style="font-size:12px">All</button>
-        </div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="openOCNodeModal(null)" style="font-size:13px">+ Add Entity</button>
@@ -4159,11 +4154,9 @@ function ocNodeHeight(node) {
 }
 
 function ocVisibleNodes() {
-  const v = oc.view;
-  return oc.nodes.filter(n => {
-    const s = n['Structure'] || 'both';
-    return s === 'both' || s === v || v === 'both';
-  });
+  // View toggle removed — show every entity regardless of Structure column.
+  // (Historically supported 'current' / 'post' / 'both' filters.)
+  return oc.nodes.slice();
 }
 
 // Load Google Charts OrgChart package (once) then draw.

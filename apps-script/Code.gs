@@ -1591,13 +1591,7 @@ function seedNF6OrgChart() {
     ['nf6_joint_mgmt','NF6 Joint MGMT LLC',              'nancy,michelle,david',          'LP (Limited Partnership)','88-4188894','USA','2022-10-05','Nancy: 33.34%\nMichelle: 33.33%\nDavid: 33.33%',                          C.lp,        'current'],
     ['nf6_family_holding','NF6 Family Holding LP',       'mn_trust_rev,nf6_joint_mgmt',   'LP (Limited Partnership)','88-4257571','USA','2022-10-10','GP: NF6 Joint MGMT LLC 1%\nLP: 2019 MN Family Rev Trust 99%',            C.lp,        'current'],
     ['nf6_tiger',    'NF6 Tiger Capital LLC',            'nf6_family_holding',            'LLC',        '88-4260181','USA',        '2022-10-12','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current'],
-    ['nf_pr_sj',     'NF PR SJ LLC',                     'nf6_family_holding',            'LLC',        '66-1129573','Puerto Rico','2026-04-06','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current'],
-    // Post-2026 Trust structure
-    ['nf6_pr_trust_2026','NF6 Family 2026 PR Trust',     'mn',                            'Trust (Irrevocable)','66-6059376','Puerto Rico','2026-04-23','Trustee: Balwant Cheema',                                            C.postTrust, 'post'],
-    ['nf6_us_trust_2026','NF6 Family 2026 US Trust',     'mn',                            'Trust (Irrevocable)','66-6059490','USA','2026-04-24','Trustee: Balwant Cheema\nContingent — effective upon Michael Nguyen\'s death', C.postTrust, 'post'],
-    ['nf6_legacy',   'NF6 Legacy Holdings LLC',          'nf6_pr_trust_2026',             'LLC',        '42-2273566','Delaware',   '2026-04-29','NF6 Family 2026 PR Trust: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post'],
-    ['mn_vip_holdco','MN VIP HoldCo LLC',                'nf6_legacy',                    'LLC',        '42-2242950','Delaware',   '2026-04-29','NF6 Legacy Holdings LLC: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post'],
-    ['nf6_capital_reserve','NF6 Capital Reserve LLC',    'nf6_legacy',                    'LLC',        '42-2322757','Delaware',   '2026-04-29','NF6 Legacy Holdings LLC: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post']
+    ['nf_pr_sj',     'NF PR SJ LLC',                     'nf6_family_holding',            'LLC',        '66-1129573','Puerto Rico','2026-04-06','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current']
   ];
 
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
