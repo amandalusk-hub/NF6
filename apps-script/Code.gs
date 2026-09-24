@@ -344,6 +344,7 @@ function onOpen() {
     .addItem('Loans → Reset LOANS sheet (move legacy aside)', 'resetLoansSheet')
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
     .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
+    .addItem('Loans → Init MacDonald Loan (interest-only)', 'seedMacDonaldLoan')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')

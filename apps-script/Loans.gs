@@ -28,6 +28,10 @@ var LOANS_HEADERS = [
   'First Payment Date',
   'Monthly Payment',
   'Payment Type',           // 'Beginning of Period' | 'End of Period'
+  'Loan Type',              // 'Amortizing' (default) | 'Interest Only'
+                            // Interest Only: monthly payment = interest only,
+                            // principal stays at effective principal until the
+                            // final maturity row where it balloons.
   'Plaid Match Pattern',
   'Status',                 // Active | Paid Off | Delinquent | Deferred
   'Notes',
@@ -120,6 +124,74 @@ function resetLoansSheet() {
   sheet.setName(newName);
   _writeLoansHeader_(ss.insertSheet('LOANS'));
   ui.alert('Renamed old sheet to "' + newName + '" and created a fresh LOANS sheet.\n\nNow run:\n  Init Solaris Loan\n  Backfill Solaris Jan-Mar payments\n  Init Waskar Loan');
+}
+
+// Menu-callable one-time seed for the Michael MacDonald loan.
+// Interest-only mortgage: $500k @ 5%, 10-year term, monthly interest only
+// ($2,083.33), principal balloon at maturity 4/30/2034. Per commitment
+// letter dated April 10, 2024 (44 N. Green Acre Drive, Cherry Hill, NJ).
+function seedMacDonaldLoan() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var existing = loans.filter(function(l){
+    return String(l.Name||'').toLowerCase().indexOf('macdonald') >= 0;
+  })[0];
+  if (existing) {
+    ui.alert('A MacDonald loan already exists in LOANS — no change made.');
+    return;
+  }
+  var resp = ui.alert(
+    'Seed MacDonald Loan?',
+    'Add the Michael MacDonald interest-only mortgage:\n\n' +
+    '  Borrower:      Michael MacDonald\n' +
+    '  Lender:        TLMND LLC\n' +
+    '  Property:      44 N. Green Acre Drive, Cherry Hill, NJ\n' +
+    '  Principal:     $500,000 (interest-only)\n' +
+    '  Rate:          5% annual\n' +
+    '  Monthly int:   $2,083.33\n' +
+    '  Yearly int:    $25,000\n' +
+    '  First payment: 2024-06-01\n' +
+    '  Maturity:      2034-04-30 (principal balloon due)\n' +
+    '  Term:          120 monthly interest payments\n' +
+    '  Plaid pattern: DEPOSIT ID NUMBER 553083\n\n' +
+    'Loan Type = Interest Only, so every schedule row is $2,083.33 interest\n' +
+    'with $0 principal — balance stays at $500k until the final row where\n' +
+    'the entire $500k is due.\n\n' +
+    'Proceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+  var res = addLoan({
+    name: 'MacDonald Loan (44 N Green Acre Drive)',
+    entity: 'TLMND',
+    originalPrincipal: 500000,
+    accruedInterest: 0,
+    effectivePrincipal: 500000,
+    annualRate: 5,
+    termMonths: 120,
+    firstPaymentDate: '2024-06-01',
+    monthlyPayment: 2083.33,
+    paymentType: 'End of Period',
+    loanType: 'Interest Only',
+    plaidPattern: 'DEPOSIT ID NUMBER 553083',
+    status: 'Active',
+    notes: 'Interest-only mortgage per commitment letter April 10, 2024. ' +
+           'Borrower: Michael MacDonald. Property: 44 N. Green Acre Drive, ' +
+           'Cherry Hill, NJ 08003. $500,000 @ 5% fixed. Monthly interest ' +
+           '$2,083.33 (annual $25,000). Principal balloon at maturity ' +
+           '4/30/2034. Borrower sometimes pays monthly, sometimes lump sums ' +
+           'covering multiple months (e.g. $8,333 = 4 months).'
+  });
+  if (!res.success) { ui.alert('Failed to add loan: ' + (res.error || 'unknown')); return; }
+  ui.alert(
+    'MacDonald loan added.\n\n' +
+    'Next steps:\n' +
+    '1. Loans tab → Refresh — the schedule shows 120 rows (Jun 2024 – May 2034).\n' +
+    '2. Plaid payments matching "DEPOSIT ID NUMBER 553083" will auto-match by month.\n' +
+    '3. If a lump sum covers multiple months, use Mark Payment as Received on the additional months manually.\n' +
+    '4. Edit the loan → set Linked Asset if you want an asset balance to auto-sync.'
+  );
 }
 
 // Menu-callable one-time seed for the Waskar loan (Wasica Holdings, LLC).
@@ -367,6 +439,7 @@ function _loanDataToDefaults_(data, id, now) {
     'First Payment Date': data.firstPaymentDate || '',
     'Monthly Payment': Number(data.monthlyPayment) || 0,
     'Payment Type': data.paymentType || 'End of Period',
+    'Loan Type': data.loanType || 'Amortizing',
     'Plaid Match Pattern': data.plaidPattern || '',
     'Status': data.status || 'Active',
     'Notes': data.notes || '',
@@ -408,6 +481,7 @@ function updateLoan(id, data) {
     'First Payment Date': ['firstPaymentDate', function(v){ return v; }],
     'Monthly Payment': ['monthlyPayment', function(v){ return Number(v); }],
     'Payment Type': ['paymentType', function(v){ return v; }],
+    'Loan Type': ['loanType', function(v){ return v; }],
     'Plaid Match Pattern': ['plaidPattern', function(v){ return v; }],
     'Status': ['status', function(v){ return v; }],
     'Notes': ['notes', function(v){ return v; }],
@@ -458,10 +532,41 @@ function _generateAmortizationSchedule_(loan) {
   var termMonths = Number(loan['Term (Months)']) || 0;
   var monthlyPayment = Number(loan['Monthly Payment']) || 0;
   var paymentType = String(loan['Payment Type'] || 'End of Period');
+  var loanType = String(loan['Loan Type'] || 'Amortizing');
   var firstRaw = loan['First Payment Date'];
   var firstPayment = firstRaw instanceof Date ? firstRaw : new Date(firstRaw);
 
   if (!principal || !termMonths || !monthlyPayment || isNaN(firstPayment.getTime())) return [];
+
+  // Interest-only loans (e.g. MacDonald): every monthly row = interest only,
+  // principal stays untouched until the final maturity row where it balloons.
+  if (loanType.toLowerCase().indexOf('interest') >= 0) {
+    var monthlyRateIO = (annualRate / 100) / 12;
+    var interestPmt = principal * monthlyRateIO;   // fixed per period
+    var firstYmdIO = Utilities.formatDate(firstPayment, 'UTC', 'yyyy-MM-dd').split('-');
+    var firstYIO = Number(firstYmdIO[0]), firstMIO = Number(firstYmdIO[1]) - 1, firstDIO = Number(firstYmdIO[2]);
+    var schedule = [];
+    for (var n = 1; n <= termMonths; n++) {
+      var targetY = firstYIO, targetM = firstMIO + n - 1;
+      while (targetM > 11) { targetY++; targetM -= 12; }
+      var daysInTarget = new Date(targetY, targetM + 1, 0).getDate();
+      var targetD = Math.min(firstDIO, daysInTarget);
+      var dueDate = new Date(targetY, targetM, targetD);
+      var isFinal = (n === termMonths);
+      var thisPayment  = isFinal ? (interestPmt + principal) : interestPmt;
+      var principalPmt = isFinal ? principal : 0;
+      var balanceAfter = isFinal ? 0 : principal;
+      schedule.push({
+        n: n,
+        dueDate: Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+        payment:      Math.round(thisPayment  * 100) / 100,
+        interest:     Math.round(interestPmt  * 100) / 100,
+        principal:    Math.round(principalPmt * 100) / 100,
+        balanceAfter: Math.round(balanceAfter * 100) / 100
+      });
+    }
+    return schedule;
+  }
 
   // Normalize firstPayment to the intended calendar date. "2026-01-01" parsed
   // by new Date() lands on UTC midnight, which in ET reads as 12/31/2025 —
