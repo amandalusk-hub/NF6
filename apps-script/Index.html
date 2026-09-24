@@ -260,7 +260,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <button class="btn btn-secondary" onclick="updatePlaidConnectionUI()">Update Plaid Connection</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('SCHWAB')">Connect Schwab</button>
         <button class="btn btn-secondary" onclick="connectBrokerage('FIDELITY')">Connect Fidelity</button>
-        <button class="btn btn-secondary" onclick="connectBrokerage('LPL')">Connect LPL Financial</button>
+        <button class="btn btn-secondary" onclick="connectAnyBrokerage()">Connect Any Brokerage</button>
         <button class="btn btn-secondary" onclick="syncAccounts()">Sync Accounts</button>
         <button class="btn btn-secondary" onclick="manageBankNames()" style="opacity:.75;font-size:12px">Bank Names</button>
         <button class="btn btn-secondary" onclick="refreshProperties()">Refresh Property Values</button>
@@ -453,15 +453,26 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       </div>
     </div>
     <!-- Google Charts OrgChart renders here. Auto layout + auto line routing.
-         Node click → openOCNodeModal(id) for editing (kept from old flow). -->
-    <div id="oc-google-chart-wrap" style="width:100%;min-height:calc(100vh - 200px);background:#fff;border-radius:12px;border:1px solid #dfe6ee;overflow:auto;padding:24px">
-      <div id="oc-google-chart" style="min-width:100%"></div>
+         Node click → openOCNodeModal(id) for editing (kept from old flow).
+         Zoom / Fit controls layered on top since Google Charts doesn't
+         ship its own. -->
+    <div id="oc-google-chart-wrap" style="width:100%;height:calc(100vh - 200px);background:#fff;border-radius:12px;border:1px solid #dfe6ee;overflow:auto;padding:24px;position:relative">
+      <!-- Floating zoom + fit controls -->
+      <div style="position:sticky;top:0;z-index:5;display:flex;justify-content:flex-end;gap:6px;margin-bottom:-30px;padding-bottom:8px;pointer-events:none">
+        <div style="display:flex;gap:4px;background:rgba(255,255,255,.95);border:1px solid #dfe6ee;border-radius:6px;padding:3px;box-shadow:0 1px 3px rgba(0,0,0,.06);pointer-events:auto">
+          <button onclick="ocZoom(-0.1)" title="Zoom out" style="border:none;background:#f4f8fc;color:#0d2137;width:30px;height:26px;border-radius:4px;cursor:pointer;font-size:16px;font-weight:700;line-height:1">−</button>
+          <button onclick="ocZoomReset()" title="Reset zoom" style="border:none;background:#f4f8fc;color:#0d2137;padding:0 10px;height:26px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">Fit</button>
+          <button onclick="ocZoom(0.1)" title="Zoom in" style="border:none;background:#f4f8fc;color:#0d2137;width:30px;height:26px;border-radius:4px;cursor:pointer;font-size:16px;font-weight:700;line-height:1">+</button>
+          <span id="oc-zoom-lbl" style="align-self:center;font-size:11px;color:#5f7791;padding:0 6px;min-width:38px;text-align:center">100%</span>
+        </div>
+      </div>
+      <div id="oc-google-chart" style="min-width:100%;transform-origin:top left"></div>
       <div id="oc-empty" style="display:none;text-align:center;padding:60px 20px;color:#7a8ba8">
         <div style="font-size:14px;margin-bottom:6px">No entities in the org chart yet.</div>
-        <div style="font-size:12px">Click <strong>+ Add Entity</strong> to add your first one, or run <em>Tracker → Seed Org Chart Structure</em> from the sheet menu.</div>
+        <div style="font-size:12px">Run <em>Tracker → Seed NF6 Family Org Chart</em> from the sheet menu, or click <strong>+ Add Entity</strong>.</div>
       </div>
     </div>
-    <div style="margin-top:8px;font-size:11px;color:#7a8ba8">Click any node to edit · Powered by Google Charts (auto layout + line routing)</div>
+    <div style="margin-top:8px;font-size:11px;color:#7a8ba8">Click any node to edit · Use − / + / Fit to zoom (or Ctrl+scroll)</div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -4157,6 +4168,31 @@ function ocVisibleNodes() {
 
 // Load Google Charts OrgChart package (once) then draw.
 var _ocGoogleLoaded = false;
+// CSS-transform zoom for the Google Charts org chart (which doesn't ship
+// its own zoom). Applied to #oc-google-chart; scroll bars of the outer
+// wrapper handle panning at higher zoom levels.
+var _ocZoomLevel = 1;
+function ocZoom(delta) {
+  _ocZoomLevel = Math.max(0.3, Math.min(2.0, _ocZoomLevel + delta));
+  _applyOcZoom();
+}
+function ocZoomReset() {
+  var wrap = document.getElementById('oc-google-chart-wrap');
+  var chart = document.getElementById('oc-google-chart');
+  if (!wrap || !chart) return;
+  // Fit-to-width if chart is wider than the wrapper, else 100%.
+  var natural = chart.scrollWidth;
+  var available = wrap.clientWidth - 48;   // padding allowance
+  _ocZoomLevel = natural > available ? Math.max(0.3, available / natural) : 1;
+  _applyOcZoom();
+}
+function _applyOcZoom() {
+  var chart = document.getElementById('oc-google-chart');
+  var lbl = document.getElementById('oc-zoom-lbl');
+  if (chart) chart.style.transform = 'scale(' + _ocZoomLevel + ')';
+  if (lbl) lbl.textContent = Math.round(_ocZoomLevel * 100) + '%';
+}
+
 function renderOrgChart() {
   var container = document.getElementById('oc-google-chart');
   var empty = document.getElementById('oc-empty');
@@ -4278,6 +4314,8 @@ function _drawOrgChart() {
     }
   });
   chart.draw(data, { allowHtml: true, allowCollapse: true, nodeClass: 'oc-gc-node' });
+  // Fit to available width once Google Charts has laid out the DOM.
+  setTimeout(ocZoomReset, 50);
 }
 
 function setOCView(v) {
@@ -7425,8 +7463,23 @@ function syncAccounts(){
     .syncAllAccounts();
 }
 
+// Opens SnapTrade's full broker picker (no specific broker passed).
+// Use this for LPL and any other broker whose SnapTrade slug we don't
+// know — the picker lets Amanda search + pick from SnapTrade's full
+// supported list.
+function connectAnyBrokerage(){
+  toast('Opening SnapTrade broker picker...','success');
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(!r||!r.redirectURI){toast('Could not get connection URL','error');return;}
+      window.open(r.redirectURI,'_blank');
+      toast('Broker picker opened in new tab. Search for your broker (e.g. LPL Financial), authenticate, then click Sync Accounts.','success');
+    })
+    .withFailureHandler(function(e){toast('Error: '+e.message,'error');})
+    .connectAnyBroker();
+}
 function connectBrokerage(broker){
-  var LABELS = { SCHWAB: 'Charles Schwab', FIDELITY: 'Fidelity', LPL: 'LPL Financial' };
+  var LABELS = { SCHWAB: 'Charles Schwab', FIDELITY: 'Fidelity' };
   var label = LABELS[broker] || broker;
   toast('Generating '+label+' connection link...','success');
   google.script.run
