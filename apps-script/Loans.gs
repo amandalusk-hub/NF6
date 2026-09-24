@@ -940,6 +940,42 @@ function _computeLoanStatus_(loan) {
     var schedule = _generateAmortizationSchedule_(loan);
     var payments = _matchLoanPayments_(loan);
 
+    // Interest-only lump sum auto-split: for interest-only loans, borrowers
+    // often pay lump wires covering multiple months (e.g. MacDonald's
+    // 6/1/2026 $8,333 wire = 4 months of $2,083.33). Detect Plaid entries
+    // that are >=1.5x the expected monthly and distribute them across N
+    // consecutive months so each month shows as ✓ Received without
+    // double-counting.
+    // Manual entries are user-controlled — we don't touch them here.
+    var loanType = String(loan['Loan Type'] || 'Amortizing');
+    var expectedMonthly = Number(loan['Monthly Payment']) || 0;
+    if (loanType.toLowerCase().indexOf('interest') >= 0 && expectedMonthly > 0) {
+      var expanded = [];
+      payments.forEach(function(p) {
+        var isPlaid = (p.source || 'plaid') === 'plaid';
+        if (!isPlaid || p.amount < expectedMonthly * 1.5) { expanded.push(p); return; }
+        // Round to nearest whole month; cap at 24 to avoid runaway if a
+        // borrower prepays years at once (unlikely but bounded).
+        var monthsCovered = Math.min(24, Math.max(2, Math.round(p.amount / expectedMonthly)));
+        var startYmd = String(p.date || '').split('-');
+        var y = Number(startYmd[0]), m = Number(startYmd[1]) - 1, d = Number(startYmd[2]) || 1;
+        for (var i = 0; i < monthsCovered; i++) {
+          var subM = m + i, subY = y;
+          while (subM > 11) { subY++; subM -= 12; }
+          var subDate = subY + '-' + ('0'+(subM+1)).slice(-2) + '-' + ('0'+d).slice(-2);
+          expanded.push({
+            date: subDate,
+            amount: expectedMonthly,
+            account: p.account,
+            name: 'Part ' + (i+1) + ' of ' + monthsCovered + ' — $' + p.amount.toFixed(2) + ' lump wire on ' + p.date,
+            source: 'plaid',
+            type: 'received'
+          });
+        }
+      });
+      payments = expanded;
+    }
+
     // Month-based matching: ALL payments in a calendar month go to that
     // month's schedule row as a COMPOSITE entry. Handles the common case
     // where one monthly payment arrives as two wires a day apart (e.g.
