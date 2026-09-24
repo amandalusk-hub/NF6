@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family Office Wealth Tracker</title>
+<!-- Google Charts loader — used by the Org Chart tab for automatic layout + line routing. -->
+<script src="https://www.gstatic.com/charts/loader.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e;font-size:14px}
@@ -439,37 +441,27 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
   <div class="tab-panel" id="tab-orgchart">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <h2 style="margin:0;font-size:16px;color:#e0e8f0">Entity Structure</h2>
-        <div style="display:flex;gap:4px;background:#0d2137;border-radius:8px;padding:3px">
+        <h2 style="margin:0;font-size:16px;color:#0d2137">Entity Structure</h2>
+        <div style="display:flex;gap:4px;background:#eef2f7;border-radius:8px;padding:3px">
           <button id="oc-btn-current" class="btn btn-primary btn-sm" onclick="setOCView('current')" style="font-size:12px">Current</button>
           <button id="oc-btn-post" class="btn btn-secondary btn-sm" onclick="setOCView('post')" style="font-size:12px">Post (2026 Trust)</button>
           <button id="oc-btn-both" class="btn btn-secondary btn-sm" onclick="setOCView('both')" style="font-size:12px">All</button>
         </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-secondary btn-sm" onclick="ocFitView()" style="font-size:12px">Fit View</button>
-        <button class="btn btn-secondary btn-sm" onclick="ocAutoLayout()" style="font-size:12px">Auto Layout</button>
         <button class="btn btn-primary" onclick="openOCNodeModal(null)" style="font-size:13px">+ Add Entity</button>
       </div>
     </div>
-    <div id="oc-canvas-wrap" style="width:100%;height:calc(100vh - 200px);background:#060f1a;border-radius:12px;border:1px solid #1a3050;overflow:hidden;position:relative;cursor:grab">
-      <svg id="oc-svg" style="position:absolute;top:0;left:0;width:100%;height:100%;overflow:visible">
-        <defs>
-          <marker id="oc-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-            <polygon points="0 0, 8 3, 0 6" fill="#4a90d9" opacity="0.8"/>
-          </marker>
-        </defs>
-        <g id="oc-viewport">
-          <g id="oc-edges"></g>
-          <g id="oc-nodes-layer"></g>
-        </g>
-      </svg>
-      <div style="position:absolute;bottom:12px;right:12px;display:flex;gap:6px">
-        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(1.25)" style="font-size:16px;line-height:1;padding:4px 10px">+</button>
-        <button class="btn btn-secondary btn-sm" onclick="ocZoomBy(0.8)" style="font-size:16px;line-height:1;padding:4px 10px">-</button>
+    <!-- Google Charts OrgChart renders here. Auto layout + auto line routing.
+         Node click → openOCNodeModal(id) for editing (kept from old flow). -->
+    <div id="oc-google-chart-wrap" style="width:100%;min-height:calc(100vh - 200px);background:#fff;border-radius:12px;border:1px solid #dfe6ee;overflow:auto;padding:24px">
+      <div id="oc-google-chart" style="min-width:100%"></div>
+      <div id="oc-empty" style="display:none;text-align:center;padding:60px 20px;color:#7a8ba8">
+        <div style="font-size:14px;margin-bottom:6px">No entities in the org chart yet.</div>
+        <div style="font-size:12px">Click <strong>+ Add Entity</strong> to add your first one, or run <em>Tracker → Seed Org Chart Structure</em> from the sheet menu.</div>
       </div>
-      <div style="position:absolute;top:10px;left:12px;font-size:11px;color:#4a90d9;opacity:0.6">Drag canvas to pan  |  Scroll to zoom  |  Drag nodes to reposition  |  Click node to edit</div>
     </div>
+    <div style="margin-top:8px;font-size:11px;color:#7a8ba8">Click any node to edit · Powered by Google Charts (auto layout + line routing)</div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -4163,76 +4155,129 @@ function ocVisibleNodes() {
   });
 }
 
+// Load Google Charts OrgChart package (once) then draw.
+var _ocGoogleLoaded = false;
 function renderOrgChart() {
-  const W = oc.NODE_W;
-  const vp = document.getElementById('oc-viewport');
-  vp.setAttribute('transform', `translate(${oc.vp.x},${oc.vp.y}) scale(${oc.vp.s})`);
+  var container = document.getElementById('oc-google-chart');
+  var empty = document.getElementById('oc-empty');
+  if (!container) return;
+  var visible = ocVisibleNodes();
+  if (!visible.length) {
+    container.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
 
-  const visible = ocVisibleNodes();
-  const visibleIds = new Set(visible.map(n => n['ID']));
-
-  // -- Edges --
-  let edgeSVG = '';
-  visible.forEach(node => {
-    const parents = node.parents || [];
-    const H = ocNodeHeight(node);
-    const cx = node['X'] + W / 2;
-    const cy = node['Y'];
-    parents.forEach(pid => {
-      const parent = visible.find(n => n['ID'] === pid);
-      if (!parent) return;
-      const pH = ocNodeHeight(parent);
-      const px = parent['X'] + W / 2;
-      const py = parent['Y'] + pH;
-      const midY = (py + cy) / 2;
-      edgeSVG += `<path d="M${px},${py} C${px},${midY} ${cx},${midY} ${cx},${cy}"
-        fill="none" stroke="#4a90d9" stroke-width="1.5" opacity="0.65" marker-end="url(#oc-arrow)"/>`;
+  // Load Google Charts on first draw.
+  if (!_ocGoogleLoaded) {
+    if (!window.google || !window.google.charts) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading org chart library…</div>';
+      // Poll until the loader script arrives (rare, but handle it).
+      setTimeout(renderOrgChart, 300);
+      return;
+    }
+    google.charts.load('current', { packages: ['orgchart'] });
+    google.charts.setOnLoadCallback(function(){
+      _ocGoogleLoaded = true;
+      _drawOrgChart();
     });
+    return;
+  }
+  _drawOrgChart();
+}
+
+function _ocEscHtml(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function _drawOrgChart() {
+  var container = document.getElementById('oc-google-chart');
+  if (!container) return;
+  var visible = ocVisibleNodes();
+  var visIds = {}; visible.forEach(function(n){ visIds[n['ID']] = true; });
+
+  // Google Charts OrgChart is strictly single-parent per node. If a node has
+  // multiple parents, we use the first VISIBLE parent as the tree parent
+  // and note the co-parents in the tooltip. Most family-office entities
+  // have one primary owner; JVs / co-owned entities show the co-parent
+  // relationship in the tooltip and can be visualized by clicking through.
+  var data = new google.visualization.DataTable();
+  data.addColumn('string', 'Name');
+  data.addColumn('string', 'Parent');
+  data.addColumn('string', 'Tooltip');
+
+  var rows = visible.map(function(node) {
+    var id = String(node['ID'] || '');
+    var name  = String(node['Name'] || '');
+    var ntype = String(node['Node Type'] || '');
+    var jur   = String(node['Jurisdiction'] || '');
+    var date  = String(node['Date Created'] || '');
+    var tax   = String(node['Tax ID'] || '');
+    var own   = String(node['Ownership'] || '');
+    var bg    = String(node['Color'] || (OC_NODE_TYPES[ntype] || {}).color || '#1e3a5c');
+    var tc    = String(node['Text Color'] || '#ffffff');
+    var parents = (node.parents || []).filter(function(pid){ return visIds[pid]; });
+    var primaryParent = parents[0] || '';
+    var coParents = parents.slice(1);
+
+    // Build the node's HTML card (fits inside the Google Charts box).
+    var metaBits = [];
+    if (ntype) metaBits.push(_ocEscHtml(ntype));
+    if (jur)   metaBits.push(_ocEscHtml(jur));
+    var metaLine = metaBits.join(' · ');
+
+    var badges = '';
+    if (date) badges += '<span style="opacity:.8">Est. ' + _ocEscHtml(date) + '</span>';
+    if (tax)  badges += (badges?' · ':'') + '<span style="opacity:.8">EIN: ' + _ocEscHtml(tax) + '</span>';
+
+    var ownHtml = '';
+    if (own) {
+      var lines = own.split('\n').filter(Boolean).slice(0, 3);
+      ownHtml = '<div style="margin-top:4px;font-size:10px;opacity:.85;line-height:1.35">' +
+        lines.map(function(l){ return _ocEscHtml(l); }).join('<br>') + '</div>';
+    }
+
+    var coParentTag = coParents.length
+      ? '<div style="margin-top:4px;font-size:9.5px;opacity:.75;color:#ffd580">+ co-owned with ' + coParents.length + '</div>'
+      : '';
+
+    var card =
+      '<div onclick="ocNodeClick(null,\'' + _ocEscHtml(id) + '\')" ' +
+        'style="background:' + bg + ';color:' + tc + ';padding:10px 12px;border-radius:8px;min-width:180px;max-width:230px;text-align:left;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15);border-left:4px solid rgba(255,255,255,.35)">' +
+        '<div style="font-size:13px;font-weight:700;line-height:1.25">' + _ocEscHtml(name) + '</div>' +
+        (metaLine ? '<div style="font-size:10.5px;opacity:.85;margin-top:3px">' + metaLine + '</div>' : '') +
+        (badges ? '<div style="font-size:10px;margin-top:2px">' + badges + '</div>' : '') +
+        ownHtml +
+        coParentTag +
+      '</div>';
+
+    var tooltip = name;
+    if (ntype) tooltip += ' · ' + ntype;
+    if (coParents.length) {
+      var coParentNames = coParents.map(function(pid){
+        var p = visible.find(function(n){ return n['ID'] === pid; });
+        return p ? p['Name'] : pid;
+      }).join(', ');
+      tooltip += '\nAlso owned by: ' + coParentNames;
+    }
+
+    return [ { v: id, f: card }, primaryParent, tooltip ];
   });
-  document.getElementById('oc-edges').innerHTML = edgeSVG;
+  data.addRows(rows);
 
-  // -- Nodes --
-  let nodesSVG = '';
-  visible.forEach(node => {
-    const H  = ocNodeHeight(node);
-    const x  = node['X'];
-    const y  = node['Y'];
-    const bg = node['Color'] || (OC_NODE_TYPES[node['Node Type'] || ''] || {}).color || '#1e3a5c';
-    const tc = node['Text Color'] || '#ffffff';
-    const ntype = node['Node Type'] || '';
-    const owLines = node['Ownership'] ? node['Ownership'].split('\n').filter(Boolean).slice(0,3) : [];
-
-    // Build text rows
-    let metaLine = [ntype, node['Jurisdiction']].filter(Boolean).join('  |  ');
-    let dateLine = node['Date Created'] ? 'Est. ' + node['Date Created'] : '';
-    let taxLine  = node['Tax ID'] ? 'EIN: ' + node['Tax ID'] : '';
-
-    const escX = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-
-    // Build tspan lines inside text
-    let textRows = `<text font-family="inherit" fill="${escX(tc)}">
-      <tspan x="${x+10}" y="${y+24}" font-size="13" font-weight="700">${escX(node['Name']||'')}</tspan>`;
-    let ty = y + 24 + 16;
-    if (metaLine) { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.8">${escX(metaLine)}</tspan>`; ty += 15; }
-    if (dateLine)  { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.75">${escX(dateLine)}</tspan>`; ty += 15; }
-    if (taxLine)   { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10.5" opacity="0.75">${escX(taxLine)}</tspan>`; ty += 15; }
-    owLines.forEach(l => { textRows += `<tspan x="${x+10}" y="${ty}" font-size="10" opacity="0.7">${escX(l)}</tspan>`; ty += 14; });
-    textRows += '</text>';
-
-    const id = escX(node['ID']);
-    nodesSVG += `<g class="oc-node" data-id="${id}"
-        onmousedown="ocNodeDown(event,'${id}')"
-        onclick="ocNodeClick(event,'${id}')"
-        oncontextmenu="ocNodeRightClick(event,'${id}');return false;"
-        style="cursor:pointer">
-      <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="8"
-        fill="${escX(bg)}" stroke="rgba(255,255,255,0.18)" stroke-width="1.2"/>
-      <rect x="${x}" y="${y}" width="4" height="${H}" rx="2"
-        fill="rgba(255,255,255,0.3)"/>
-      ${textRows}
-    </g>`;
+  var chart = new google.visualization.OrgChart(container);
+  google.visualization.events.addListener(chart, 'select', function(){
+    var sel = chart.getSelection();
+    if (sel && sel.length) {
+      var row = sel[0].row;
+      if (row != null && rows[row]) {
+        var idCell = rows[row][0];
+        var id = idCell && idCell.v ? idCell.v : null;
+        if (id) openOCNodeModal(id);
+      }
+      chart.setSelection([]);   // deselect so the same node can be clicked again
+    }
   });
-  document.getElementById('oc-nodes-layer').innerHTML = nodesSVG;
+  chart.draw(data, { allowHtml: true, allowCollapse: true, nodeClass: 'oc-gc-node' });
 }
 
 function setOCView(v) {
@@ -4245,6 +4290,9 @@ function setOCView(v) {
 }
 
 function ocFitView() {
+  // Legacy: was fit-view for the old custom SVG. Google Charts OrgChart
+  // handles its own layout/sizing — nothing to do here anymore.
+  if (!document.getElementById('oc-viewport')) return;
   const visible = ocVisibleNodes();
   if (!visible.length) return;
   const W = oc.NODE_W;
