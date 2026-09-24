@@ -126,6 +126,64 @@ function resetLoansSheet() {
   ui.alert('Renamed old sheet to "' + newName + '" and created a fresh LOANS sheet.\n\nNow run:\n  Init Solaris Loan\n  Backfill Solaris Jan-Mar payments\n  Init Waskar Loan');
 }
 
+// Menu-callable: backfill MacDonald's monthly interest payments from loan
+// start (Jun 2024) through Sep 2026 as manual entries. Amanda said he's
+// current on interest and the next payment is due Oct 1, 2026. Smart-skips
+// any month already covered by a Plaid payment (so lump sums like the
+// June 2026 $8,333 wire for Jun-Sep aren't double-counted for that month).
+function backfillMacDonaldHistorical() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var mac = loans.filter(function(l){
+    return String(l.Name||'').toLowerCase().indexOf('macdonald') >= 0;
+  })[0];
+  if (!mac) { ui.alert('No MacDonald loan found. Run Init MacDonald Loan first.'); return; }
+
+  var resp = ui.alert(
+    'Backfill MacDonald historical payments?',
+    'Fills in every monthly interest payment from loan start (Jun 2024) ' +
+    'through Sep 2026 as MANUAL entries. Any month already covered by a ' +
+    'Plaid entry is skipped (so lump-sum multi-month wires don\'t double-' +
+    'count for the month they landed in).\n\n' +
+    'Each manual entry: $2,083.33 interest / $0 principal.\n\n' +
+    'For lump-covered months (e.g. the June 2026 $8,333 covering Jun-Sep):\n' +
+    '  - The lump\'s month gets the Plaid entry as-is (may show variance)\n' +
+    '  - The other months it covers get filled as manuals\n' +
+    '  - Total received = actual sum of Plaid + manuals\n' +
+    'You\'ll see composite ×2 badges on months where both exist — safe to\n' +
+    'remove any conflicting manual via the row drilldown.\n\n' +
+    'Proceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+
+  var schedule = _generateAmortizationSchedule_(mac);
+  var existing = _matchLoanPayments_(mac);
+  var covered = {};
+  existing.forEach(function(p){ covered[p.date.substring(0, 7)] = true; });
+
+  var cutoffYm = '2026-09';   // through Sep 2026 (Oct 1 is next-due)
+  var added = 0, skipped = 0;
+  schedule.forEach(function(row){
+    var ym = row.dueDate.substring(0, 7);
+    if (ym > cutoffYm) return;
+    if (covered[ym]) { skipped++; return; }
+    addManualLoanPayment(
+      mac.ID,
+      row.dueDate,
+      row.payment,       // $2,083.33
+      'Backfilled: interest for ' + ym + ' (MacDonald caught-up-through-Sep-2026 backfill)',
+      row.principal,     // 0 for interest-only
+      row.interest,      // $2,083.33
+      'received'
+    );
+    added++;
+    covered[ym] = true;
+  });
+  ui.alert('Added ' + added + ' manual monthly entries. Skipped ' + skipped + ' months already covered by Plaid.\n\nRefresh the Loans tab to see the updated schedule. Next due should now be Oct 1, 2026.');
+}
+
 // Menu-callable one-time seed for the Michael MacDonald loan.
 // Interest-only mortgage: $500k @ 5%, 10-year term, monthly interest only
 // ($2,083.33), principal balloon at maturity 4/30/2034. Per commitment
