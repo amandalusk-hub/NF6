@@ -2487,6 +2487,9 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
         '<button onclick="closeModal(\'loan-txn-modal\')" class="btn btn-secondary">Close</button>' +
       '</div>';
   // Multi-transaction section (only when 2+ payments covered this row).
+  // Each Manual entry gets its own inline Remove button so Amanda can
+  // clean up individual duplicates on a composite row (e.g. removing
+  // a backfilled manual when a Plaid lump-split now covers that month).
   var multiSection = '';
   if (multi) {
     multiSection =
@@ -2494,13 +2497,18 @@ function openLoanTxnDrilldown(loanId, scheduleIdx) {
         '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">This row combines ' + multi.length + ' transactions</div>' +
         '<table style="width:100%;font-size:12px;border-collapse:collapse">' +
           multi.map(function(tx){
-            var badge = tx.source === 'manual'
+            var isMan = tx.source === 'manual';
+            var badge = isMan
               ? '<span style="background:#eef4fb;color:#1e5fa8;padding:1px 6px;border-radius:3px;font-size:10px">Manual</span>'
               : '<span style="background:#e6f4ea;color:#1e8e3e;padding:1px 6px;border-radius:3px;font-size:10px">Plaid</span>';
-            return '<tr><td style="padding:3px 6px;color:#5f7791">'+new Date(tx.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</td>' +
-                   '<td style="padding:3px 6px;font-family:monospace;font-size:11px;color:#4a6b8e;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(tx.name||'')+'</td>' +
+            var actionBtn = isMan
+              ? '<button onclick="removeManualPaymentByTxn(\''+loanId+'\',\''+tx.date+'\','+tx.amount+')" title="Remove this manual entry" style="background:#fde8e8;color:#7f1d1d;border:1px solid #f0c8c8;border-radius:3px;padding:2px 6px;font-size:10px;cursor:pointer">Remove</button>'
+              : '<span style="color:#aab5c4;font-size:10px">—</span>';
+            return '<tr><td style="padding:3px 6px;color:#5f7791;white-space:nowrap">'+new Date(tx.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</td>' +
+                   '<td style="padding:3px 6px;font-family:monospace;font-size:11px;color:#4a6b8e;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(tx.name||'')+'</td>' +
                    '<td style="padding:3px 6px;text-align:right;font-weight:600;color:#1e8e3e">'+fmtUSD(tx.amount)+'</td>' +
-                   '<td style="padding:3px 6px;text-align:right">'+badge+'</td></tr>';
+                   '<td style="padding:3px 6px;text-align:right">'+badge+'</td>' +
+                   '<td style="padding:3px 6px;text-align:right">'+actionBtn+'</td></tr>';
           }).join('') +
         '</table>' +
       '</div>';
@@ -2636,6 +2644,27 @@ function saveManualPaymentClick(loanId) {
     .withFailureHandler(function(e){ showLoading(false); toast(e.message||'Failed','error'); })
     .addManualLoanPayment(loanId, dateStr, amount, notes, null, null, type);
 }
+// Remove a specific manual payment from a composite row by (loanId, date,
+// amount) — the same identifier the server function uses. Called by the
+// per-transaction Remove buttons in the drilldown's multi-transaction list.
+function removeManualPaymentByTxn(loanId, dateStr, amount) {
+  if (!confirm('Remove this manual entry?\n\n' + dateStr + ' — ' + fmtUSD(amount) + '\n\nDoes not affect Plaid data.')) return;
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res){
+      showLoading(false);
+      if (res && res.success) {
+        toast('Manual entry removed');
+        closeModal('loan-txn-modal');
+        loadLoans();
+      } else {
+        toast((res && res.error) || 'Remove failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast(e.message||'Failed','error'); })
+    ._removeManualPaymentByLoanAndDate(loanId, dateStr, amount);
+}
+
 // Remove a manual payment. Called from the drilldown modal on a manually-
 // entered row. Locates the underlying LOAN_MANUAL_PAYMENTS row via server
 // lookup — we don't have the manual-payment ID on the client.
