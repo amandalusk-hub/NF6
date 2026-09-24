@@ -338,7 +338,8 @@ function onOpen() {
     .addItem('Send Daily Net Worth PDF (test to me)',  'sendDailyNetWorthPdfTest')
     .addSeparator()
     .addSeparator()
-    .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
+    .addItem('Seed Org Chart Structure (empty starter)', 'seedOrgChart')
+    .addItem('Seed NF6 Family Org Chart (from Amanda\'s PDF)', 'seedNF6OrgChart')
     .addSeparator()
     .addItem('Loans → Reset LOANS sheet (move legacy aside)', 'resetLoansSheet')
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
@@ -1521,6 +1522,112 @@ function deleteLiability(id) { _requireEditor_();
 }
 
 // ── Org Chart Seed ────────────────────────────────────────────────────────────
+
+// Menu-callable: populate the ORG_CHART sheet with Amanda's actual NF6
+// family office structure (per MN_Structure_Org_Chart_Updated_v7 PDF).
+// Renames any existing ORG_CHART sheet aside as ORG_CHART_LEGACY_<timestamp>
+// so no data is lost.
+function seedNF6OrgChart() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    'Load NF6 Family Structure into Org Chart?',
+    'This will move your current ORG_CHART sheet aside as ' +
+    'ORG_CHART_LEGACY_<timestamp> and create a fresh ORG_CHART with 28 ' +
+    'entities matching your PDF: 4 individuals, 4 trusts (2 current + 2 ' +
+    'post-2026), and 20 LLCs / LPs / SASs across USA, PR, DR, Colombia, ' +
+    'France, Spain.\n\nYou can edit / add / remove entities from the Org ' +
+    'Chart tab after.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var existing = ss.getSheetByName('ORG_CHART');
+  if (existing && existing.getLastRow() > 1) {
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
+    var newName = 'ORG_CHART_LEGACY_' + stamp;
+    var suffix = 1;
+    while (ss.getSheetByName(newName)) { suffix++; newName = 'ORG_CHART_LEGACY_' + stamp + '-' + suffix; }
+    existing.setName(newName);
+  }
+  ensureSheets_();
+  var sheet = getSheet_('ORG_CHART');
+
+  var C = {
+    person: '#1a4f7a', trustRev: '#2d6a4f', trustIrrev: '#2d6a4f',
+    llc: '#0e4d5c', lp: '#0e4d5c', disregarded: '#0e4d5c',
+    corp: '#1e3a5c', holding: '#0e4d5c',
+    postTrust: '#5b2c87', postLlc: '#4a2d70'
+  };
+
+  // [ID, Name, Parents, NodeType, TaxID, Jurisdiction, DateCreated, Ownership, Color, Structure]
+  var E = [
+    // Individuals
+    ['mn',           'Michael Nguyen',                   '',                              'Individual','218-13-0700','Puerto Rico','',           '', C.person,'both'],
+    ['nancy',        'Nancy Nguyen',                     '',                              'Individual','',           'Puerto Rico','',           '', C.person,'both'],
+    ['michelle',     'Michelle Lam',                     '',                              'Individual','',           '',           '',           '', C.person,'both'],
+    ['david',        'David Nguyen',                     '',                              'Individual','',           '',           '',           '', C.person,'both'],
+    // Current trusts
+    ['mn_trust_irrev','MN Family Trust — Irrevocable',   'mn',                            'Trust (Irrevocable)','66-6047876','Puerto Rico','2021-01-26','Grantor: Michael Nguyen\nTrustee: Nancy Nguyen',                          C.trustIrrev,'current'],
+    ['mn_trust_rev', '2019 MN Family Revocable Trust',   'mn',                            'Trust (Revocable)',  '66-6051920','Puerto Rico','2019-09-08','Grantor & Trustee: Michael Nguyen',                                       C.trustRev,  'current'],
+    // BPMGMT + Blue Panda + subs
+    ['bpmgmt',       'BPMGMT LLC',                       'nancy,mn_trust_rev',            'LP (Limited Partnership)','84-3131730','USA','2019-01-13','Nancy Nguyen: 49%\n2019 MN Family Revocable Trust: 51%',                    C.lp,        'current'],
+    ['blue_panda',   'Blue Panda Family LP',             'mn_trust_irrev,bpmgmt',         'LP (Limited Partnership)','84-2892294','Puerto Rico','2019-08-19','2021 MN Family Trust: 99%\nBPMGMT: 1%',                              C.lp,        'current'],
+    ['tlmnd',        'TLMND LLC',                        'blue_panda',                    'Corporation','83-2365218','',           '2018-10-29','BP Family: 100%\nRE & foreign Investment Holding',                            C.corp,      'current'],
+    ['nf6_ventures', 'NF6 Ventures LLC',                 'blue_panda',                    'LLC',        '83-4350254','',           '2019-09-04','Single Member Disregarded (reported on BP LP)\nBusiness + RE Investment Holding', C.disregarded,'current'],
+    ['nf6_capital',  'NF6 Capital LLC',                  'blue_panda',                    'LLC',        '88-3011071','',           '2022-02-05','BP Family: 100%\nCash Investment Holding',                                   C.disregarded,'current'],
+    // TLMND sub-entities
+    ['mbj_dr',       'MBJ DR Inc',                       'tlmnd',                         'Corporation','',           'Dominican Republic','','Business + RE Investment Holding',                                              C.corp,      'current'],
+    ['nf_us_tx',     'NF US TX LLC',                     'tlmnd',                         'LLC',        '',           'USA - Texas','',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_mde',       'NF MDE CO SAS',                    'tlmnd',                         'LLC',        '',           'Colombia',   '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_europe',    'NF Europe Holdings',               'tlmnd',                         'Holding Company','',        '',          '',           'Business + RE Investment Holding',                                          C.holding,   'current'],
+    ['paris_thacko', 'Paris Thacko SCI',                 'nf_europe',                     'LLC',        '',           'France',     '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_spain',     'NF6 Spain Holdings SL',            'nf_europe',                     'LLC',        '',           'Spain',      '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['ngm_asc',      'NGM Woodland Park ASC',            'tlmnd',                         'LP (Limited Partnership)','85-3687744','USA','',        'TLMND: 46.875% (ASC Shares Purchase)',                                       C.lp,        'current'],
+    // YM PR Investment Group — parent unclear from PDF, parked under Michael
+    ['ym_pr',        'YM PR Investment Group LLC',       'mn',                            'LLC',        '',           'Puerto Rico','',           'Ownership: 50%',                                                             C.llc,       'current'],
+    // NF6 Family Holding LP structure
+    ['nf6_joint_mgmt','NF6 Joint MGMT LLC',              'nancy,michelle,david',          'LP (Limited Partnership)','88-4188894','USA','2022-10-05','Nancy: 33.34%\nMichelle: 33.33%\nDavid: 33.33%',                          C.lp,        'current'],
+    ['nf6_family_holding','NF6 Family Holding LP',       'mn_trust_rev,nf6_joint_mgmt',   'LP (Limited Partnership)','88-4257571','USA','2022-10-10','GP: NF6 Joint MGMT LLC 1%\nLP: 2019 MN Family Rev Trust 99%',            C.lp,        'current'],
+    ['nf6_tiger',    'NF6 Tiger Capital LLC',            'nf6_family_holding',            'LLC',        '88-4260181','USA',        '2022-10-12','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current'],
+    ['nf_pr_sj',     'NF PR SJ LLC',                     'nf6_family_holding',            'LLC',        '66-1129573','Puerto Rico','2026-04-06','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current'],
+    // Post-2026 Trust structure
+    ['nf6_pr_trust_2026','NF6 Family 2026 PR Trust',     'mn',                            'Trust (Irrevocable)','66-6059376','Puerto Rico','2026-04-23','Trustee: Balwant Cheema',                                            C.postTrust, 'post'],
+    ['nf6_us_trust_2026','NF6 Family 2026 US Trust',     'mn',                            'Trust (Irrevocable)','66-6059490','USA','2026-04-24','Trustee: Balwant Cheema\nContingent — effective upon Michael Nguyen\'s death', C.postTrust, 'post'],
+    ['nf6_legacy',   'NF6 Legacy Holdings LLC',          'nf6_pr_trust_2026',             'LLC',        '42-2273566','Delaware',   '2026-04-29','NF6 Family 2026 PR Trust: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post'],
+    ['mn_vip_holdco','MN VIP HoldCo LLC',                'nf6_legacy',                    'LLC',        '42-2242950','Delaware',   '2026-04-29','NF6 Legacy Holdings LLC: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post'],
+    ['nf6_capital_reserve','NF6 Capital Reserve LLC',    'nf6_legacy',                    'LLC',        '42-2322757','Delaware',   '2026-04-29','NF6 Legacy Holdings LLC: 100%\nManager: Michael Nguyen | Sp. Mgr: Kuldip Lusk\nSingle-Member LLC (Disregarded)', C.postLlc,'post']
+  ];
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  function ci(name){ return headers.indexOf(name); }
+  var iId=ci('ID'), iName=ci('Name'), iParents=ci('Parents'), iNodeType=ci('Node Type'),
+      iTaxId=ci('Tax ID'), iJur=ci('Jurisdiction'), iDate=ci('Date Created'),
+      iOwn=ci('Ownership'), iColor=ci('Color'), iTextColor=ci('Text Color'),
+      iStruct=ci('Structure'), iX=ci('X'), iY=ci('Y');
+
+  var rows = E.map(function(e){
+    var row = new Array(headers.length).fill('');
+    if (iId >= 0)        row[iId]        = e[0];
+    if (iName >= 0)      row[iName]      = e[1];
+    if (iParents >= 0)   row[iParents]   = e[2];
+    if (iNodeType >= 0)  row[iNodeType]  = e[3];
+    if (iTaxId >= 0)     row[iTaxId]     = e[4];
+    if (iJur >= 0)       row[iJur]       = e[5];
+    if (iDate >= 0)      row[iDate]      = e[6];
+    if (iOwn >= 0)       row[iOwn]       = e[7];
+    if (iColor >= 0)     row[iColor]     = e[8];
+    if (iTextColor >= 0) row[iTextColor] = '#ffffff';
+    if (iStruct >= 0)    row[iStruct]    = e[9];
+    if (iX >= 0)         row[iX]         = 0;
+    if (iY >= 0)         row[iY]         = 0;
+    return row;
+  });
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+  ui.alert('Loaded ' + rows.length + ' entities into ORG_CHART. Any old data preserved as ORG_CHART_LEGACY_*. Open the Org Chart tab on the dashboard + hard-refresh (Ctrl+Shift+R).');
+}
 
 function seedOrgChart() {
   ensureSheets_();
