@@ -1275,6 +1275,13 @@ function _computeLoanStatus_(loan) {
     var missed   = scheduleWithStatus.filter(function(r){ return r.missed;   });
     var totalReceived = received.reduce(function(s, r){ return s + (r.actualAmount||0); }, 0);
     var totalScheduled = schedule.reduce(function(s, r){ return s + r.payment; }, 0);
+    // Break out received into principal vs interest so an interest-only
+    // loan like MacDonald visibly shows $58k received / $0 principal —
+    // making it obvious the loan balance isn't being paid down.
+    var totalPrincipalReceived = received.reduce(function(s, r){ return s + (r.principalPaid || 0); }, 0);
+    var totalInterestReceived  = received.reduce(function(s, r){
+      return s + Math.max(0, (r.actualAmount || 0) - (r.principalPaid || 0));
+    }, 0);
 
     // Current outstanding balance = effective principal minus principal
     // actually paid down by received rows. Works whether the received rows
@@ -1312,6 +1319,8 @@ function _computeLoanStatus_(loan) {
         paymentsMissed:    missed.length,
         paymentsScheduled: schedule.length,
         totalReceived:     totalReceived,
+        totalPrincipalReceived: totalPrincipalReceived,
+        totalInterestReceived:  totalInterestReceived,
         totalScheduled:    totalScheduled,
         currentBalance:    currentBalance,
         nextDue:           nextDue,

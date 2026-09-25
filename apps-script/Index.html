@@ -2396,7 +2396,16 @@ function _renderLoanCard(status) {
     // Summary row
     '<div style="padding:12px 18px;display:grid;grid-template-columns:repeat(4,1fr);gap:14px;border-bottom:1px solid #e6ebf2">' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Payments Received</div><div style="font-size:15px;font-weight:600;color:#14263d">'+s.paymentsReceived+' / '+s.paymentsScheduled+ (s.paymentsMissed?' <span style="color:#8b1c1c;font-size:11px;font-weight:500" title="Missed payments">('+s.paymentsMissed+' missed)</span>':'') +'</div></div>' +
-      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Total Received</div><div style="font-size:15px;font-weight:600;color:#1e8e3e">'+fmtUSD(s.totalReceived||0)+'</div></div>' +
+      '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Total Received</div>' +
+        '<div style="font-size:15px;font-weight:600;color:#1e8e3e">'+fmtUSD(s.totalReceived||0)+'</div>' +
+        (s.totalPrincipalReceived != null || s.totalInterestReceived != null
+          ? '<div style="font-size:10px;color:#5f7791;margin-top:2px" title="Principal / Interest breakdown">' +
+              '<span style="color:#1e8e3e">P '+fmtUSD(s.totalPrincipalReceived||0)+'</span>' +
+              ' · ' +
+              '<span style="color:#c5221f">I '+fmtUSD(s.totalInterestReceived||0)+'</span>' +
+            '</div>'
+          : '') +
+      '</div>' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Next Due</div><div style="font-size:15px;font-weight:600;color:#14263d">'+esc(nextDueStr)+'</div></div>' +
       '<div><div style="font-size:10px;color:#7a8ba8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Progress</div>' +
         '<div style="background:#eef2f7;border-radius:4px;height:8px;margin-top:4px;overflow:hidden"><div style="background:#1e8e3e;height:100%;width:'+pctPaid+'%"></div></div>' +
