@@ -228,7 +228,8 @@ function seedTexasLoan() {
     '  Phase 3:       Nov 2033 – Oct 2056, adjustable $29,028-$61,790\n' +
     '  Direction:     Payable (Mike owes)\n' +
     '  Source:        NF USA TX (account ···5155)\n' +
-    '  Plaid pattern: AMEGY|ZIONS BANC (either lender name matches)\n\n' +
+    '  Plaid pattern: AMEGY BANK|ZIONS BANC (matches wire descriptions like\n' +
+    '                 "ORIG CO NAME:AMEGY BANK OF TE ... BLPAYMENTS")\n\n' +
     'Seeding INITIAL 2-yr IO phase only (24 rows). In Nov 2028, edit the ' +
     'loan to switch to amortizing.\n\nProceed?',
     ui.ButtonSet.OK_CANCEL
@@ -249,7 +250,7 @@ function seedTexasLoan() {
     monthlyPayment: 17666.67,
     paymentType: 'End of Period',
     loanType: 'Interest Only',
-    plaidPattern: 'AMEGY|ZIONS BANC',
+    plaidPattern: 'AMEGY BANK|ZIONS BANC',
     status: 'Active',
     notes: 'Amegy Bank / Zions Bancorporation mortgage. Closing disclosure ' +
            'signed 9/17/2026, disbursement 9/23/2026. Property: 709 Kuhlman Rd, ' +
@@ -793,6 +794,14 @@ function _matchLoanPayments_(loan) {
   var direction = String(loan['Direction'] || 'Receivable').toLowerCase();
   var isPayable = direction === 'payable';
   var srcAccountFilter = String(loan['Source Account'] || '').toLowerCase().trim();
+  // Anything dated before this loan's first payment can't be for this loan
+  // — it might be a payment on a prior loan with the same lender (e.g. an
+  // old Amegy loan being refinanced by a new Amegy loan). Guard against
+  // false positives on both Receivables and Payables.
+  var firstPayRaw = loan['First Payment Date'];
+  var firstPay = firstPayRaw instanceof Date ? firstPayRaw : new Date(firstPayRaw);
+  var firstPayIso = isNaN(firstPay.getTime()) ? null
+    : Utilities.formatDate(firstPay, 'UTC', 'yyyy-MM-dd');
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
   var rawPattern = String(loan['Plaid Match Pattern'] || '').trim();
   var patterns = rawPattern
@@ -837,6 +846,14 @@ function _matchLoanPayments_(loan) {
         });
       });
     }
+  }
+
+  // Filter out any payment dated before the loan's first payment date —
+  // those can't be for this loan (probably a prior loan with the same
+  // lender). Applied AFTER pattern + sign filters so debug tools still see
+  // the full pre-filter set if we ever want it.
+  if (firstPayIso) {
+    payments = payments.filter(function(p){ return p.date >= firstPayIso; });
   }
 
   // (2) Manual entries for this loan (both received AND missed).
