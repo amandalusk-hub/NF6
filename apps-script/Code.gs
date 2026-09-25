@@ -345,6 +345,7 @@ function onOpen() {
     .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
     .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
     .addItem('Loans → Init MacDonald Loan (interest-only)', 'seedMacDonaldLoan')
+    .addItem('Loans → Init Texas Loan (Amegy, Payable)', 'seedTexasLoan')
     .addItem('Loans → Backfill MacDonald historical (Jun 2024–Sep 2026)', 'backfillMacDonaldHistorical')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')

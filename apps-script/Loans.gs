@@ -188,6 +188,90 @@ function backfillMacDonaldHistorical() {
   ui.alert('Added ' + added + ' manual monthly entries. Skipped ' + skipped + ' months already covered by Plaid.\n\nRefresh the Loans tab to see the updated schedule. Next due should now be Oct 1, 2026.');
 }
 
+// Menu-callable one-time seed for the Amegy Texas mortgage (709 Kuhlman
+// Rd, Houston TX). Per closing disclosure signed 9/17/2026:
+//   Lender:   Zions Bancorporation, N.A. dba Amegy Bank
+//   Borrower: Michael Nguyen (via Nancy Nguyen Suthiwong as Agent)
+//   Amount:   $6,400,000
+//   Rate:     6.625% (initial, adjusts year 8)
+//   Product:  2 Year Interest Only, 7/1 Adjustable Rate, 30 yr term
+//   Payments: Years 1-2 = $17,666.67 interest only
+//             Years 3-7 = $41,926.39 P&I amortizing
+//             Years 8-30 = adjustable $29,028 – $61,790
+//   Source:   NF USA TX LLC ···5155 (paid from this account)
+//   First:    November 1, 2026
+// We seed the INITIAL 2-year IO phase only. In Nov 2028, edit the loan
+// with the new amortizing terms.
+function seedTexasLoan() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var existing = loans.filter(function(l){
+    var n = String(l.Name||'').toLowerCase();
+    return n.indexOf('texas') >= 0 || n.indexOf('kuhlman') >= 0 || n.indexOf('amegy') >= 0;
+  })[0];
+  if (existing) {
+    ui.alert('A Texas / Kuhlman / Amegy loan already exists in LOANS — no change made.');
+    return;
+  }
+  var resp = ui.alert(
+    'Seed Amegy Texas Loan?',
+    'Add the Amegy Bank Texas mortgage (Payable — Mike owes):\n\n' +
+    '  Lender:        Zions Bancorporation dba Amegy Bank\n' +
+    '  Borrower:      Michael Nguyen\n' +
+    '  Property:      709 Kuhlman Rd, Houston, TX 77024\n' +
+    '  Amount:        $6,400,000\n' +
+    '  Rate:          6.625% (adjustable starting year 8)\n' +
+    '  Product:       30-yr / 2yr IO / 7-1 ARM\n' +
+    '  Phase 1:       Nov 2026 – Oct 2028, INTEREST ONLY $17,666.67/mo\n' +
+    '  Phase 2:       Nov 2028 – Oct 2033, amortizing $41,926.39/mo\n' +
+    '  Phase 3:       Nov 2033 – Oct 2056, adjustable $29,028-$61,790\n' +
+    '  Direction:     Payable (Mike owes)\n' +
+    '  Source:        NF USA TX (account ···5155)\n' +
+    '  Plaid pattern: AMEGY|ZIONS BANC (either lender name matches)\n\n' +
+    'Seeding INITIAL 2-yr IO phase only (24 rows). In Nov 2028, edit the ' +
+    'loan to switch to amortizing.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+
+  var res = addLoan({
+    name: 'Texas Mortgage — 709 Kuhlman Rd (Amegy Bank)',
+    entity: 'NF USA TX LLC',
+    direction: 'Payable',
+    sourceAccount: 'NF USA TX',
+    originalPrincipal: 6400000,
+    accruedInterest: 0,
+    effectivePrincipal: 6400000,
+    annualRate: 6.625,
+    termMonths: 24,
+    firstPaymentDate: '2026-11-01',
+    monthlyPayment: 17666.67,
+    paymentType: 'End of Period',
+    loanType: 'Interest Only',
+    plaidPattern: 'AMEGY|ZIONS BANC',
+    status: 'Active',
+    notes: 'Amegy Bank / Zions Bancorporation mortgage. Closing disclosure ' +
+           'signed 9/17/2026, disbursement 9/23/2026. Property: 709 Kuhlman Rd, ' +
+           'Houston TX 77024. Loan ID 508726070197821. Full 30-year term with ' +
+           'hybrid schedule:\n' +
+           '  • Phase 1 (Nov 2026 – Oct 2028, 24 mo): Interest Only $17,666.67/mo (seeded here)\n' +
+           '  • Phase 2 (Nov 2028 – Oct 2033, 60 mo): Amortizing $41,926.39/mo — RE-SEED WHEN THIS PHASE STARTS\n' +
+           '  • Phase 3 (Nov 2033 – Oct 2056, 276 mo): Adjustable $29,028 – $61,790 range\n' +
+           'Payment comes OUT of NF USA TX LLC ···5155.'
+  });
+  if (!res.success) { ui.alert('Failed to add loan: ' + (res.error || 'unknown')); return; }
+  ui.alert(
+    'Texas loan added.\n\n' +
+    'Next steps:\n' +
+    '1. Loans tab → shows under "📤 Loans You Owe" section\n' +
+    '2. Schedule shows Nov 2026 – Oct 2028 (24 IO payments). Balance stays at $6.4M through phase 1.\n' +
+    '3. First Plaid detection will be November — my daily 7 AM alert will email you if it doesn\'t come out.\n' +
+    '4. If AMEGY|ZIONS BANC doesn\'t match the actual wire description, edit the loan and update the Plaid Match Pattern.\n' +
+    '5. In November 2028, edit the loan to switch to phase 2 amortizing terms.'
+  );
+}
+
 // Menu-callable one-time seed for the Michael MacDonald loan.
 // Interest-only mortgage: $500k @ 5%, 10-year term, monthly interest only
 // ($2,083.33), principal balloon at maturity 4/30/2034. Per commitment
