@@ -20,6 +20,14 @@ var LOANS_HEADERS = [
   'ID',
   'Name',
   'Entity',
+  'Direction',              // 'Receivable' (default — money owed TO you, like Solaris/Waskar/MacDonald)
+                            // | 'Payable' (money YOU owe, like Texas loan / Oriental loan).
+                            // Determines whether the matcher looks for inflows (positive amounts)
+                            // or outflows (negative amounts, normalized to positive for display).
+  'Source Account',         // For Payable loans: the account name/mask that pays this loan
+                            // (e.g. 'NF Texas ...1234' or 'Fidelity ...6454'). Used to
+                            // additionally filter Plaid matches so a general "MORTGAGE"
+                            // pattern doesn't match unrelated wires.
   'Original Principal',
   'Accrued Interest',
   'Effective Principal',
@@ -29,15 +37,11 @@ var LOANS_HEADERS = [
   'Monthly Payment',
   'Payment Type',           // 'Beginning of Period' | 'End of Period'
   'Loan Type',              // 'Amortizing' (default) | 'Interest Only'
-                            // Interest Only: monthly payment = interest only,
-                            // principal stays at effective principal until the
-                            // final maturity row where it balloons.
   'Plaid Match Pattern',
   'Status',                 // Active | Paid Off | Delinquent | Deferred
   'Notes',
-  'Linked Asset ID',        // Optional: the Assets row this loan tracks. When set,
-                            // the asset's My Share USD auto-updates on load to the
-                            // loan's current outstanding balance (× ownership %).
+  'Linked Asset ID',        // Optional: for Receivable, the Assets row this loan tracks.
+                            // For Payable, the Liabilities row this loan tracks.
   'Date Added',
   'Last Updated'
 ];
@@ -489,6 +493,8 @@ function _loanDataToDefaults_(data, id, now) {
     'ID': id,
     'Name': data.name || '',
     'Entity': data.entity || '',
+    'Direction': data.direction || 'Receivable',
+    'Source Account': data.sourceAccount || '',
     'Original Principal': Number(data.originalPrincipal) || 0,
     'Accrued Interest': Number(data.accruedInterest) || 0,
     'Effective Principal': Number(data.effectivePrincipal) || Number(data.originalPrincipal) || 0,
@@ -531,6 +537,8 @@ function updateLoan(id, data) {
   var fieldMap = {
     'Name': ['name', function(v){ return v; }],
     'Entity': ['entity', function(v){ return v; }],
+    'Direction': ['direction', function(v){ return v; }],
+    'Source Account': ['sourceAccount', function(v){ return v; }],
     'Original Principal': ['originalPrincipal', function(v){ return Number(v); }],
     'Accrued Interest': ['accruedInterest', function(v){ return Number(v); }],
     'Effective Principal': ['effectivePrincipal', function(v){ return Number(v); }],
@@ -692,6 +700,15 @@ function _matchLoanPayments_(loan) {
   // The Plaid Match Pattern supports multiple patterns separated by |
   // (e.g. "WASICA HOLDINGS|WASKAR") so loans that arrive under different
   // bank descriptions can all be caught. Match on ANY pattern (OR).
+  // Direction determines whether we look for inflows or outflows:
+  //   Receivable: positive amounts (money coming in from a borrower)
+  //   Payable:    negative amounts (Mike wiring OUT to a lender);
+  //               additionally filtered by Source Account when set
+  //               so a broad "MORTGAGE" pattern doesn't accidentally
+  //               match unrelated wires from other accounts.
+  var direction = String(loan['Direction'] || 'Receivable').toLowerCase();
+  var isPayable = direction === 'payable';
+  var srcAccountFilter = String(loan['Source Account'] || '').toLowerCase().trim();
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
   var rawPattern = String(loan['Plaid Match Pattern'] || '').trim();
   var patterns = rawPattern
@@ -716,10 +733,20 @@ function _matchLoanPayments_(loan) {
         var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
         if (isNaN(d.getTime())) return;
         var amount = Number(r[iAmount] || 0);
-        if (amount <= 0) return;   // outflow — skip
+        // Filter by direction (sign of amount).
+        if (isPayable) {
+          if (amount >= 0) return;    // Payable needs outflow (negative)
+        } else {
+          if (amount <= 0) return;    // Receivable needs inflow (positive)
+        }
+        // Optional source-account filter for Payable loans.
+        if (isPayable && srcAccountFilter) {
+          var acct = String(r[iAccount] || '').toLowerCase();
+          if (acct.indexOf(srcAccountFilter) < 0) return;
+        }
         payments.push({
           date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-          amount: amount,
+          amount: Math.abs(amount),   // normalize to positive for display consistency
           account: String(r[iAccount] || ''),
           name: String(r[iName] || ''),
           source: 'plaid'
@@ -882,6 +909,77 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
     return { success: true };
   }
   return { success: false, error: 'Manual payment not found for that date/amount.' };
+}
+
+// Daily 7 AM alert: check every ACTIVE Payable loan; if a schedule row's
+// due date is more than GRACE days ago and there's no matching Plaid outflow
+// AND no manual "Received/Missed" entry, email Amanda so she can check on
+// it. Prevents missed-payment surprises on loans Mike owes.
+var _LOAN_ALERT_GRACE_DAYS = 5;
+function checkLoanPaymentAlerts() {
+  var props = PropertiesService.getScriptProperties();
+  var recipient = props.getProperty('LOAN_ALERT_RECIPIENT')
+               || props.getProperty('DAILY_PDF_RECIPIENT')
+               || props.getProperty('WEEKLY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('checkLoanPaymentAlerts: no recipient configured (LOAN_ALERT_RECIPIENT / DAILY_PDF_RECIPIENT / WEEKLY_PDF_RECIPIENT).');
+    return;
+  }
+  var statuses;
+  try { statuses = getLoansStatus(); }
+  catch(e) { Logger.log('checkLoanPaymentAlerts: getLoansStatus failed: ' + e.message); return; }
+
+  var today = new Date();
+  var todayMs = today.getTime();
+  var alerts = [];
+
+  (statuses || []).forEach(function(s) {
+    var loan = s.loan || {};
+    if (String(loan.Direction||'').toLowerCase() !== 'payable') return;
+    if (String(loan.Status||'').toLowerCase() !== 'active') return;
+    var schedule = s.schedule || [];
+    schedule.forEach(function(row) {
+      if (row.received || row.missed) return;
+      var due = new Date(row.dueDate + 'T00:00:00');
+      var daysPast = Math.floor((todayMs - due.getTime()) / 86400000);
+      if (daysPast >= _LOAN_ALERT_GRACE_DAYS) {
+        alerts.push({
+          loanName: loan.Name || '(unnamed loan)',
+          entity:   loan.Entity || '',
+          source:   loan['Source Account'] || '(no account set)',
+          n: row.n,
+          due: row.dueDate,
+          expected: row.payment,
+          daysPast: daysPast
+        });
+      }
+    });
+  });
+
+  if (!alerts.length) { Logger.log('checkLoanPaymentAlerts: no overdue Payable loan payments.'); return; }
+
+  var body = 'Heads up — ' + alerts.length + ' expected outgoing loan payment(s) have not been detected in Plaid yet:\n\n';
+  alerts.forEach(function(a) {
+    body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
+    body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
+    body += '    Due: ' + a.due + ' (' + a.daysPast + ' days ago)\n';
+    body += '    Should have come from: ' + a.source + '\n\n';
+  });
+  body += 'Next steps:\n' +
+          '  1. Check the source account for a recent outgoing wire/ACH.\n' +
+          '  2. If it went out but Plaid missed it, open the Loans tab and use\n' +
+          '     Mark Payment as Received on the row.\n' +
+          '  3. If it truly wasn\'t paid, follow up with the lender + mark the\n' +
+          '     row as Missed on the Loans tab.\n\n' +
+          'Set LOAN_ALERT_RECIPIENT in Script Properties to change the alert recipient (currently ' + recipient + ').';
+
+  MailApp.sendEmail({
+    to: recipient,
+    subject: '⚠ Loan Payment Alert — ' + alerts.length + ' payment(s) not detected',
+    body: body,
+    name: 'Loan Payment Monitor'
+  });
+  Logger.log('checkLoanPaymentAlerts: emailed ' + alerts.length + ' alerts to ' + recipient);
 }
 
 // Trigger-callable: recompute every loan's status, which internally syncs

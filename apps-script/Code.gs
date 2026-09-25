@@ -4640,6 +4640,9 @@ function dailySync_() {
   // the Assets sheet. Fresh dashboard shows the right net worth without
   // needing anyone to visit the Loans tab first.
   try { syncAllLoanLinkedAssets(); } catch(e) { Logger.log('dailySync_: syncAllLoanLinkedAssets failed: ' + e.message); }
+  // Alert Amanda about any expected outgoing loan payments (Direction=Payable)
+  // that are >5 days overdue with no matching Plaid outflow.
+  try { checkLoanPaymentAlerts(); } catch(e) { Logger.log('dailySync_: checkLoanPaymentAlerts failed: ' + e.message); }
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
     takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet

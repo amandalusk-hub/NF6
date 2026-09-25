@@ -712,8 +712,19 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <input type="text" id="loan-name" placeholder="e.g. Solaris-FL Holding LLC Loan" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
         </div>
         <div>
-          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Lender Entity</label>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Direction</label>
+          <select id="loan-direction" onchange="_onLoanDirectionChange()" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+            <option value="Receivable">📥 Receivable (owed to you)</option>
+            <option value="Payable">📤 Payable (you owe)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Lender / Servicer <span style="color:#8091a8" id="loan-entity-hint">(entity that owns / services this loan)</span></label>
           <input type="text" id="loan-entity" placeholder="e.g. TLMND" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
+        </div>
+        <div style="grid-column:1/3" id="loan-source-account-row" style="display:none">
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Source Account <span style="color:#8091a8">(which account this payment comes out of — helps disambiguate matches)</span></label>
+          <input type="text" id="loan-source-account" placeholder="e.g. NF Texas ...1234  or  Fidelity ...6454" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
         </div>
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Status</label>
@@ -2324,16 +2335,37 @@ function renderLoans() {
       '</div>';
     return;
   }
-  // Per-card try/catch — one broken loan card won't kill the whole list.
-  content.innerHTML = loans.map(function(s, i){
+  // Group by Direction so Receivables and Payables are clearly separated.
+  var receivable = [], payable = [];
+  loans.forEach(function(s){
+    var dir = String((s.loan && s.loan.Direction) || 'Receivable').toLowerCase();
+    if (dir === 'payable') payable.push(s); else receivable.push(s);
+  });
+  function safeCard(s, i){
     try { return _renderLoanCard(s); }
     catch(e){
       console.error('[Loans] _renderLoanCard failed for loan #' + i + ':', e, s);
       return '<div style="background:#fce8e6;border:1px solid #f0c8c8;color:#7f1d1d;padding:14px;border-radius:6px;margin-bottom:14px">' +
              '<strong>Card render failed for loan #' + (i+1) + ':</strong> ' + (e.message||e) +
-             '<br><span style="font-size:11px">Check the browser console for the loan object.</span></div>';
+             '</div>';
     }
-  }).join('');
+  }
+  function sectionHeader(title, count, subtitle){
+    return '<div style="margin:18px 0 10px;padding-bottom:8px;border-bottom:2px solid #dfe6ee">' +
+      '<div style="font-size:13px;font-weight:700;color:#0d2137;text-transform:uppercase;letter-spacing:0.6px">' + title + ' <span style="color:#8091a8;font-weight:500;font-size:11px;margin-left:6px">' + count + '</span></div>' +
+      '<div style="font-size:11px;color:#5f7791;margin-top:2px">' + subtitle + '</div>' +
+    '</div>';
+  }
+  var html = '';
+  if (receivable.length) {
+    html += sectionHeader('📥 Loans Owed To You', receivable.length, 'Money others owe (schedule + auto-matched Plaid receipts)');
+    html += receivable.map(safeCard).join('');
+  }
+  if (payable.length) {
+    html += sectionHeader('📤 Loans You Owe', payable.length, 'Money you owe (schedule + auto-matched Plaid outflows · alerts if a payment is >5 days overdue)');
+    html += payable.map(safeCard).join('');
+  }
+  content.innerHTML = html;
 }
 
 function _renderLoanCard(status) {
@@ -2691,6 +2723,19 @@ function removeManualPaymentClick(loanId, scheduleIdx) {
     ._removeManualPaymentByLoanAndDate(loanId, row.actualDate, row.actualAmount);
 }
 
+// Direction-aware UI toggles for the loan modal. Payable loans need the
+// Source Account field visible (used to match outgoing payments to the
+// right account); Receivable loans hide it (payments always come IN).
+function _onLoanDirectionChange() {
+  var dir = (document.getElementById('loan-direction') || {}).value || 'Receivable';
+  var srcRow = document.getElementById('loan-source-account-row');
+  var hint = document.getElementById('loan-entity-hint');
+  if (srcRow) srcRow.style.display = dir === 'Payable' ? '' : 'none';
+  if (hint) hint.textContent = dir === 'Payable'
+    ? '(entity that owes this loan — usually one of your entities)'
+    : '(entity that owns / services this loan)';
+}
+
 function openLoanModal(id) {
   var loan = null;
   if (id) {
@@ -2701,8 +2746,11 @@ function openLoanModal(id) {
   document.getElementById('loan-modal-title').textContent = loan ? 'Edit Loan' : 'Add Loan';
   document.getElementById('loan-id').value = loan ? loan.ID : '';
   document.getElementById('loan-name').value = loan ? (loan.Name || '') : '';
+  document.getElementById('loan-direction').value = loan ? (loan.Direction || 'Receivable') : 'Receivable';
   document.getElementById('loan-entity').value = loan ? (loan.Entity || '') : '';
+  document.getElementById('loan-source-account').value = loan ? (loan['Source Account'] || '') : '';
   document.getElementById('loan-status').value = loan ? (loan.Status || 'Active') : 'Active';
+  _onLoanDirectionChange();
   document.getElementById('loan-orig-principal').value = loan ? (loan['Original Principal'] || '') : '';
   document.getElementById('loan-accrued').value = loan ? (loan['Accrued Interest'] || 0) : 0;
   document.getElementById('loan-eff-principal').value = loan ? (loan['Effective Principal'] || '') : '';
@@ -2738,7 +2786,9 @@ function saveLoanClick() {
   var id = document.getElementById('loan-id').value;
   var data = {
     name: document.getElementById('loan-name').value.trim(),
+    direction: document.getElementById('loan-direction').value,
     entity: document.getElementById('loan-entity').value.trim(),
+    sourceAccount: document.getElementById('loan-source-account').value.trim(),
     status: document.getElementById('loan-status').value,
     originalPrincipal: Number(document.getElementById('loan-orig-principal').value) || 0,
     accruedInterest: Number(document.getElementById('loan-accrued').value) || 0,
