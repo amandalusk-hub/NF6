@@ -2389,7 +2389,9 @@ function _renderLoanCard(status) {
       '<div style="text-align:right;margin-left:20px">' +
         '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Balance Remaining</div>' +
         '<div style="font-size:19px;font-weight:700;color:#0d2137">'+fmtUSD(s.currentBalance||0)+'</div>' +
-        (loan['Linked Asset ID'] ? '<div style="font-size:10px;color:#1e8e3e;margin-top:2px">🔗 syncs to linked asset</div>' : '') +
+        (loan['Linked Asset ID']
+          ? '<div style="font-size:10px;color:#1e8e3e;margin-top:2px" title="Asset ID: '+esc(loan['Linked Asset ID'])+'">🔗 linked ' + (s.summary && s.summary.linkedAssetSync && s.summary.linkedAssetSync.updated ? '(synced ' + fmtUSD(s.summary.linkedAssetSync.newValue) + ')' : (s.summary && s.summary.linkedAssetSync ? '(up to date)' : '(asset ID: ' + esc(String(loan['Linked Asset ID']).substring(0, 12)) + '…)')) + '</div>'
+          : '<div style="font-size:10px;color:#c5221f;margin-top:2px">⚠ not linked to asset</div>') +
       '</div>' +
       '<button onclick="event.stopPropagation();openLoanModal(\''+loan.ID+'\')" style="margin-left:14px;background:#f0f4f9;border:1px solid #dfe6ee;color:#4a6b8e;padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer">Edit</button>' +
     '</div>' +

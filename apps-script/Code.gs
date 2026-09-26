@@ -350,6 +350,7 @@ function onOpen() {
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
+    .addItem('Loans → Send Test Alert Email (to me + Brandon)', 'sendTestLoanAlertEmail')
     .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
     .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')

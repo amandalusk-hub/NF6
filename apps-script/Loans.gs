@@ -1012,6 +1012,52 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
   return { success: false, error: 'Manual payment not found for that date/amount.' };
 }
 
+// Menu-callable: send a SAMPLE alert email right now so Amanda can see the
+// format without having to wait for a real overdue payment. Uses fake
+// entries (one Receivable, one Payable) so both sections render.
+function sendTestLoanAlertEmail() {
+  _requireEditor_();
+  var props = PropertiesService.getScriptProperties();
+  var to = props.getProperty('LOAN_ALERT_RECIPIENT')
+        || (typeof _getOwnerEmail_ === 'function' ? _getOwnerEmail_() : '')
+        || props.getProperty('DAILY_PDF_RECIPIENT');
+  var cc = props.getProperty('LOAN_ALERT_CC_RECIPIENT') || _LOAN_ALERT_CC_DEFAULT;
+  if (!to) { SpreadsheetApp.getUi().alert('No primary recipient found. Set LOAN_ALERT_RECIPIENT or OWNER_EMAIL script property.'); return; }
+
+  var body = '⚠ THIS IS A TEST ALERT — for previewing the format only. No real payment is overdue.\n\n' +
+             'Loan payment alerts — 2 payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n' +
+             '📥 LOANS OWED TO MIKE (borrower payments missing)\n' +
+             '───────────────────────────────────────────────────\n' +
+             '  • MacDonald Loan (44 N Green Acre Drive) (TLMND)\n' +
+             '    Payment #29 — Expected $2,083.33\n' +
+             '    Due: 2026-10-01 (12 days overdue)\n\n' +
+             '📤 LOANS MIKE OWES (outgoing payments not detected)\n' +
+             '───────────────────────────────────────────────────\n' +
+             '  • Texas Mortgage — 709 Kuhlman Rd (Amegy Bank) (NF USA TX LLC)\n' +
+             '    Payment #1 — Expected $17,666.67\n' +
+             '    Due: 2026-11-01 (13 days overdue)\n' +
+             '    Should have come from: NF USA TX\n\n' +
+             'Next steps:\n' +
+             '  1. For Receivables: reach out to the borrower to confirm they sent the payment.\n' +
+             '     If they say they paid on a specific date, open the Loans tab → click the row →\n' +
+             '     Mark Payment as Received with their actual date.\n' +
+             '  2. For Payables: check the source account for a recent outgoing wire/ACH.\n' +
+             '     If it went out but Plaid missed it, Mark Payment as Received on the row.\n' +
+             '     If it truly didn\'t go out, follow up with the lender + mark as Missed.\n\n' +
+             'Config: recipient = ' + to + (cc ? ' · cc = ' + cc : '') + '\n' +
+             'To change: set LOAN_ALERT_RECIPIENT / LOAN_ALERT_CC_RECIPIENT in Script Properties.';
+
+  var mailOpts = {
+    to: to,
+    subject: '⚠ [TEST] Loan Payment Alert — 2 overdue payment(s)',
+    body: body,
+    name: 'Loan Payment Monitor (TEST)'
+  };
+  if (cc) mailOpts.cc = cc;
+  MailApp.sendEmail(mailOpts);
+  SpreadsheetApp.getUi().alert('Test alert sent.\n\nTo: ' + to + (cc ? '\nCC: ' + cc : '') + '\n\nCheck your inbox in a minute.');
+}
+
 // Daily 7 AM alert: check every ACTIVE loan (both directions); if a schedule
 // row's due date is more than GRACE days ago and there's no matching Plaid
 // payment AND no manual Received/Missed entry, email Amanda + Brandon so
@@ -1540,7 +1586,10 @@ function getLoanLinkedToAsset(assetId) {
 }
 
 // Web-callable — for the "Linked Asset" dropdown in the Loans modal.
-// Returns Loans Receivable / Promissory Notes / (all if requested) assets.
+// Returns every non-archived asset so Amanda can link to any category
+// (Loans Receivable, Promissory Notes, Private Equity, Real Estate, or
+// anything else). Sorted by category then name so the dropdown is easy
+// to scan.
 function getLoanableAssets() {
   var sheet = getSheet_('ASSETS');
   var data = sheet.getDataRange().getValues();
@@ -1554,21 +1603,21 @@ function getLoanableAssets() {
   var iArch  = headers.indexOf('Archived');
   var out = [];
   for (var r = 1; r < data.length; r++) {
-    var cat = String(data[r][iCat] || '');
-    // Only offer Loans Receivable / Promissory Notes / Private Equity as
-    // link targets — those are the categories where a loan schedule makes sense.
-    if (!/loans receivable|promissory notes|private equity/i.test(cat)) continue;
-    var isArch = iArch >= 0 ? String(data[r][iArch] || '').toLowerCase() === 'yes' || data[r][iArch] === true : false;
+    var isArch = iArch >= 0 ? (String(data[r][iArch] || '').toLowerCase() === 'yes' || data[r][iArch] === true) : false;
     if (isArch) continue;
     out.push({
       id: String(data[r][iId] || ''),
       name: String(data[r][iName] || ''),
-      category: cat,
+      category: String(data[r][iCat] || ''),
       entity: String(data[r][iEnt] || ''),
       sharePct: iShare >= 0 ? (Number(data[r][iShare]) || 100) : 100,
       currentValue: iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0
     });
   }
-  out.sort(function(a, b){ return a.name.localeCompare(b.name); });
+  out.sort(function(a, b){
+    var c = String(a.category||'').localeCompare(String(b.category||''));
+    if (c !== 0) return c;
+    return String(a.name||'').localeCompare(String(b.name||''));
+  });
   return out;
 }
