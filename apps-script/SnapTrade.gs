@@ -176,7 +176,7 @@ function registerSnapTradeUser() {
 // BROKERAGE CONNECTION
 // ============================================================
 
-function generateConnectionPortalUrl(broker) {
+function generateConnectionPortalUrl(broker) { _requireEditor_();
   const userSecret = getSnapTradeUserSecret_();
 
   // userId and userSecret go in query params, NOT body

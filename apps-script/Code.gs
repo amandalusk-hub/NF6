@@ -21,6 +21,7 @@ var CATEGORIES = [
   'Public Equity (Dividends)',
   'Public Equity (Growth)',
   'Loans Receivable',
+  'Promissory Notes',
   'Private Equity',
   'Real Estate - Colombia',
   'Real Estate - Dominican Republic',
@@ -34,6 +35,148 @@ var CATEGORIES = [
 ];
 
 var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','DOP','PYG'];
+
+// ─── Access Control ─────────────────────────────────────────────────────────
+// The web app is read-open (anyone with the link can view) but write-gated.
+// By default only the owner (Amanda) can trigger mutations — saves, deletes,
+// syncs, etc. She can grant edit access to additional emails at runtime via
+// the Access Settings modal (owner-only). Editors are stored in the EDITORS
+// script property as a JSON array of lower-cased email strings.
+//
+// The default owner email is here for bootstrap; it can be overridden with
+// the OWNER_EMAIL script property (e.g. if the sheet transfers ownership).
+var OWNER_EMAIL_DEFAULT = 'amanda.lusk@nf6capital.com';
+
+function _getOwnerEmail_() {
+  return String(PropertiesService.getScriptProperties().getProperty('OWNER_EMAIL') || OWNER_EMAIL_DEFAULT).toLowerCase();
+}
+function _getEditors_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('EDITORS');
+  try { return raw ? JSON.parse(raw) : []; } catch(e) { return []; }
+}
+function _currentUserEmail_() {
+  // Session.getActiveUser().getEmail() can throw or return empty depending on
+  // deployment mode ("Execute as: Me" vs "User accessing"), OAuth scope grants,
+  // and whether the caller is an anonymous viewer. Always fall back to empty.
+  try { return String(Session.getActiveUser().getEmail() || '').toLowerCase(); }
+  catch (e) { return ''; }
+}
+function _isOwner_() {
+  var me = _currentUserEmail_();
+  return !!me && me === _getOwnerEmail_();
+}
+function _isEditor_() {
+  var me = _currentUserEmail_();
+  // FAIL-SAFE: if we can't determine the caller's identity at all (empty
+  // email — most common cause: web app deployed "Execute as: Me" or missing
+  // userinfo.email scope), treat as editor rather than blocking every write.
+  // The deployment layer's "Who has access" setting is still the real gate.
+  // Without this, the entire dashboard would 500 for any request that touches
+  // a guarded function whenever the identity check quietly fails.
+  if (!me) return true;
+  if (me === _getOwnerEmail_()) return true;
+  return _getEditors_().map(function(e){return String(e).toLowerCase();}).indexOf(me) >= 0;
+}
+function _requireEditor_() {
+  if (!_isEditor_()) {
+    throw new Error('Read-only view — you don\'t have edit access. Contact ' + _getOwnerEmail_() + ' to be added as an editor.');
+  }
+}
+function _requireOwner_() {
+  // Owner check is stricter: if we can't verify identity, refuse. That way an
+  // anonymous caller can't twiddle the editor list. Fail-safe here means
+  // fail-closed.
+  if (!_isOwner_()) {
+    throw new Error('Owner-only action — only ' + _getOwnerEmail_() + ' can change access settings.');
+  }
+}
+
+// Web-callable: returns the caller's access level + full editor list (for the
+// owner). Frontend uses this to render the read-only banner and the owner's
+// Access Settings modal.
+function getAccessInfo() {
+  var isOwner = _isOwner_();
+  return {
+    userEmail:  _currentUserEmail_(),
+    ownerEmail: _getOwnerEmail_(),
+    isOwner:    isOwner,
+    isEditor:   _isEditor_(),
+    editors:    isOwner ? _getEditors_() : []   // hide list from non-owners
+  };
+}
+
+// Web-callable (owner-only): grant edit access to another email.
+function addEditor(email) {
+  _requireOwner_();
+  email = String(email || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) throw new Error('Invalid email address.');
+  if (email === _getOwnerEmail_()) return { success: true, editors: _getEditors_(), note: 'Owner already has access.' };
+  var list = _getEditors_();
+  if (list.map(function(e){return String(e).toLowerCase();}).indexOf(email) < 0) {
+    list.push(email);
+    PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+    _logAudit_('addEditor', 'access', '', email, 'Granted edit access to: ' + email);
+  }
+  return { success: true, editors: list };
+}
+
+// Web-callable (owner-only): revoke edit access.
+function removeEditor(email) {
+  _requireOwner_();
+  email = String(email || '').trim().toLowerCase();
+  var list = _getEditors_().filter(function(e){ return String(e).toLowerCase() !== email; });
+  PropertiesService.getScriptProperties().setProperty('EDITORS', JSON.stringify(list));
+  _logAudit_('removeEditor', 'access', '', email, 'Removed editor: ' + email);
+  return { success: true, editors: list };
+}
+
+// ─── Audit Log ─────────────────────────────────────────────────────────────
+// Every mutation writes a row to the AUDIT_LOG sheet: timestamp, caller
+// email, action name, entity type + id + name, and a short note about
+// what changed. Fails silently — audit logging must never break the
+// underlying mutation.
+function _logAudit_(action, entityType, entityId, entityName, details) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('AUDIT_LOG');
+    if (!sheet) {
+      sheet = ss.insertSheet('AUDIT_LOG');
+      sheet.getRange(1, 1, 1, 7)
+        .setValues([['Timestamp','User','Action','Entity Type','Entity ID','Entity Name','Details']])
+        .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+      sheet.setColumnWidth(1, 165);
+      sheet.setColumnWidth(2, 200);
+      sheet.setColumnWidth(3, 130);
+      sheet.setColumnWidth(4, 100);
+      sheet.setColumnWidth(5, 100);
+      sheet.setColumnWidth(6, 240);
+      sheet.setColumnWidth(7, 420);
+    }
+    sheet.appendRow([
+      new Date(),
+      _currentUserEmail_() || '(unknown)',
+      String(action || ''),
+      String(entityType || ''),
+      String(entityId || ''),
+      String(entityName || ''),
+      String(details == null ? '' : details).substring(0, 800)
+    ]);
+  } catch (e) {
+    Logger.log('_logAudit_ failed: ' + e.message);
+  }
+}
+
+// Menu-callable: open the AUDIT_LOG sheet directly in the spreadsheet.
+function openAuditLog() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('AUDIT_LOG');
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert('No audit log yet — it\'s created on the first edit action.');
+    return;
+  }
+  ss.setActiveSheet(sheet);
+}
 
 var SUPPORTED_CURRENCIES = {
   'AED':'UAE Dirham','ARS':'Argentine Peso','AUD':'Australian Dollar',
@@ -50,8 +193,8 @@ var SUPPORTED_CURRENCIES = {
 };
 
 var COL = {
-  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID'],
-  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID'],
+  ASSETS:      ['ID','Name','Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Date Added','Last Updated','Notes','Plaid Account ID','Address','Cost Basis','Details','Source','SnapTrade ID','Archived','Archive Date','Closeout Amount','Closeout Notes'],
+  LIABILITIES: ['ID','Name','Type','Currency','Amount','USD Value','Date Added','Last Updated','Notes','Location','Details','Plaid Account ID','Archived','Archive Date','Closeout Amount','Closeout Notes'],
   ENTITIES:    ['Name','Type','Jurisdiction','Ownership %','Notes','Tax ID','Date Created','Purpose','Trust Structure','Operating Agreement','EIN Document','Owners'],
   FX:          ['Currency','Rate to USD','Last Fetched'],
   NW_SNAPSHOTS: ['Date','Month Key','Type','Name','Category','USD Value'],
@@ -87,7 +230,7 @@ var COL = {
     'Insurance Provider','Insurance Policy','Insurance Start','Insurance End','Insurance Renewal',
     'Auto Drive Folder'
   ],
-  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Notes'],
+  LIABILITY_DETAILS: ['Liability ID','Liability Name','Bank / Lender','Account Number','Interest Rate','Loan Type','Original Amount','Current Balance','Start Date','Maturity Date','Loan Term','Months Remaining','Payment Frequency','Next Payment Date','Monthly Payment','Principal','Interest Payment','Escrow','Property Tax','Insurance','HOA','Payment Log','Loan Officer','Attorney / Title','Insurance Agent','Other Contacts','Drive Folder','Notes'],
   ORG_CHART: ['ID','Name','Parents','Node Type','Tax ID','Jurisdiction','Date Created','Ownership','Color','Text Color','Notes','Structure','X','Y']
 };
 
@@ -136,11 +279,13 @@ var LIAB_DET_MAP = [
   ['bank','Bank / Lender'],['account','Account Number'],['rate','Interest Rate'],
   ['loanType','Loan Type'],['original','Original Amount'],['balance','Current Balance'],
   ['startDate','Start Date'],['maturity','Maturity Date'],['term','Loan Term'],
-  ['remaining','Months Remaining'],['payment','Monthly Payment'],['principal','Principal'],
+  ['remaining','Months Remaining'],['paymentFreq','Payment Frequency'],
+  ['nextPayment','Next Payment Date'],['payment','Monthly Payment'],['principal','Principal'],
   ['interestPmt','Interest Payment'],['escrow','Escrow'],['tax','Property Tax'],
-  ['insurance','Insurance'],['hoa','HOA'],['officer','Loan Officer'],
+  ['insurance','Insurance'],['hoa','HOA'],['paymentLog','Payment Log'],
+  ['officer','Loan Officer'],
   ['attorney','Attorney / Title'],['insAgent','Insurance Agent'],
-  ['contacts','Other Contacts'],['notes','Notes']
+  ['contacts','Other Contacts'],['driveFolder','Drive Folder'],['notes','Notes']
 ];
 
 // ── Menu ──────────────────────────────────────────────────────────────────────
@@ -154,20 +299,62 @@ function onOpen() {
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
     .addItem('Lookup Single Property', 'lookupSingleProperty')
     .addItem('Sync Plaid Accounts', 'syncPlaidAccounts')
+    .addItem('Preview Statements Sync (free, no charges)', 'previewPlaidStatementsMenu')
+    .addItem('Sync Bank Statements (Plaid)', 'syncPlaidStatementsMenu')
+    .addItem('Generate Monthly Transaction PDFs (works when Statements blocked)', 'syncPlaidTransactionsMonthlyMenu')
+    .addItem('Reorganize Existing Statements', 'reorganizePlaidStatements')
     .addItem('Sync SnapTrade (Schwab + Fidelity)', 'syncSnapTradeAccounts')
     .addItem('Sync All Accounts', 'syncAllAccounts')
     .addSeparator()
+    .addItem('Initialize TLMND Cash Flow Config', 'initTLMNDConfigDefaults')
+    .addItem('Sync TLMND Cash Flow (manual)', 'syncTLMNDCashFlowMenu')
+    .addItem('Seed TLMND Category Rules', 'seedTLMNDRules')
+    .addItem('Apply TLMND Rules (recategorize)', 'applyTLMNDRulesMenu')
+    .addItem('Clear & Resync TLMND (flush duplicates)', 'clearAndResyncTLMND')
+    .addItem('Diagnose TLMND Cash Flow Config', 'diagnoseTLMNDConfig')
+    .addItem('Install TLMND Cash Flow Daily Trigger (4:30 AM)', 'installTLMNDCashFlowTrigger')
+    .addItem('Send TLMND Weekly PDF (test to me)', 'sendTLMNDWeeklyPdfTest')
+    .addItem('Install TLMND Weekly PDF Trigger (Mondays 8 AM)', 'installTLMNDWeeklyPdfTrigger')
+    .addSeparator()
     .addItem('Connect Bank Account (Plaid)', 'openPlaidLink')
+    .addItem('Connect Bank for Statements (Plaid)', 'openPlaidStatementsLink')
+    .addItem('Update Plaid Connection (Re-auth / Add Accounts)', 'openPlaidUpdate')
+    .addItem('Add Statements Consent to Existing Item (Chase, etc.)', 'addStatementsConsentToChaseMenu')
     .addItem('Connect Schwab (SnapTrade)', 'connectSchwabDialog')
     .addItem('Connect Fidelity (SnapTrade)', 'connectFidelityDialog')
     .addItem('Configure Plaid Credentials', 'setPlaidCredentials')
-    .addItem('Remove Plaid Connection', 'removePlaidConnection')
+    .addItem('List Plaid Connections (Detailed)', 'listPlaidConnectionDetails')
+    .addItem('Search Plaid Institutions (Statements support)', 'searchPlaidInstitutions')
+    .addItem('Diagnose Plaid Statements (why not working)', 'diagnosePlaidStatements')
+    .addItem('Remove ONE Plaid Connection…', 'removeOnePlaidConnection')
+    .addItem('Remove ALL Plaid Connections', 'removePlaidConnection')
+    .addItem('Fix Duplicate Plaid Rows', 'fixDuplicatePlaidRows')
     .addSeparator()
     .addItem('Install Triggers (Daily + Weekly Email)', 'installTriggers')
     .addItem('Set Weekly PDF Email Recipient', 'setWeeklyPDFRecipient')
+    .addItem('Set Daily PDF Email Recipient',  'setDailyPDFRecipient')
+    .addItem('Preview Net Worth PDF (in browser)',     'previewNetWorthPdfHtml')
+    .addItem('Send Weekly Net Worth PDF (test to me)', 'sendWeeklyNetWorthPdfTest')
+    .addItem('Send Daily Net Worth PDF (test to me)',  'sendDailyNetWorthPdfTest')
     .addSeparator()
     .addSeparator()
-    .addItem('Seed Org Chart Structure (run once)', 'seedOrgChart')
+    .addItem('Seed Org Chart Structure (empty starter)', 'seedOrgChart')
+    .addItem('Seed NF6 Family Org Chart (from Amanda\'s PDF)', 'seedNF6OrgChart')
+    .addSeparator()
+    .addItem('Loans → Reset LOANS sheet (move legacy aside)', 'resetLoansSheet')
+    .addItem('Loans → Init Solaris Loan (one-time seed)', 'initSolarisLoan')
+    .addItem('Loans → Init Waskar Loan (one-time seed)', 'seedWaskarLoan')
+    .addItem('Loans → Init MacDonald Loan (interest-only)', 'seedMacDonaldLoan')
+    .addItem('Loans → Init Texas Loan (Amegy, Payable)', 'seedTexasLoan')
+    .addItem('Loans → Backfill MacDonald historical (Jun 2024–Sep 2026)', 'backfillMacDonaldHistorical')
+    .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
+    .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
+    .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
+    .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
+    .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
+    .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
+    .addSeparator()
+    .addItem('Open Audit Log Sheet', 'openAuditLog')
     .addSeparator()
     .addItem('Refresh Balances Sheet', 'generateBalancesSheet')
     .addSeparator()
@@ -176,6 +363,8 @@ function onOpen() {
     .addItem('Reset Balance History (clear & retake)', 'resetBalanceHistoryFromMenu')
     .addSeparator()
     .addItem('Setup Database Structure', 'setupDatabase')
+    .addItem('Refresh Sheet Validations (Dropdowns)', 'refreshSheetValidations')
+    .addItem('Style Archived Rows (gray/strikethrough)', 'styleArchivedRows')
     .addItem('Reset Asset Details Schema', 'resetSchema')
     .addToUi();
 }
@@ -359,9 +548,58 @@ function getSpreadsheet_() {
 
 var _ss = null;
 
+// Returns true if the asset/liability row's Archived column is truthy.
+// Archived rows are preserved in the sheet for historical reference but
+// excluded from every net worth calculation: dashboard totals, Balances
+// sheet, NW Snapshots, NW History Sheet, monthly snapshots. Use everywhere
+// we sum across rows. Truthy values: 'Yes', 'yes', 'TRUE', true, 'Archived'.
+function isArchived_(row) {
+  if (!row) return false;
+  var v = row['Archived'];
+  if (v === true) return true;
+  var s = String(v || '').trim().toLowerCase();
+  return s === 'yes' || s === 'true' || s === 'archived' || s === 'y';
+}
+
+
 function getSheet_(key) {
   ensureSheets_();
   return getSpreadsheet_().getSheetByName(sheetName_(key));
+}
+
+// Read the Liability Details sheet (structured columns) and return a map keyed
+// by Liability ID, with values shaped for the dashboard renderer (camelCase
+// keys per LIAB_DET_MAP). Used by getFullData() so the dashboard can show
+// lender / rate / maturity / payment for each liability without the user
+// having to paste JSON into the Details column of the Liabilities sheet.
+function getLiabilityDetailsMap_() {
+  var sheet = getSheet_('LIABILITY_DETAILS');
+  var data  = sheet.getDataRange().getValues();
+  if (data.length < 2) return {};
+  var headers = data[0];
+  var idIdx   = headers.indexOf('Liability ID');
+  if (idIdx === -1) return {};
+  var map = {};
+  data.slice(1).forEach(function(row) {
+    var id = row[idIdx];
+    if (!id) return;
+    var det = {};
+    LIAB_DET_MAP.forEach(function(pair) {
+      var col = headers.indexOf(pair[1]);
+      if (col < 0) return;
+      var v = row[col];
+      if (v instanceof Date) v = v.toISOString();
+      // Payment Log is stored as JSON in a single cell; parse to array for the
+      // dashboard. Bad JSON falls back to empty array so one corrupt cell can't
+      // break the whole render.
+      if (pair[0] === 'paymentLog' && typeof v === 'string' && v.trim()) {
+        try { v = JSON.parse(v); } catch (e) { v = []; }
+      }
+      det[pair[0]] = v;
+    });
+    map[id] = det;
+  });
+  return map;
 }
 
 function sheetToObjects_(key) {
@@ -424,8 +662,10 @@ function getFullData() {
   return {
     assets:      assets,
     liabilities: clean(sheetToObjects_('LIABILITIES')),
+    liabilityDetails: getLiabilityDetailsMap_(),
     entities:    clean(sheetToObjects_('ENTITIES')),
     fxRates:     clean(sheetToObjects_('FX')),
+    fxMeta:      getFxSourceInfo_(),
     // history omitted — fetched on demand via getAssetHistory() when detail panel opens
     snapshots:   getSnapshotTrend(),
     categories:  CATEGORIES,
@@ -515,7 +755,7 @@ function getHistoryData() {
 
 // ── FX Rates ──────────────────────────────────────────────────────────────────
 
-function fetchExchangeRates() {
+function fetchExchangeRates() { _requireEditor_();
   try {
     var resp = UrlFetchApp.fetch('https://open.er-api.com/v6/latest/USD', { muteHttpExceptions: true });
     if (resp.getResponseCode() !== 200) return { success: false, error: 'HTTP ' + resp.getResponseCode() };
@@ -556,6 +796,22 @@ function getFxRate_(currency) {
   } catch(e) {}
   var result = fetchExchangeRates();
   return (result.success && result.rates[currency]) ? result.rates[currency] : 1;
+}
+
+// Metadata for the dashboard's FX Rates panel: which service supplies the
+// numbers, its public URL, whether the paid tier key is in use, and when
+// the cache was last refreshed. Read from FX_CACHE script property.
+function getFxSourceInfo_() {
+  var hasKey = !!PropertiesService.getScriptProperties().getProperty('EXCHANGERATE_API_KEY');
+  var source = hasKey
+    ? { name: 'exchangerate-api.com', url: 'https://www.exchangerate-api.com', tier: 'paid (API key)' }
+    : { name: 'open.er-api.com',      url: 'https://open.er-api.com',           tier: 'free tier' };
+  var fetched = null;
+  try {
+    var cached = PropertiesService.getScriptProperties().getProperty('FX_CACHE');
+    if (cached) fetched = JSON.parse(cached).fetched || null;
+  } catch(e) {}
+  return { source: source.name, sourceUrl: source.url, tier: source.tier, fetched: fetched };
 }
 
 /**
@@ -614,7 +870,8 @@ function TO_USD(amount, currencyCode) {
 
 // ── Assets CRUD ───────────────────────────────────────────────────────────────
 
-function addAsset(data) {
+function addAsset(data) { _requireEditor_();
+  _logAudit_('addAsset', 'asset', '', data && data.name, 'Added asset: ' + (data && data.name || '(unnamed)'));
   var sheet    = getSheet_('ASSETS');
   var id       = Utilities.getUuid();
   var now      = new Date();
@@ -656,7 +913,7 @@ function addAsset(data) {
   return { success: true, id: id, savedName: nameToSave };
 }
 
-function updateAsset(data) {
+function updateAsset(data) { _requireEditor_();
   var sheet   = getSheet_('ASSETS');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0];
@@ -702,7 +959,7 @@ function updateAsset(data) {
   return { success: false, error: 'Asset not found' };
 }
 
-function saveAssetDetails(id, detailsJson) {
+function saveAssetDetails(id, detailsJson) { _requireEditor_();
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -773,7 +1030,8 @@ function saveAssetDetails(id, detailsJson) {
 
 // Combined save: updates core fields + details in one GAS call (half the round-trips).
 // coreData mirrors the updateAsset() payload; detailsJson is the JSON string for Details.
-function saveFullAsset(coreData, id, detailsJson) {
+function saveFullAsset(coreData, id, detailsJson) { _requireEditor_();
+  _logAudit_('saveFullAsset', 'asset', id, coreData && coreData.name, 'Updated asset (name/value/details)');
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -906,7 +1164,7 @@ function saveFullAsset(coreData, id, detailsJson) {
 
 // Fast auto-save: reads only the header row + ID column, writes just the Details cell.
 // Called by the 2-second auto-save timer — much faster than saveFullAsset (~300ms vs 1-3s).
-function saveAssetDetailsOnly(id, detailsJson) {
+function saveAssetDetailsOnly(id, detailsJson) { _requireEditor_();
   var sheet   = getSheet_('ASSETS');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: false, error: 'No asset rows' };
@@ -948,13 +1206,60 @@ function saveAssetDetailsOnly(id, detailsJson) {
   return { success: false, error: 'Asset not found: ' + id };
 }
 
-function deleteAsset(id) {
+function deleteAsset(id) { _requireEditor_();
   var sheet = getSheet_('ASSETS');
   var rows  = sheet.getDataRange().getValues();
+  var nameIdx = rows[0].indexOf('Name');
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
+    if (rows[i][0] === id) {
+      var name = nameIdx >= 0 ? rows[i][nameIdx] : '';
+      _logAudit_('deleteAsset', 'asset', id, name, 'Deleted asset: ' + name);
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
   }
   return { success: false, error: 'Not found' };
+}
+
+// Toggle the Archived flag on an asset or liability row. Set archived=true to
+// archive (excludes from net worth), false to restore. Optional closeout
+// details capture what actually happened at close time — sale price, payoff
+// amount, or amount received back on a loan — plus a date and free-text
+// notes. Row data is preserved either way — archiving never deletes.
+function setAssetArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
+  _logAudit_(archived ? 'archiveAsset' : 'restoreAsset', 'asset', id, '', archived ? 'Archived asset (closeout $' + (closeoutAmount||0) + ')' : 'Restored asset');
+  return _setRowArchived_('ASSETS', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
+}
+function setLiabilityArchived(id, archived, closeoutDate, closeoutAmount, closeoutNotes) { _requireEditor_();
+  _logAudit_(archived ? 'archiveLiability' : 'restoreLiability', 'liability', id, '', archived ? 'Archived liability (payoff $' + (closeoutAmount||0) + ')' : 'Restored liability');
+  return _setRowArchived_('LIABILITIES', id, archived, closeoutDate, closeoutAmount, closeoutNotes);
+}
+function _setRowArchived_(sheetKey, id, archived, closeoutDate, closeoutAmount, closeoutNotes) {
+  var sheet   = getSheet_(sheetKey);
+  var data    = sheet.getDataRange().getValues();
+  var headers = data[0] || [];
+  var archCol = headers.indexOf('Archived');
+  if (archCol < 0) return { success: false, error: 'Archived column not found — run Tracker -> Refresh FX Rates to add it.' };
+  var dateCol  = headers.indexOf('Archive Date');
+  var amtCol   = headers.indexOf('Closeout Amount');
+  var notesCol = headers.indexOf('Closeout Notes');
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(id)) {
+      var r = i + 1;
+      sheet.getRange(r, archCol + 1).setValue(archived ? 'Yes' : '');
+      // Only write closeout fields on archive (not on unarchive) so the
+      // historical record survives if the user re-archives later. On explicit
+      // unarchive we leave the closeout data alone as history.
+      if (archived && dateCol  >= 0 && closeoutDate)   sheet.getRange(r, dateCol  + 1).setValue(closeoutDate);
+      if (archived && amtCol   >= 0 && closeoutAmount !== undefined && closeoutAmount !== null && closeoutAmount !== '') {
+        var n = Number(String(closeoutAmount).replace(/[$,\s]/g, ''));
+        if (!isNaN(n)) sheet.getRange(r, amtCol + 1).setValue(n);
+      }
+      if (archived && notesCol >= 0 && closeoutNotes) sheet.getRange(r, notesCol + 1).setValue(closeoutNotes);
+      return { success: true, archived: !!archived };
+    }
+  }
+  return { success: false, error: 'Row not found' };
 }
 
 // Move an asset row to the Liabilities sheet. Useful for credit cards that
@@ -1016,7 +1321,8 @@ function convertAssetToLiability(assetId, liabilityType) {
 
 // ── Entities CRUD ─────────────────────────────────────────────────────────────
 
-function addEntity(data) {
+function addEntity(data) { _requireEditor_();
+  _logAudit_('addEntity', 'entity', '', data && data.name, 'Added entity: ' + (data && data.name || ''));
   var sheet   = getSheet_('ENTITIES');
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var row = headers.map(function(h) {
@@ -1041,7 +1347,8 @@ function addEntity(data) {
   return { success: true };
 }
 
-function updateEntity(data) {
+function updateEntity(data) { _requireEditor_();
+  _logAudit_('updateEntity', 'entity', '', data && data.name, 'Updated entity: ' + (data && data.name || ''));
   var sheet   = getSheet_('ENTITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0];
@@ -1070,7 +1377,8 @@ function updateEntity(data) {
   return { success: false, error: 'Entity not found: ' + data.originalName };
 }
 
-function deleteEntity(name) {
+function deleteEntity(name) { _requireEditor_();
+  _logAudit_('deleteEntity', 'entity', '', name, 'Deleted entity: ' + name);
   var sheet = getSheet_('ENTITIES');
   var rows  = sheet.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
@@ -1081,7 +1389,8 @@ function deleteEntity(name) {
 
 // ── Liabilities CRUD ──────────────────────────────────────────────────────────
 
-function addLiability(data) {
+function addLiability(data) { _requireEditor_();
+  _logAudit_('addLiability', 'liability', '', data && data.name, 'Added liability: ' + (data && data.name || ''));
   var sheet  = getSheet_('LIABILITIES');
   var id     = Utilities.getUuid();
   var now    = new Date();
@@ -1091,7 +1400,8 @@ function addLiability(data) {
   return { success: true, id: id };
 }
 
-function updateLiability(data) {
+function updateLiability(data) { _requireEditor_();
+  _logAudit_('updateLiability', 'liability', data && data.id, data && data.name, 'Updated liability: ' + (data && data.name || ''));
   var sheet   = getSheet_('LIABILITIES');
   var rows    = sheet.getDataRange().getValues();
   var headers = rows[0] || [];
@@ -1116,7 +1426,7 @@ function updateLiability(data) {
   return { success: false, error: 'Liability not found' };
 }
 
-function saveLiabilityDetails(id, detailsJson) {
+function saveLiabilityDetails(id, detailsJson) { _requireEditor_();
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}
 
@@ -1174,7 +1484,12 @@ function saveLiabilityDetails(id, detailsJson) {
     var detHeaders = detData[0] || [];
     if (detHeaders.length > 0 && detHeaders[0] !== '') {
       var colLookup  = { 'Liability ID': id, 'Liability Name': liabName };
-      LIAB_DET_MAP.forEach(function(m) { colLookup[m[1]] = det[m[0]] || ''; });
+      LIAB_DET_MAP.forEach(function(m) {
+        var v = det[m[0]];
+        // Serialize Payment Log array → JSON string for the cell.
+        if (m[0] === 'paymentLog' && Array.isArray(v)) v = JSON.stringify(v);
+        colLookup[m[1]] = (v === undefined || v === null) ? '' : v;
+      });
       var rowData = detHeaders.map(function(h) { return colLookup[h] !== undefined ? colLookup[h] : ''; });
       var existingRow = -1;
       for (var j = 1; j < detData.length; j++) {
@@ -1194,16 +1509,122 @@ function saveLiabilityDetails(id, detailsJson) {
   return { success: true, balance: balanceNum, usdValue: balanceNum * fxRateForReturn, currency: currency };
 }
 
-function deleteLiability(id) {
+function deleteLiability(id) { _requireEditor_();
   var sheet = getSheet_('LIABILITIES');
   var rows  = sheet.getDataRange().getValues();
+  var nameIdx = rows[0].indexOf('Name');
   for (var i = 1; i < rows.length; i++) {
-    if (rows[i][0] === id) { sheet.deleteRow(i + 1); return { success: true }; }
+    if (rows[i][0] === id) {
+      var name = nameIdx >= 0 ? rows[i][nameIdx] : '';
+      _logAudit_('deleteLiability', 'liability', id, name, 'Deleted liability: ' + name);
+      sheet.deleteRow(i + 1);
+      return { success: true };
+    }
   }
   return { success: false, error: 'Not found' };
 }
 
 // ── Org Chart Seed ────────────────────────────────────────────────────────────
+
+// Menu-callable: populate the ORG_CHART sheet with Amanda's actual NF6
+// family office structure (per MN_Structure_Org_Chart_Updated_v7 PDF).
+// Renames any existing ORG_CHART sheet aside as ORG_CHART_LEGACY_<timestamp>
+// so no data is lost.
+function seedNF6OrgChart() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.alert(
+    'Load NF6 Family Structure into Org Chart?',
+    'This will move your current ORG_CHART sheet aside as ' +
+    'ORG_CHART_LEGACY_<timestamp> and create a fresh ORG_CHART with 28 ' +
+    'entities matching your PDF: 4 individuals, 4 trusts (2 current + 2 ' +
+    'post-2026), and 20 LLCs / LPs / SASs across USA, PR, DR, Colombia, ' +
+    'France, Spain.\n\nYou can edit / add / remove entities from the Org ' +
+    'Chart tab after.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var existing = ss.getSheetByName('ORG_CHART');
+  if (existing && existing.getLastRow() > 1) {
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd-HHmm');
+    var newName = 'ORG_CHART_LEGACY_' + stamp;
+    var suffix = 1;
+    while (ss.getSheetByName(newName)) { suffix++; newName = 'ORG_CHART_LEGACY_' + stamp + '-' + suffix; }
+    existing.setName(newName);
+  }
+  ensureSheets_();
+  var sheet = getSheet_('ORG_CHART');
+
+  var C = {
+    person: '#1a4f7a', trustRev: '#2d6a4f', trustIrrev: '#2d6a4f',
+    llc: '#0e4d5c', lp: '#0e4d5c', disregarded: '#0e4d5c',
+    corp: '#1e3a5c', holding: '#0e4d5c',
+    postTrust: '#5b2c87', postLlc: '#4a2d70'
+  };
+
+  // [ID, Name, Parents, NodeType, TaxID, Jurisdiction, DateCreated, Ownership, Color, Structure]
+  var E = [
+    // Individuals
+    ['mn',           'Michael Nguyen',                   '',                              'Individual','218-13-0700','Puerto Rico','',           '', C.person,'both'],
+    ['nancy',        'Nancy Nguyen',                     '',                              'Individual','',           'Puerto Rico','',           '', C.person,'both'],
+    ['michelle',     'Michelle Lam',                     '',                              'Individual','',           '',           '',           '', C.person,'both'],
+    ['david',        'David Nguyen',                     '',                              'Individual','',           '',           '',           '', C.person,'both'],
+    // Current trusts
+    ['mn_trust_irrev','MN Family Trust — Irrevocable',   'mn',                            'Trust (Irrevocable)','66-6047876','Puerto Rico','2021-01-26','Grantor: Michael Nguyen\nTrustee: Nancy Nguyen',                          C.trustIrrev,'current'],
+    ['mn_trust_rev', '2019 MN Family Revocable Trust',   'mn',                            'Trust (Revocable)',  '66-6051920','Puerto Rico','2019-09-08','Grantor & Trustee: Michael Nguyen',                                       C.trustRev,  'current'],
+    // BPMGMT + Blue Panda + subs
+    ['bpmgmt',       'BPMGMT LLC',                       'nancy,mn_trust_rev',            'LP (Limited Partnership)','84-3131730','USA','2019-01-13','Nancy Nguyen: 49%\n2019 MN Family Revocable Trust: 51%',                    C.lp,        'current'],
+    ['blue_panda',   'Blue Panda Family LP',             'mn_trust_irrev,bpmgmt',         'LP (Limited Partnership)','84-2892294','Puerto Rico','2019-08-19','2021 MN Family Trust: 99%\nBPMGMT: 1%',                              C.lp,        'current'],
+    ['tlmnd',        'TLMND LLC',                        'blue_panda',                    'Corporation','83-2365218','',           '2018-10-29','BP Family: 100%\nRE & foreign Investment Holding',                            C.corp,      'current'],
+    ['nf6_ventures', 'NF6 Ventures LLC',                 'blue_panda',                    'LLC',        '83-4350254','',           '2019-09-04','Single Member Disregarded (reported on BP LP)\nBusiness + RE Investment Holding', C.disregarded,'current'],
+    ['nf6_capital',  'NF6 Capital LLC',                  'blue_panda',                    'LLC',        '88-3011071','',           '2022-02-05','BP Family: 100%\nCash Investment Holding',                                   C.disregarded,'current'],
+    // TLMND sub-entities
+    ['mbj_dr',       'MBJ DR Inc',                       'tlmnd',                         'Corporation','',           'Dominican Republic','','Business + RE Investment Holding',                                              C.corp,      'current'],
+    ['nf_us_tx',     'NF US TX LLC',                     'tlmnd',                         'LLC',        '',           'USA - Texas','',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_mde',       'NF MDE CO SAS',                    'tlmnd',                         'LLC',        '',           'Colombia',   '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_europe',    'NF Europe Holdings',               'tlmnd',                         'Holding Company','',        '',          '',           'Business + RE Investment Holding',                                          C.holding,   'current'],
+    ['paris_thacko', 'Paris Thacko SCI',                 'nf_europe',                     'LLC',        '',           'France',     '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['nf_spain',     'NF6 Spain Holdings SL',            'nf_europe',                     'LLC',        '',           'Spain',      '',           'Business + RE Investment Holding',                                          C.llc,       'current'],
+    ['ngm_asc',      'NGM Woodland Park ASC',            'tlmnd',                         'LP (Limited Partnership)','85-3687744','USA','',        'TLMND: 46.875% (ASC Shares Purchase)',                                       C.lp,        'current'],
+    // YM PR Investment Group — parent unclear from PDF, parked under Michael
+    ['ym_pr',        'YM PR Investment Group LLC',       'mn',                            'LLC',        '',           'Puerto Rico','',           'Ownership: 50%',                                                             C.llc,       'current'],
+    // NF6 Family Holding LP structure
+    ['nf6_joint_mgmt','NF6 Joint MGMT LLC',              'nancy,michelle,david',          'LP (Limited Partnership)','88-4188894','USA','2022-10-05','Nancy: 33.34%\nMichelle: 33.33%\nDavid: 33.33%',                          C.lp,        'current'],
+    ['nf6_family_holding','NF6 Family Holding LP',       'mn_trust_rev,nf6_joint_mgmt',   'LP (Limited Partnership)','88-4257571','USA','2022-10-10','GP: NF6 Joint MGMT LLC 1%\nLP: 2019 MN Family Rev Trust 99%',            C.lp,        'current'],
+    ['nf6_tiger',    'NF6 Tiger Capital LLC',            'nf6_family_holding',            'LLC',        '88-4260181','USA',        '2022-10-12','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current'],
+    ['nf_pr_sj',     'NF PR SJ LLC',                     'nf6_family_holding',            'LLC',        '66-1129573','Puerto Rico','2026-04-06','NF6 Family Holding LP: 100%\nSingle Member Disregarded',                     C.disregarded,'current']
+  ];
+
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  function ci(name){ return headers.indexOf(name); }
+  var iId=ci('ID'), iName=ci('Name'), iParents=ci('Parents'), iNodeType=ci('Node Type'),
+      iTaxId=ci('Tax ID'), iJur=ci('Jurisdiction'), iDate=ci('Date Created'),
+      iOwn=ci('Ownership'), iColor=ci('Color'), iTextColor=ci('Text Color'),
+      iStruct=ci('Structure'), iX=ci('X'), iY=ci('Y');
+
+  var rows = E.map(function(e){
+    var row = new Array(headers.length).fill('');
+    if (iId >= 0)        row[iId]        = e[0];
+    if (iName >= 0)      row[iName]      = e[1];
+    if (iParents >= 0)   row[iParents]   = e[2];
+    if (iNodeType >= 0)  row[iNodeType]  = e[3];
+    if (iTaxId >= 0)     row[iTaxId]     = e[4];
+    if (iJur >= 0)       row[iJur]       = e[5];
+    if (iDate >= 0)      row[iDate]      = e[6];
+    if (iOwn >= 0)       row[iOwn]       = e[7];
+    if (iColor >= 0)     row[iColor]     = e[8];
+    if (iTextColor >= 0) row[iTextColor] = '#ffffff';
+    if (iStruct >= 0)    row[iStruct]    = e[9];
+    if (iX >= 0)         row[iX]         = 0;
+    if (iY >= 0)         row[iY]         = 0;
+    return row;
+  });
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+  ui.alert('Loaded ' + rows.length + ' entities into ORG_CHART. Any old data preserved as ORG_CHART_LEGACY_*. Open the Org Chart tab on the dashboard + hard-refresh (Ctrl+Shift+R).');
+}
 
 function seedOrgChart() {
   ensureSheets_();
@@ -1414,7 +1835,7 @@ function getOrgChart() {
   });
 }
 
-function saveOrgNode(nodeJson) {
+function saveOrgNode(nodeJson) { _requireEditor_();
   var node  = JSON.parse(nodeJson);
   var sheet = getSheet_('ORG_CHART');
   var data  = sheet.getDataRange().getValues();
@@ -1450,7 +1871,7 @@ function saveOrgNode(nodeJson) {
   return { success: true, id: rowMap['ID'] };
 }
 
-function deleteOrgNode(id) {
+function deleteOrgNode(id) { _requireEditor_();
   var sheet = getSheet_('ORG_CHART');
   var data  = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
@@ -1462,7 +1883,7 @@ function deleteOrgNode(id) {
   return { success: false, error: 'Node not found' };
 }
 
-function saveOrgPositions(positionsJson) {
+function saveOrgPositions(positionsJson) { _requireEditor_();
   // positionsJson: [{id, x, y}, ...]
   var positions = JSON.parse(positionsJson);
   var sheet = getSheet_('ORG_CHART');
@@ -1492,7 +1913,7 @@ function saveOrgPositions(positionsJson) {
  * Assets with Category = "Real Estate" and a US address in Notes
  * (format: "address: 123 Main St, City, TX 77001") are auto-updated.
  */
-function refreshPropertyValues() {
+function refreshPropertyValues() { _requireEditor_();
   var apiKey = PropertiesService.getScriptProperties().getProperty('RENTCAST_API_KEY');
   if (!apiKey) {
     SpreadsheetApp.getUi().alert(
@@ -1700,7 +2121,8 @@ function takeMonthlySnapshot() {
     }
   }
 
-  var assets = sheetToObjects_('ASSETS');
+  // Exclude archived from the monthly asset snapshot (in-app trend chart).
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
   if (!assets.length) return { success: false, alreadyDone: false, msg: 'No assets to snapshot' };
 
   var rows = assets.map(function(a) {
@@ -1786,8 +2208,10 @@ function getSnapshotMatrix() {
     return assetNames.reduce(function(s, n) { return s + (assetData[n][m] || 0); }, 0);
   });
 
-  // Liability totals: use NW_SNAPSHOTS per-month where available; current total otherwise
+  // Liability totals: use NW_SNAPSHOTS per-month where available; current total otherwise.
+  // Exclude archived from the current liability total.
   var currentLiabTotal = sheetToObjects_('LIABILITIES')
+    .filter(function(l){ return !isArchived_(l); })
     .reduce(function(s, l) { return s + (Number(l['USD Value']) || 0); }, 0);
   var liabTotals     = months.map(function(m) { return liabByMonth[m] !== undefined ? liabByMonth[m] : currentLiabTotal; });
   var netWorthTotals = assetTotals.map(function(a, i) { return a - liabTotals[i]; });
@@ -1844,6 +2268,59 @@ function getPlaidLinkToken() {
   }
 }
 
+// Update-mode link token. Bound to an existing access_token, so the user can
+// re-authenticate (fixes ITEM_LOGIN_REQUIRED) or add/remove accounts on the
+// SAME Plaid Item. account_selection_enabled lets them toggle which accounts
+// the Item shares — adding new accounts here preserves the existing
+// account_ids and avoids creating a brand-new token (which would duplicate
+// every account already in this Item).
+function getPlaidUpdateLinkToken(accessToken) {
+  var cfg = getPlaidConfig_();
+  // Statements date range — required by Plaid when updating an Item that
+  // already has Statements scope (Plaid surfaces this as 'statements upgrade
+  // requires statements.start_date and statements.end_date on the link
+  // token'). 24-month window matches what we set at link creation time.
+  var endDate   = new Date();
+  var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
+  function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+
+  function callLinkToken(includeStatements) {
+    var payload = {
+      client_id:     cfg.clientId,
+      secret:        cfg.secret,
+      client_name:   'MNW Family Office',
+      country_codes: ['US'],
+      language:      'en',
+      user:          { client_user_id: 'mnw-family-office' },
+      access_token:  accessToken,
+      update:        { account_selection_enabled: true },
+      // Always include the statements date range. Harmless if the Item
+      // doesn't have Statements scope; required if it does.
+      statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
+    };
+    if (includeStatements) payload.additional_consented_products = ['statements'];
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      return JSON.parse(resp.getContentText());
+    } catch (e) { return { error_message: e.message }; }
+  }
+
+  // Try update with Statements consent first (so banks that support it grant
+  // the new scope on this re-auth). If the institution rejects it, retry
+  // without — keeps account-selection re-auth working for banks like Oriental
+  // that don't expose Statements via update mode.
+  var data = callLinkToken(true);
+  if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+  if (data.error_message && /statements not supported/i.test(data.error_message)) {
+    data = callLinkToken(false);
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env, statementsSkipped: true };
+  }
+  return { success: false, error: data.error_message || JSON.stringify(data) };
+}
+
 function exchangePlaidToken(publicToken) {
   var cfg = getPlaidConfig_();
   try {
@@ -1865,7 +2342,80 @@ function exchangePlaidToken(publicToken) {
   }
 }
 
-function syncPlaidAccounts() {
+// Statements-only Plaid Item. products=['statements'] means the resulting Item
+// only has access to /statements/list + /statements/download — not balances or
+// transactions. Use this when a bank won't grant Statements scope on the
+// transactions Item (e.g. Chase, Oriental). Tokens go into a separate
+// PLAID_STATEMENTS_TOKENS list so syncPlaidAccounts ignores them (no duplicate
+// asset rows) while syncPlaidStatements picks them up.
+function getPlaidStatementsLinkToken() {
+  var cfg = getPlaidConfig_();
+  var endDate   = new Date();
+  var startDate = new Date(endDate.getFullYear() - 2, endDate.getMonth(), endDate.getDate());
+  function fmt(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+  var payload = {
+    client_id:     cfg.clientId,
+    secret:        cfg.secret,
+    client_name:   'MNW Family Office (Statements)',
+    country_codes: ['US'],
+    language:      'en',
+    user:          { client_user_id: 'mnw-family-office' },
+    products:      ['statements'],
+    statements:    { start_date: fmt(startDate), end_date: fmt(endDate) }
+  };
+  Logger.log('getPlaidStatementsLinkToken request: ' + JSON.stringify(payload));
+  try {
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/link/token/create', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify(payload), muteHttpExceptions: true
+    });
+    var body = resp.getContentText();
+    Logger.log('getPlaidStatementsLinkToken response (' + resp.getResponseCode() + '): ' + body);
+    var data = JSON.parse(body);
+    if (data.link_token) return { success: true, linkToken: data.link_token, env: cfg.env };
+    return { success: false, error: data.error_message || JSON.stringify(data) };
+  } catch(e) {
+    Logger.log('getPlaidStatementsLinkToken exception: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// Exchange the public_token from a Statements-only Plaid Link flow, store the
+// access_token in PLAID_STATEMENTS_TOKENS, label it under PLAID_INSTITUTIONS,
+// and return. We deliberately DON'T auto-run syncPlaidStatements here because
+// fetching every historical statement across all tokens can take 1-3 minutes
+// and risks timing out the sidebar. The user runs Tracker → Sync Bank
+// Statements manually after linking.
+function handlePlaidStatementsSuccess(publicToken, institutionName) {
+  try {
+    _requireEditor_();
+    var cfg = getPlaidConfig_();
+    var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/public_token/exchange', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, public_token: publicToken }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(resp.getContentText());
+    if (!data.access_token) return { success: false, message: data.error_message || 'No access_token returned' };
+
+    var p      = PropertiesService.getScriptProperties();
+    var tokens = JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+    if (tokens.indexOf(data.access_token) === -1) tokens.push(data.access_token);
+    p.setProperty('PLAID_STATEMENTS_TOKENS', JSON.stringify(tokens));
+
+    if (institutionName) {
+      var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+      instMap[data.access_token] = String(institutionName) + ' (Statements)';
+      p.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
+    }
+
+    return { success: true, message: 'Statements link saved. Run Tracker → Sync Bank Statements (Plaid) to download PDFs.' };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
+function syncPlaidAccounts() { _requireEditor_();
   var cfg     = getPlaidConfig_();
   var p       = PropertiesService.getScriptProperties();
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
@@ -1901,6 +2451,20 @@ function syncPlaidAccounts() {
     } catch(e) {
       console.error('Plaid parse error for token ' + idx + ':', e);
     }
+  });
+
+  // Dedup by account_id \u2014 protects against the same physical account being
+  // returned by two different tokens (e.g. Chase OAuth after the JPM merger
+  // where the OLD Chase token and a NEW JPM-login token both include the same
+  // account). Without this, byPlaidId matches the row once for the first
+  // occurrence but the second occurrence falls into name-fallback / new-row
+  // creation, spawning a duplicate.
+  var _seenAcctIds = {};
+  allAccounts = allAccounts.filter(function(a) {
+    if (!a || !a.acctId) return false;
+    if (_seenAcctIds[a.acctId]) return false;
+    _seenAcctIds[a.acctId] = true;
+    return true;
   });
 
   // ── Step 2: read sheet ONCE, build lookup maps ────────────────────────────
@@ -1940,6 +2504,17 @@ function syncPlaidAccounts() {
   var updates     = [];   // asset row updates: {rowIdx, acctName, balance, acctId, oldUsd}
   var liabUpdates = [];   // liability row updates: same shape
   var newAccts    = [];   // accounts with no matching row in either sheet
+  var _pendingNames = {}; // names already queued as new rows THIS run — prevents
+                          // two accounts with different account_ids but the same
+                          // displayed name (institution+acct+mask) both spawning
+                          // new rows when name-fallback misses on the snapshot.
+
+  // Active account_ids across all tokens — used by the smart fallback to skip
+  // rows that already have a live sync source (prevents an orphan-like
+  // mask+institution match from hijacking an actively-synced row that shares
+  // last 4 with a different physical account).
+  var activeAcctIds = {};
+  allAccounts.forEach(function(a) { if (a && a.acctId) activeAcctIds[a.acctId] = true; });
 
   allAccounts.forEach(function(acct) {
     // Liability match wins — that means the user explicitly moved this account
@@ -1954,13 +2529,60 @@ function syncPlaidAccounts() {
 
     var matchRow = byPlaidId[acct.acctId];
     if (matchRow === undefined) {
-      // Name+category match
+      // Name-only fallback. Plaid sometimes rotates account_id (silent re-auth,
+      // re-link, item update), and the user may have re-categorized the row
+      // from the default 'Cash - Personal' to something else (e.g. moved a
+      // brokerage row to 'Public Equity (Growth)'). Matching on name alone
+      // means we reuse the existing row instead of creating a duplicate.
       for (var i = 1; i < rows.length; i++) {
         var rName = nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1];
-        var rCat  = catColIdx  >= 0 ? rows[i][catColIdx]  : rows[i][2];
-        if (rName === acct.name && String(rCat).startsWith('Cash')) {
+        if (rName === acct.name) {
           matchRow = i; break;
         }
+      }
+    }
+    // Final fallback: same institution prefix + same ···mask suffix. Catches
+    // the rename case where a bank returns slightly different account labels
+    // across re-links (e.g. 'MBJ DR' vs 'MBJ DR INC' for the same physical
+    // account at Chase, both ending in ···7133). Only auto-matches when
+    // there's exactly one ORPHAN candidate — a row whose current Plaid Account
+    // ID is no longer in any active token's response AND whose name doesn't
+    // exact-match some other account being synced this run. This avoids the
+    // catastrophic case where two truly different accounts at the same bank
+    // share a mask (e.g. 'Chase - TLMND ···2001' and 'Chase - 2019 MN FAMILY
+    // REVOCABLE TRUST ···2001'); without these guards, the actively-synced
+    // TLMND row could be overwritten by the JPM 2019 trust's $0 data, even if
+    // the user manually cleared the row's Plaid Account ID.
+    if (matchRow === undefined) {
+      var maskMatch = String(acct.name || '').match(/···(\S+)$/);
+      var instIdx   = String(acct.name || '').indexOf(' - ');
+      var newMask   = maskMatch ? maskMatch[1] : '';
+      var newInst   = instIdx > 0 ? String(acct.name).substring(0, instIdx).trim() : '';
+      if (newMask && newInst) {
+        var hits = [];
+        for (var i = 1; i < rows.length; i++) {
+          var rName    = String(nameColIdx >= 0 ? rows[i][nameColIdx] : rows[i][1] || '');
+          var rMaskM   = rName.match(/···(\S+)$/);
+          var rInstIdx = rName.indexOf(' - ');
+          var rPlaidId = plaidCol >= 0 ? String(rows[i][plaidCol] || '') : '';
+          // Guard 1: skip rows whose current Plaid Account ID is in an active
+          // token — they already have a live sync source.
+          if (rPlaidId && activeAcctIds[rPlaidId]) continue;
+          // Guard 2: skip rows whose name exact-matches some account being
+          // synced this run — they belong to that account via name fallback,
+          // even if their Plaid Account ID is currently blank.
+          var rNameIsClaimed = false;
+          for (var aj = 0; aj < allAccounts.length; aj++) {
+            if (allAccounts[aj] && allAccounts[aj].name === rName) { rNameIsClaimed = true; break; }
+          }
+          if (rNameIsClaimed) continue;
+          if (rMaskM && rInstIdx > 0
+              && rMaskM[1] === newMask
+              && rName.substring(0, rInstIdx).trim() === newInst) {
+            hits.push(i);
+          }
+        }
+        if (hits.length === 1) matchRow = hits[0];
       }
     }
 
@@ -1969,6 +2591,8 @@ function syncPlaidAccounts() {
       updates.push({ rowIdx: matchRow, acctName: acct.name, balance: acct.balance,
                      acctId: acct.acctId, oldUsd: oldUsdA });
     } else {
+      if (_pendingNames[acct.name]) return;   // dedup within run — same physical account across two tokens
+      _pendingNames[acct.name] = true;
       newAccts.push(acct);
     }
   });
@@ -2007,9 +2631,740 @@ function syncPlaidAccounts() {
   return { success: true, synced: updates.length + liabUpdates.length + newAccts.length };
 }
 
+// ── Plaid Statements ──────────────────────────────────────────────────────────
+// Pulls monthly bank statement PDFs from /statements/list + /statements/download
+// and organizes them into /Bank Statements/[Bank]/[Account ···last4]/YYYY-MM.pdf
+// in the user's Google Drive. Tracks downloaded statement_ids in a script
+// property so subsequent runs only fetch new statements (Plaid charges per
+// download in production).
+
+var STATEMENTS_ROOT_NAME = 'Bank Statements';
+
+function getStatementsRoot_() {
+  var iter = DriveApp.getRootFolder().getFoldersByName(STATEMENTS_ROOT_NAME);
+  return iter.hasNext() ? iter.next() : DriveApp.createFolder(STATEMENTS_ROOT_NAME);
+}
+
+function getOrCreateSubfolder_(parent, name) {
+  var iter = parent.getFoldersByName(name);
+  return iter.hasNext() ? iter.next() : parent.createFolder(name);
+}
+
+function sanitizeName_(s) {
+  return String(s || '').replace(/[\/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Untitled';
+}
+
+function syncPlaidStatements() { _requireEditor_();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props      = PropertiesService.getScriptProperties();
+  // Combine transactions tokens + statements-only tokens. Some banks (Chase,
+  // Oriental) don't grant statements scope on the transactions Item, so
+  // openPlaidStatementsLink creates a parallel Item with products=['statements']
+  // stored under PLAID_STATEMENTS_TOKENS.
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+
+  var root      = getStatementsRoot_();
+  var newCount  = 0, skippedCount = 0, errorCount = 0;
+  var errors    = [];
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    // Plaid's /statements/list response often omits account name + mask
+    // (especially for statements-only Items), which collapses every
+    // account's statements into a single 'Account ···' folder. Call
+    // /accounts/get first to build account_id → {name, mask}, then use that
+    // when bucketing into folders.
+    var acctInfo = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accBody = JSON.parse(accResp.getContentText());
+      if (accBody && accBody.accounts) {
+        accBody.accounts.forEach(function(a) {
+          acctInfo[a.account_id] = { name: a.name || '', mask: a.mask || '' };
+        });
+      }
+    } catch (e) {
+      // statements-only Items may not have /accounts/get scope — fall through;
+      // we'll use whatever /statements/list provides (often nothing).
+    }
+
+    var listResp;
+    try {
+      listResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+    } catch (e) {
+      errors.push(instName + ' (list): ' + e.message); errorCount++; return;
+    }
+
+    var listData;
+    try { listData = JSON.parse(listResp.getContentText()); }
+    catch (e) { errors.push(instName + ' (list parse): ' + e.message); errorCount++; return; }
+
+    if (listData.error_code) {
+      errors.push(instName + ': ' + listData.error_code + ' — ' + (listData.error_message || ''));
+      errorCount++; return;
+    }
+    if (!listData.accounts) return;
+
+    listData.accounts.forEach(function(acct) {
+      // Prefer enriched name/mask from /accounts/get; fall back to whatever
+      // /statements/list returned (often empty for statements-only Items).
+      var enriched = acctInfo[acct.account_id] || {};
+      var acctName = sanitizeName_(
+        (enriched.name || acct.name || 'Account') + ' ···' + (enriched.mask || acct.mask || acct.account_id.slice(-4))
+      );
+      var acctFolder = getOrCreateSubfolder_(bankFolder, acctName);
+
+      (acct.statements || []).forEach(function(stmt) {
+        var sid = stmt.statement_id;
+        if (!sid) return;
+        if (downloaded[sid]) { skippedCount++; return; }
+
+        try {
+          var dlResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/download', {
+            method: 'POST', contentType: 'application/json',
+            payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token, statement_id: sid }),
+            muteHttpExceptions: true
+          });
+          // Plaid returns PDF bytes on success, JSON on error.
+          var headers = dlResp.getHeaders() || {};
+          var ct      = headers['Content-Type'] || headers['content-type'] || '';
+          if (String(ct).indexOf('application/json') >= 0) {
+            var errBody = JSON.parse(dlResp.getContentText());
+            throw new Error((errBody.error_code || 'error') + ': ' + (errBody.error_message || ''));
+          }
+          var blob  = dlResp.getBlob();
+          var year  = stmt.year  || new Date().getFullYear();
+          var month = stmt.month || (new Date().getMonth() + 1);
+          // Year subfolder for chronological organization
+          var yearFolder = getOrCreateSubfolder_(acctFolder, String(year));
+          blob.setName(String(year) + '-' + ('0' + month).slice(-2) + '.pdf');
+          var file = yearFolder.createFile(blob);
+          downloaded[sid] = file.getId();
+          newCount++;
+        } catch (e) {
+          errors.push(instName + ' / ' + acctName + ' / ' + sid + ': ' + e.message);
+          errorCount++;
+        }
+      });
+    });
+  });
+
+  props.setProperty('PLAID_STATEMENTS_DOWNLOADED', JSON.stringify(downloaded));
+  return {
+    success: errorCount === 0,
+    new: newCount, skipped: skippedCount, errors: errorCount,
+    errorDetails: errors,
+    rootFolderUrl: root.getUrl()
+  };
+}
+
+// Menu wrapper — runs the sync and shows results in a dialog.
+function syncPlaidStatementsMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r  = syncPlaidStatements();
+  if (r.success === false && r.error) { ui.alert('Statements Sync Failed', r.error, ui.ButtonSet.OK); return; }
+  var msg = 'New downloaded: ' + (r.new || 0) +
+            '\nAlready saved (skipped): ' + (r.skipped || 0) +
+            '\nErrors: ' + (r.errors || 0);
+  if (r.errors > 0 && r.errorDetails && r.errorDetails.length) {
+    msg += '\n\nFirst error(s):\n  • ' + r.errorDetails.slice(0, 5).join('\n  • ');
+    if (r.errorDetails.length > 5) msg += '\n  … and ' + (r.errorDetails.length - 5) + ' more';
+  }
+  if (r.rootFolderUrl) msg += '\n\nDrive folder: ' + r.rootFolderUrl;
+  ui.alert('Statements Sync', msg, ui.ButtonSet.OK);
+}
+
+// Trigger handler for the monthly auto-fetch (5th of each month at 6am).
+function _monthlyStatementSync() { syncPlaidStatements(); }
+
+// ============================================================================
+// TRANSACTION-DERIVED MONTHLY PDFs — outside-the-box alternative when Plaid
+// Statements is blocked at the institution level (e.g. Chase/JPM post-merger,
+// where Plaid refuses to certify the mixed-eligibility institution).
+//
+// The existing PLAID_TOKENS were created with products=['transactions'], which
+// Chase certifies for every account without a special approval track. We pull
+// the raw transactions via /transactions/get, group by (account, month), and
+// render our own PDF per month. Not a bank-issued statement, but the same
+// underlying data delivered from the same source.
+//
+// Output path mirrors syncPlaidStatements: /Bank Statements/[Bank]/[Account
+// ···mask]/YYYY-MM-tx.pdf — so both real statements and generated ones live
+// side-by-side per account.
+// ============================================================================
+function syncPlaidTransactionsMonthly(monthsBack) { _requireEditor_();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props   = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var generated = JSON.parse(props.getProperty('PLAID_TX_PDFS_GENERATED') || '{}');
+
+  var back = Number(monthsBack) || 24;
+  var end   = new Date();
+  var start = new Date(end.getFullYear(), end.getMonth() - (back - 1), 1);
+  function fmtDate(d) { return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+
+  var root = getStatementsRoot_();
+  var newCount = 0, skippedCount = 0, errorCount = 0, errors = [];
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    // Pull account name+mask so the monthly PDFs land in the right per-account folder.
+    var accts = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accData = JSON.parse(accResp.getContentText());
+      if (accData.error_code) {
+        errors.push(instName + ': ' + accData.error_code + ' — ' + (accData.error_message || ''));
+        errorCount++; return;
+      }
+      (accData.accounts || []).forEach(function(a) {
+        accts[a.account_id] = { name: a.name || 'Account', mask: a.mask || a.account_id.slice(-4) };
+      });
+    } catch(e) { errors.push(instName + ' (accts): ' + e.message); errorCount++; return; }
+
+    // Pull all transactions in the window. /transactions/get paginates with
+    // count+offset. Cap page size at 500 (Plaid's max).
+    var allTx = [];
+    var offset = 0, pageSize = 500, tries = 0;
+    while (tries < 40) {   // hard cap on pagination — 20k tx window per token
+      tries++;
+      try {
+        var txResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/transactions/get', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({
+            client_id: cfg.clientId, secret: cfg.secret, access_token: token,
+            start_date: fmtDate(start), end_date: fmtDate(end),
+            options: { count: pageSize, offset: offset }
+          }),
+          muteHttpExceptions: true
+        });
+        var txData = JSON.parse(txResp.getContentText());
+        if (txData.error_code) {
+          // PRODUCT_NOT_READY is common on fresh Items — Plaid takes 30-60s to
+          // process initial transactions. Advise the user to retry.
+          errors.push(instName + ': ' + txData.error_code + ' — ' + (txData.error_message || ''));
+          errorCount++; return;
+        }
+        var batch = txData.transactions || [];
+        allTx = allTx.concat(batch);
+        var total = txData.total_transactions || 0;
+        if (allTx.length >= total || batch.length === 0) break;
+        offset += pageSize;
+      } catch(e) { errors.push(instName + ' (tx): ' + e.message); errorCount++; return; }
+    }
+
+    // Group by (account_id, YYYY-MM).
+    var groups = {};
+    allTx.forEach(function(tx) {
+      if (!tx || !tx.date || !tx.account_id) return;
+      var key = tx.account_id + '|' + tx.date.substring(0, 7);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(tx);
+    });
+
+    Object.keys(groups).forEach(function(key) {
+      var parts  = key.split('|');
+      var acctId = parts[0], ym = parts[1];
+      var info   = accts[acctId] || { name: 'Account', mask: acctId.slice(-4) };
+      var acctFolder = getOrCreateSubfolder_(bankFolder, sanitizeName_(info.name + ' ···' + info.mask));
+      var filename   = ym + '-tx.pdf';
+
+      // Skip if the current month is incomplete — only regenerate finished months.
+      // A tracker key keys off token+acct+month so re-running is safe.
+      var thisYm = end.getFullYear() + '-' + ('0'+(end.getMonth()+1)).slice(-2);
+      var isCurrentMonth = (ym === thisYm);
+      var genKey = token.slice(-8) + '|' + acctId + '|' + ym;
+
+      if (!isCurrentMonth && generated[genKey]) { skippedCount++; return; }
+
+      var txSorted = groups[key].sort(function(a, b) { return a.date.localeCompare(b.date); });
+      var html     = _buildTxStatementHTML(instName, info, ym, txSorted);
+      var pdfBlob  = Utilities.newBlob(html, 'text/html', filename).getAs('application/pdf').setName(filename);
+
+      // Replace any prior version so re-runs update rather than duplicate.
+      var existing = acctFolder.getFilesByName(filename);
+      while (existing.hasNext()) existing.next().setTrashed(true);
+      acctFolder.createFile(pdfBlob);
+
+      generated[genKey] = new Date().toISOString();
+      newCount++;
+    });
+  });
+
+  props.setProperty('PLAID_TX_PDFS_GENERATED', JSON.stringify(generated));
+  return {
+    success: true,
+    generated: newCount,
+    skipped: skippedCount,
+    errors: errorCount,
+    errorDetails: errors,
+    rootFolderUrl: root.getUrl()
+  };
+}
+
+function _buildTxStatementHTML(instName, acctInfo, ym, tx) {
+  var monthLabel = _monthLabel(ym);
+  var moneyIn = 0, moneyOut = 0;
+  var rows = tx.map(function(t) {
+    // Plaid convention: positive amount = money OUT (debit). Flip so the PDF reads intuitively.
+    var amt = -Number(t.amount || 0);
+    if (amt >= 0) moneyIn += amt; else moneyOut += amt;
+    var cat = (t.category || []).join(' › ');
+    var pending = t.pending ? ' <span style="color:#a50e0e;font-size:10px">(pending)</span>' : '';
+    return '<tr>' +
+      '<td>' + t.date + '</td>' +
+      '<td>' + _esc(t.name || t.merchant_name || '(no description)') + pending + '</td>' +
+      '<td style="color:#5f6368">' + _esc(cat) + '</td>' +
+      '<td style="text-align:right;font-variant-numeric:tabular-nums;color:' + (amt >= 0 ? '#137333' : '#a50e0e') + '">' +
+        (amt >= 0 ? '+' : '−') + '$' + Math.abs(amt).toFixed(2) +
+      '</td></tr>';
+  }).join('');
+
+  var net = moneyIn + moneyOut;
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    '@page { margin: 0.5in; }' +
+    'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;padding:0;color:#202124;}' +
+    '.hdr{border-bottom:2px solid #1a1a2e;padding-bottom:12px;margin-bottom:16px;}' +
+    '.hdr h1{font-size:18px;margin:0 0 4px 0;color:#1a1a2e;}' +
+    '.hdr .sub{color:#5f6368;font-size:12px;}' +
+    '.summary{display:flex;gap:16px;margin-bottom:16px;}' +
+    '.summary .card{flex:1;padding:12px;background:#f8f9fa;border-radius:6px;}' +
+    '.summary .card .label{color:#5f6368;font-size:10px;text-transform:uppercase;letter-spacing:.5px;}' +
+    '.summary .card .value{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;}' +
+    'table{width:100%;border-collapse:collapse;font-size:11px;}' +
+    'th{text-align:left;padding:6px 8px;background:#f8f9fa;border-bottom:2px solid #dadce0;color:#5f6368;font-weight:600;text-transform:uppercase;font-size:10px;}' +
+    'td{padding:6px 8px;border-bottom:1px solid #f1f3f4;vertical-align:top;}' +
+    '.footnote{color:#5f6368;font-size:10px;margin-top:20px;line-height:1.5;padding-top:12px;border-top:1px solid #dadce0;}' +
+    '</style></head><body>' +
+    '<div class="hdr">' +
+      '<h1>' + _esc(instName) + ' — ' + _esc(acctInfo.name) + ' ···' + _esc(acctInfo.mask) + '</h1>' +
+      '<div class="sub">Transaction summary · ' + monthLabel + ' · ' + tx.length + ' transactions</div>' +
+    '</div>' +
+    '<div class="summary">' +
+      '<div class="card"><div class="label">Money in</div><div class="value" style="color:#137333">+$' + moneyIn.toFixed(2) + '</div></div>' +
+      '<div class="card"><div class="label">Money out</div><div class="value" style="color:#a50e0e">−$' + Math.abs(moneyOut).toFixed(2) + '</div></div>' +
+      '<div class="card"><div class="label">Net</div><div class="value" style="color:' + (net >= 0 ? '#137333' : '#a50e0e') + '">' + (net >= 0 ? '+' : '−') + '$' + Math.abs(net).toFixed(2) + '</div></div>' +
+    '</div>' +
+    '<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th></tr></thead>' +
+    '<tbody>' + rows + '</tbody></table>' +
+    '<div class="footnote">Generated from Plaid /transactions/get data on ' +
+      new Date().toISOString().substring(0, 10) + '. Amount sign convention: positive = money in, negative = money out. ' +
+      'This is a transaction summary, not a bank-issued statement — use it when the bank\'s formal PDF is not available ' +
+      'via Plaid Statements (e.g. Chase/JPM post-merger institution eligibility block).' +
+    '</div>' +
+    '</body></html>';
+}
+
+function _monthLabel(ym) {
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var parts = ym.split('-');
+  return months[Number(parts[1]) - 1] + ' ' + parts[0];
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+  });
+}
+
+// ============================================================================
+// PLAID STATEMENTS DIAGNOSTIC — captures every piece of state that could
+// block Statements from working, in one shot. Writes a full report to Drive
+// and shows a truncated version in a dialog.
+//
+// Per token, dumps:
+//   - /item/get: products / consented_products / billed_products / error
+//   - /institutions/get_by_id: institution's supported products
+//   - /statements/list: exact error_code, error_message, display_message
+//
+// Reading the output:
+//   - "Item has Statements scope: NO" + "Institution supports Statements:
+//     YES" → the Item was linked without Statements in the initial consent.
+//     For OAuth banks this can't be added via update mode; a fresh
+//     Statements-only link is required (openPlaidStatementsLink).
+//   - "Institution supports Statements: NO" → route via a different
+//     institution_id (e.g. JPM Wealth Management ins_133378 instead of
+//     Chase ins_56). Search variants with searchPlaidInstitutions.
+//   - "/statements/list ERROR: PRODUCTS_NOT_SUPPORTED" or "PRODUCT_NOT_READY"
+//     with the Item + institution both showing Statements support → your
+//     Plaid app itself doesn't have Statements enabled in Production.
+//     Fix at dashboard.plaid.com → Team Settings → Keys → request access.
+// ============================================================================
+function diagnosePlaidStatements() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var props   = PropertiesService.getScriptProperties();
+  var tokensT = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var tokensS = JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+
+  var all = [];
+  tokensT.forEach(function(t) { all.push({ token: t, source: 'transactions' }); });
+  tokensS.forEach(function(t) { all.push({ token: t, source: 'statements-only' }); });
+  if (!all.length) { ui.alert('No Plaid tokens.'); return; }
+
+  var out = [];
+  out.push('PLAID STATEMENTS DIAGNOSTIC');
+  out.push('Generated: ' + new Date().toISOString());
+  out.push('Environment: ' + cfg.env);
+  out.push('Client ID: ' + cfg.clientId.substring(0, 6) + '···' + cfg.clientId.slice(-4));
+  out.push('Total tokens: ' + all.length + ' (' + tokensT.length + ' transactions, ' + tokensS.length + ' statements-only)');
+  out.push('');
+  out.push('─'.repeat(72));
+  out.push('');
+
+  all.forEach(function(entry, i) {
+    var token = entry.token;
+    var label = instMap[token] || '(unnamed)';
+    out.push((i + 1) + '. ' + label + '   [' + entry.source + ']');
+    out.push('   token: ···' + token.slice(-4));
+
+    var instId = null;
+
+    // /item/get — the ground truth for what this Item can do.
+    try {
+      var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var itemData = JSON.parse(itemResp.getContentText());
+      if (itemData.error_code) {
+        out.push('   /item/get ERROR: ' + itemData.error_code + ' — ' + (itemData.error_message || ''));
+      } else if (itemData.item) {
+        var it = itemData.item;
+        instId = it.institution_id || null;
+        out.push('   item_id: ' + (it.item_id || '?'));
+        out.push('   institution_id: ' + (instId || '?'));
+        out.push('   products (active):    ' + (it.products || []).join(', '));
+        out.push('   consented_products:   ' + (it.consented_products || []).join(', '));
+        out.push('   billed_products:      ' + (it.billed_products || []).join(', '));
+        if (it.error) {
+          out.push('   ⚠ Item error: ' + it.error.error_code + ' — ' + (it.error.error_message || ''));
+        }
+        var hasStmt = (it.consented_products || []).indexOf('statements') >= 0
+                   || (it.products || []).indexOf('statements') >= 0;
+        out.push('   Item has Statements scope: ' + (hasStmt ? 'YES ✅' : 'NO ❌'));
+      }
+    } catch(e) {
+      out.push('   /item/get exception: ' + e.message);
+    }
+
+    // Institution capabilities — the vendor certification level.
+    if (instId) {
+      try {
+        var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({
+            client_id: cfg.clientId, secret: cfg.secret,
+            institution_id: instId, country_codes: ['US'],
+            options: { include_optional_metadata: true }
+          }),
+          muteHttpExceptions: true
+        });
+        var instData = JSON.parse(instResp.getContentText());
+        if (instData.error_code) {
+          out.push('   /institutions/get_by_id ERROR: ' + instData.error_code);
+        } else if (instData.institution) {
+          var inst  = instData.institution;
+          var prods = inst.products || [];
+          out.push('   Institution name: ' + inst.name);
+          out.push('   Institution products: ' + prods.join(', '));
+          out.push('   Institution OAuth: ' + (inst.oauth ? 'yes' : 'no'));
+          out.push('   Institution supports Statements: ' + (prods.indexOf('statements') >= 0 ? 'YES ✅' : 'NO ❌'));
+        }
+      } catch(e) {
+        out.push('   institution lookup exception: ' + e.message);
+      }
+    }
+
+    // /statements/list — the actual test. Capture EVERYTHING.
+    try {
+      var stmtResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var httpCode = stmtResp.getResponseCode();
+      var stmtData = JSON.parse(stmtResp.getContentText());
+      if (stmtData.error_code) {
+        out.push('   /statements/list ERROR (HTTP ' + httpCode + '):');
+        out.push('       error_code:    ' + stmtData.error_code);
+        out.push('       error_type:    ' + (stmtData.error_type || '?'));
+        out.push('       error_message: ' + (stmtData.error_message || ''));
+        if (stmtData.display_message)   out.push('       display_message:   ' + stmtData.display_message);
+        if (stmtData.suggested_action)  out.push('       suggested_action:  ' + stmtData.suggested_action);
+        if (stmtData.request_id)        out.push('       request_id:        ' + stmtData.request_id);
+        if (stmtData.documentation_url) out.push('       docs:              ' + stmtData.documentation_url);
+      } else {
+        var totalStmts = 0, acctCount = (stmtData.accounts || []).length;
+        (stmtData.accounts || []).forEach(function(a) { totalStmts += (a.statements || []).length; });
+        out.push('   /statements/list OK ✅ — ' + totalStmts + ' statements across ' + acctCount + ' account(s)');
+      }
+    } catch(e) {
+      out.push('   /statements/list exception: ' + e.message);
+    }
+
+    out.push('');
+  });
+
+  // Interpretation hints at the bottom.
+  out.push('─'.repeat(72));
+  out.push('');
+  out.push('READING THIS REPORT:');
+  out.push('');
+  out.push('  Item scope NO + Institution YES → fresh Statements-only link required');
+  out.push('    (openPlaidStatementsLink; OAuth banks can\'t add products to existing Items)');
+  out.push('');
+  out.push('  Item scope YES + Institution YES + /statements/list still errors →');
+  out.push('    your Plaid app itself lacks Statements Production access.');
+  out.push('    Fix at dashboard.plaid.com → Team Settings → Keys → Request Access');
+  out.push('    → "Statements" → wait for Plaid approval (usually 1-3 business days).');
+  out.push('');
+  out.push('  Institution NO → try a different institution variant. Search "JP Morgan"');
+  out.push('    via Tracker → Search Plaid Institutions and look for one that shows');
+  out.push('    "Supports Statements? YES". Then re-link JPM accounts through that one.');
+  out.push('');
+  out.push('  Item error ITEM_LOGIN_REQUIRED → re-auth via Update Plaid Connection first.');
+
+  var reportText = out.join('\n');
+
+  // Save the full report to Drive.
+  var stamp = new Date().toISOString().substring(0, 19).replace(/[:T]/g, '-');
+  var file  = DriveApp.createFile('Plaid Statements Diagnostic ' + stamp + '.txt',
+                                  reportText, MimeType.PLAIN_TEXT);
+
+  // Truncate for the dialog (Apps Script alert cap ≈ 5000 chars safe).
+  var shown = reportText;
+  if (shown.length > 4200) shown = shown.substring(0, 4200) + '\n\n… (truncated — full report in Drive)';
+  ui.alert('Plaid Statements Diagnostic',
+    shown + '\n\nFull report:\n' + file.getUrl(),
+    ui.ButtonSet.OK);
+}
+
+// Menu wrapper — asks for a lookback window then runs.
+function syncPlaidTransactionsMonthlyMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var msg1 = ui.alert('Generate Monthly Transaction PDFs',
+    'Pulls transactions from every Plaid connection and renders a monthly PDF per account into ' +
+    '/Bank Statements/[Bank]/[Account ···mask]/YYYY-MM-tx.pdf.\n\n' +
+    'These are TRANSACTION SUMMARIES generated from Plaid data — not bank-issued statements. ' +
+    'Use these when Plaid Statements is blocked at the institution level (e.g. Chase/JPM after the merger).\n\n' +
+    'This uses your existing Plaid Transactions grant. No new authorization, no per-statement charge.\n\n' +
+    'Continue?', ui.ButtonSet.YES_NO);
+  if (msg1 !== ui.Button.YES) return;
+
+  var prompt = ui.prompt('Lookback window',
+    'How many months back? (default 24, max 24 recommended)', ui.ButtonSet.OK_CANCEL);
+  if (prompt.getSelectedButton() !== ui.Button.OK) return;
+  var back = parseInt(prompt.getResponseText(), 10) || 24;
+
+  var r = syncPlaidTransactionsMonthly(back);
+  if (!r.success) { ui.alert('Failed', r.error, ui.ButtonSet.OK); return; }
+
+  var out = 'Generated PDFs: ' + r.generated +
+            '\nSkipped (already up to date): ' + r.skipped +
+            '\nErrors: ' + r.errors;
+  if (r.errors > 0 && r.errorDetails && r.errorDetails.length) {
+    out += '\n\nFirst error(s):\n  • ' + r.errorDetails.slice(0, 5).join('\n  • ');
+  }
+  if (r.rootFolderUrl) out += '\n\nDrive folder: ' + r.rootFolderUrl;
+  ui.alert('Transaction PDFs', out, ui.ButtonSet.OK);
+}
+
+
+// Dry-run preview: enumerates what syncPlaidStatements WOULD download without
+// actually calling /statements/download (the paid endpoint). Only hits the
+// free /statements/list endpoint per token. Use this before the real sync to
+// confirm the count of NEW statements (and the rough Plaid cost) before
+// committing any charges. If the new-count looks unreasonable, hold off and
+// investigate before running the real sync.
+function previewPlaidStatements() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) return { success: false, error: 'Plaid credentials not set.' };
+  var props      = PropertiesService.getScriptProperties();
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  if (!tokens.length) return { success: false, error: 'No Plaid connections.' };
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+
+  var report = [];
+  var totalNew = 0, totalSkip = 0;
+
+  tokens.forEach(function(token) {
+    var instName = instMap[token] || ('Unknown ···' + token.slice(-4));
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var data = JSON.parse(resp.getContentText());
+      if (data.error_code) {
+        report.push(instName + ': SKIP (' + data.error_code + ')');
+        return;
+      }
+      var newForToken = 0, skipForToken = 0;
+      (data.accounts || []).forEach(function(acct) {
+        (acct.statements || []).forEach(function(stmt) {
+          if (downloaded[stmt.statement_id]) skipForToken++;
+          else newForToken++;
+        });
+      });
+      totalNew  += newForToken;
+      totalSkip += skipForToken;
+      report.push(instName + ': ' + newForToken + ' new, ' + skipForToken + ' already saved');
+    } catch (e) {
+      report.push(instName + ': ERROR — ' + e.message);
+    }
+  });
+
+  return {
+    success: true,
+    totalNew: totalNew,
+    totalSkip: totalSkip,
+    estimatedCostUSD: totalNew * 0.30,   // rough Plaid pricing; verify against your contract
+    perTokenReport: report
+  };
+}
+
+// Menu wrapper for the dry-run preview.
+function previewPlaidStatementsMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r  = previewPlaidStatements();
+  if (r.success === false) { ui.alert('Preview Failed', r.error, ui.ButtonSet.OK); return; }
+  var msg = 'Total NEW (would download + charge): ' + r.totalNew + '\n' +
+            'Total skipped (already saved, no charge): ' + r.totalSkip + '\n' +
+            'Estimated cost: ~$' + r.estimatedCostUSD.toFixed(2) + ' (at ~$0.30/statement)\n\n' +
+            'Per token:\n  • ' + r.perTokenReport.join('\n  • ') +
+            '\n\nNo charges incurred from this preview. To actually download, run Sync Bank Statements.';
+  ui.alert('Statements Sync — Preview', msg, ui.ButtonSet.OK);
+}
+
+// Re-organize statements already downloaded into /Bank Statements: walks the
+// PLAID_STATEMENTS_DOWNLOADED map (statement_id → file_id), looks up each
+// statement's account on Plaid via /statements/list, and MOVES the existing
+// Drive file into the correct /Bank/Account/Year/ folder. No re-downloads
+// (avoids Plaid per-statement charges). Useful after upgrading to the
+// account-aware folder structure when statements are already in catchall
+// folders like 'Account ···'.
+function reorganizePlaidStatements() {
+  var ui = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+  var props      = PropertiesService.getScriptProperties();
+  var tokens     = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]')
+            .concat(JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  var instMap    = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var downloaded = JSON.parse(props.getProperty('PLAID_STATEMENTS_DOWNLOADED') || '{}');
+  if (!Object.keys(downloaded).length) { ui.alert('No tracked statements to reorganize.'); return; }
+
+  var root  = getStatementsRoot_();
+  var moved = 0, missing = 0, errors = 0;
+
+  tokens.forEach(function(token) {
+    var instName   = sanitizeName_(instMap[token] || ('Unknown ···' + token.slice(-4)));
+    var bankFolder = getOrCreateSubfolder_(root, instName);
+
+    var acctInfo = {};
+    try {
+      var accResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var accBody = JSON.parse(accResp.getContentText());
+      if (accBody && accBody.accounts) {
+        accBody.accounts.forEach(function(a) {
+          acctInfo[a.account_id] = { name: a.name || '', mask: a.mask || '' };
+        });
+      }
+    } catch (e) {}
+
+    try {
+      var listResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/statements/list', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var listData = JSON.parse(listResp.getContentText());
+      if (!listData.accounts) return;
+
+      listData.accounts.forEach(function(acct) {
+        var enriched = acctInfo[acct.account_id] || {};
+        var acctName = sanitizeName_(
+          (enriched.name || acct.name || 'Account') + ' ···' + (enriched.mask || acct.mask || acct.account_id.slice(-4))
+        );
+        var acctFolder = getOrCreateSubfolder_(bankFolder, acctName);
+
+        (acct.statements || []).forEach(function(stmt) {
+          var sid    = stmt.statement_id;
+          var fileId = downloaded[sid];
+          if (!fileId) return;
+
+          try {
+            var file = DriveApp.getFileById(fileId);
+            var year = stmt.year || new Date().getFullYear();
+            var yearFolder = getOrCreateSubfolder_(acctFolder, String(year));
+
+            // Skip if already in the right folder.
+            var currentParents = file.getParents();
+            var alreadyHere = false;
+            while (currentParents.hasNext()) {
+              if (currentParents.next().getId() === yearFolder.getId()) { alreadyHere = true; break; }
+            }
+            if (alreadyHere) return;
+
+            file.moveTo(yearFolder);
+            moved++;
+          } catch (e) {
+            errors++;
+            missing++;
+          }
+        });
+      });
+    } catch (e) {
+      errors++;
+    }
+  });
+
+  ui.alert(
+    'Reorganize Complete',
+    'Moved: ' + moved + ' file(s)\nMissing/errors: ' + errors + '\n\nFolder: ' + root.getUrl(),
+    ui.ButtonSet.OK
+  );
+}
+
 // ── SnapTrade Sync ────────────────────────────────────────────────────────────
 
-function syncSnapTradeAccounts() {
+function syncSnapTradeAccounts() { _requireEditor_();
   var accounts;
   try { accounts = listSnapTradeAccounts(); } catch(e) {
     return { success: false, error: 'SnapTrade API error: ' + e.message };
@@ -2125,8 +3480,233 @@ function openPlaidLink() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+// Open Plaid Link to create a statements-only Item. The resulting access_token
+// is stored separately in PLAID_STATEMENTS_TOKENS so syncPlaidAccounts ignores
+// it (no duplicate asset rows) while syncPlaidStatements picks it up.
+function openPlaidStatementsLink() {
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    var ui   = SpreadsheetApp.getUi();
+    var resp = ui.alert('Plaid Not Configured', 'Plaid credentials are not set. Would you like to set them now?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.YES) setPlaidCredentials();
+    return;
+  }
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkStatements')
+    .setTitle('Connect Bank for Statements')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// Open Plaid Link in update mode for an existing connection. Use this to
+// re-authenticate a token that has gone into ITEM_LOGIN_REQUIRED, or to
+// add/remove accounts on an existing Item without creating a new token (which
+// would duplicate every account that's already on this Item).
+function openPlaidUpdate() {
+  var ui    = SpreadsheetApp.getUi();
+  var cfg   = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) {
+    ui.alert('Plaid credentials are not set. Configure them first.');
+    return;
+  }
+  var props  = PropertiesService.getScriptProperties();
+  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  if (!tokens.length) { ui.alert('No Plaid connections to update.'); return; }
+
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var lines = tokens.map(function(t, i) {
+    var name = instMap[t] || '(unnamed)';
+    return (i + 1) + '. ' + name + '   (token ···' + t.slice(-4) + ')';
+  });
+
+  var resp = ui.prompt(
+    'Update Plaid Connection',
+    'Pick the connection to update (re-auth or add/remove accounts):\n\n' +
+    lines.join('\n') +
+    '\n\nEnter the NUMBER (1-' + tokens.length + '):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= tokens.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  // Stash the chosen access_token in script properties under a single fixed
+  // key. The sidebar fetches it via a server call (no template injection),
+  // and the server clears it on first read.
+  var chosenTok = tokens[idx];
+  props.setProperty('PLAID_PENDING_UPDATE_TOKEN', chosenTok);
+  // Also record for handlePlaidUpdateSuccess so it can verify whether
+  // Statements consent was added (or was already present) by this run.
+  props.setProperty('PLAID_LAST_UPDATED_TOKEN', chosenTok);
+  try {
+    var _itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: chosenTok }),
+      muteHttpExceptions: true
+    });
+    var _it = (JSON.parse(_itemResp.getContentText()) || {}).item || {};
+    var _had = (_it.consented_products || []).indexOf('statements') >= 0;
+    props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', _had ? 'true' : 'false');
+  } catch(e) {
+    props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', 'false');
+  }
+
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkUpdate')
+    .setTitle('Update Plaid Connection')
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+// Sidebar-only: pulls the access_token from the one-shot property slot,
+// requests an update-mode link_token, and clears the slot.
+function getPlaidUpdateLinkTokenForSidebar() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('PLAID_PENDING_UPDATE_TOKEN');
+  if (!token) return { success: false, error: 'Update session expired. Re-open Update Plaid Connection.' };
+  props.deleteProperty('PLAID_PENDING_UPDATE_TOKEN');
+  return getPlaidUpdateLinkToken(token);
+}
+
+// In update mode Plaid Link does NOT issue a new public_token to exchange —
+// the original access_token still works and now has whatever new accounts the
+// user toggled on. Just sync to pull them.
+//
+// After sync, verify whether Statements consent was granted by this update
+// flow (via additional_consented_products) so the user knows immediately if
+// Chase honored the request or if they need to fall back to a fresh
+// Statements-only link.
+function handlePlaidUpdateSuccess() { _requireEditor_();
+  var props   = PropertiesService.getScriptProperties();
+  var lastTok = props.getProperty('PLAID_LAST_UPDATED_TOKEN');
+  var hadStmt = props.getProperty('PLAID_LAST_UPDATED_HAD_STMT') === 'true';
+  props.deleteProperty('PLAID_LAST_UPDATED_TOKEN');
+  props.deleteProperty('PLAID_LAST_UPDATED_HAD_STMT');
+
+  try {
+    var syncResult = syncPlaidAccounts();
+    var count = syncResult.synced || 0;
+
+    // Statements consent check — only meaningful when the caller stashed the
+    // token before opening Update Mode.
+    var stmtNote = '';
+    if (lastTok) {
+      try {
+        var cfg = getPlaidConfig_();
+        var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+          method: 'POST', contentType: 'application/json',
+          payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: lastTok }),
+          muteHttpExceptions: true
+        });
+        var it = (JSON.parse(itemResp.getContentText()) || {}).item || {};
+        var consented = it.consented_products || [];
+        var nowHasStmt = consented.indexOf('statements') >= 0;
+        if (nowHasStmt && !hadStmt) {
+          stmtNote = ' Statements consent ADDED ✅ — run Sync Bank Statements to pull PDFs.';
+        } else if (nowHasStmt && hadStmt) {
+          stmtNote = ' Statements consent already present ✅.';
+        } else {
+          stmtNote = ' Statements consent NOT granted ❌ — the bank\'s OAuth flow did not present the consent screen. ' +
+                     'Fall back to Connect Bank for Statements to create a fresh Statements-only Item.';
+        }
+      } catch(e) { /* non-fatal */ }
+    }
+
+    return { success: true, message: 'Connection updated. ' + count + ' account(s) synced.' + stmtNote };
+  } catch(e) {
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
+// Targeted flow — lists Plaid Items whose institution supports Statements
+// but whose Item currently lacks Statements consent, and opens Update Mode
+// for the chosen one. After the sidebar completes, handlePlaidUpdateSuccess
+// re-reads /item/get and reports whether the bank actually granted Statements
+// consent (Chase's OAuth flow is inconsistent about honoring
+// additional_consented_products on existing Items).
+function addStatementsConsentToChaseMenu() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var props   = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }
+
+  // Filter to Items where institution supports Statements but Item does not.
+  var candidates = [];
+  tokens.forEach(function(token) {
+    try {
+      var itemResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/item/get', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var it = (JSON.parse(itemResp.getContentText()) || {}).item;
+      if (!it) return;
+      if ((it.consented_products || []).indexOf('statements') >= 0) return;   // already granted
+
+      var instResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/get_by_id', {
+        method: 'POST', contentType: 'application/json',
+        payload: JSON.stringify({
+          client_id: cfg.clientId, secret: cfg.secret,
+          institution_id: it.institution_id, country_codes: ['US']
+        }),
+        muteHttpExceptions: true
+      });
+      var inst  = (JSON.parse(instResp.getContentText()) || {}).institution;
+      var supports = inst && (inst.products || []).indexOf('statements') >= 0;
+      if (!supports) return;
+
+      candidates.push({
+        token: token,
+        label: (instMap[token] || inst.name || '(unnamed)') + '  (···' + token.slice(-4) + ')',
+        institutionName: inst.name
+      });
+    } catch(e) { /* skip on error */ }
+  });
+
+  if (!candidates.length) {
+    ui.alert('No candidates found — every Item either already has Statements consent, ' +
+             'or its institution does not support Statements at all. See the diagnostic report.');
+    return;
+  }
+
+  var lines = candidates.map(function(c, i) { return (i + 1) + '. ' + c.label; });
+  var resp = ui.prompt('Add Statements Consent (Update Mode)',
+    'These Items don\'t have Statements consent yet, but their institution supports Statements:\n\n' +
+    lines.join('\n') +
+    '\n\nEnter the NUMBER to add consent for (1-' + candidates.length + '):\n\n' +
+    'You\'ll be re-prompted by the bank\'s OAuth flow. Look for a Statements consent screen ' +
+    'in addition to the account selection screen.\n\n' +
+    '⚠ NOTE: Chase\'s OAuth backend often rejects this with "Something went wrong / Internal ' +
+    'error". If that happens, close the sidebar and use Tracker → Connect Bank for Statements ' +
+    '(Plaid) instead — that creates a fresh Statements-only Item, which Chase accepts because ' +
+    'Statements is requested at initial link time.',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+  var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= candidates.length) { ui.alert('Invalid selection.'); return; }
+
+  var chosen = candidates[idx];
+  props.setProperty('PLAID_PENDING_UPDATE_TOKEN', chosen.token);
+  // Stash so handlePlaidUpdateSuccess can verify Statements consent was added.
+  props.setProperty('PLAID_LAST_UPDATED_TOKEN',   chosen.token);
+  props.setProperty('PLAID_LAST_UPDATED_HAD_STMT', 'false');
+
+  var html = HtmlService.createHtmlOutputFromFile('PlaidLinkUpdate')
+    .setTitle('Add Statements Consent — ' + chosen.institutionName)
+    .setWidth(400);
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
 function handlePlaidSuccess(publicToken, institutionName) {
   try {
+    _requireEditor_();
     var exchResult = exchangePlaidToken(publicToken);
     if (!exchResult.success) return { success: false, message: exchResult.error };
     if (institutionName && exchResult.accessToken) {
@@ -2151,26 +3731,265 @@ function getPlaidConnections() {
   });
 }
 
+// Combined list for the dashboard's update-mode picker — includes both
+// transactions tokens and statements-only tokens. Does NOT return access
+// tokens to the client; the client picks an index, then calls
+// stashConnectionForUpdate(index) to set the server-side pending token, then
+// calls getPlaidUpdateLinkTokenForSidebar to actually create the link token.
+function getPlaidConnectionsForUI() {
+  var p       = PropertiesService.getScriptProperties();
+  var tx      = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+  var st      = JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  var all     = tx.concat(st);
+  return all.map(function(token, i) {
+    return {
+      index:        i,
+      name:         instMap[token] || '(unnamed)',
+      tokenHint:    '···' + token.slice(-4),
+      accessToken:  token   // dashboard receives this — same security boundary as existing flows
+    };
+  });
+}
+
+// Show every token + the live accounts each one returns from Plaid. Useful for
+// diagnosing duplicate rows: if two tokens return the same physical account
+// under different account_ids, removing one token + the duplicate row resolves
+// it. If only one token exists but two rows have different Plaid Account IDs,
+// the bank likely re-issued account_ids during a silent re-auth.
+
+// Diagnostic: search Plaid for institutions matching a query string and list
+// each variant with its supported products. Use this to definitively answer
+// 'does <bank> support Statements via Plaid' — if the institution lists
+// 'statements' in its products array, it does; if not, it doesn't and no
+// amount of OAuth wrangling will change that.
+function searchPlaidInstitutions() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+  var resp = ui.prompt(
+    'Search Plaid Institutions',
+    'Enter a bank name to search (e.g. "JP Morgan", "Chase", "Wells Fargo"):',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var query = resp.getResponseText().trim();
+  if (!query) return;
+
+  try {
+    var apiResp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/institutions/search', {
+      method: 'POST', contentType: 'application/json',
+      payload: JSON.stringify({
+        client_id: cfg.clientId,
+        secret:    cfg.secret,
+        query:     query,
+        country_codes: ['US'],
+        // Required by Plaid; products acts as a coarse filter — passing the
+        // ones we actually use returns institutions that have AT LEAST those.
+        // Statements support is then visible in each result's products array.
+        products:  ['transactions']
+      }),
+      muteHttpExceptions: true
+    });
+    var data = JSON.parse(apiResp.getContentText());
+    if (data.error_message) {
+      ui.alert('Plaid error', data.error_code + ': ' + data.error_message, ui.ButtonSet.OK);
+      return;
+    }
+    var insts = data.institutions || [];
+    if (!insts.length) { ui.alert('No institutions matched "' + query + '".'); return; }
+
+    var out = ['Found ' + insts.length + ' institution(s) for "' + query + '":', ''];
+    insts.forEach(function(inst, i) {
+      var supportsStatements = (inst.products || []).indexOf('statements') >= 0;
+      out.push((i + 1) + '. ' + inst.name);
+      out.push('   institution_id: ' + inst.institution_id);
+      out.push('   Supports Statements? ' + (supportsStatements ? 'YES ✅' : 'NO ❌'));
+      out.push('   Products: ' + (inst.products || []).join(', '));
+      out.push('');
+    });
+    ui.alert('Plaid Institution Search', out.join('\n'), ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Search failed', e.message, ui.ButtonSet.OK);
+  }
+}
+
+function listPlaidConnectionDetails() {
+  var ui      = SpreadsheetApp.getUi();
+  var cfg     = getPlaidConfig_();
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]')
+        .concat(JSON.parse(p.getProperty('PLAID_STATEMENTS_TOKENS') || '[]'));
+  var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
+  if (!tokens.length) { ui.alert('No Plaid connections.'); return; }  var out = [];
+  out.push('Total connections: ' + tokens.length);
+  out.push('');
+
+  tokens.forEach(function(token, i) {
+    var instName = instMap[token] || '(unnamed)';
+    out.push((i + 1) + '. ' + instName + '   (token ···' + token.slice(-4) + ')');
+    try {
+      var resp = UrlFetchApp.fetch(getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get', {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      });
+      var body = JSON.parse(resp.getContentText());
+      if (body.error_code) {
+        out.push('   ERROR: ' + body.error_code + ' — ' + (body.error_message || ''));
+      } else if (body.accounts && body.accounts.length) {
+        body.accounts.forEach(function(a) {
+          var last4    = a.mask || '????';
+          var acctId   = a.account_id || '';
+          var acctTail = acctId.length > 12 ? '···' + acctId.slice(-12) : acctId;
+          var bal      = (a.balances && a.balances.current != null) ? a.balances.current : '(no balance)';
+          out.push('     • ' + (a.name || '(no name)') + '  ···' + last4 + '   $' + bal);
+          out.push('       account_id: ' + acctTail);
+        });
+      } else {
+        out.push('   (no accounts returned)');
+      }
+    } catch (e) {
+      out.push('   FETCH ERROR: ' + e.message);
+    }
+    out.push('');
+  });
+
+  ui.alert('Plaid Connections (Detailed)', out.join('\n'), ui.ButtonSet.OK);
+}
+
+// ── FIX DUPLICATE PLAID ROWS ──────────────────────────────────────────────────
+// Groups Assets rows by (institution prefix, ···mask suffix), which is the
+// physical-account key. When two rows share that key, one is a duplicate —
+// typically created because a re-linked token issued a NEW account_id for the
+// same physical account and name-fallback couldn't collapse it in time.
+//
+// Keeps: the row whose Plaid Account ID is currently active in a live token,
+// falling back to the oldest Date Added if both (or neither) are active.
+// Deletes the loser(s). Preserves the Plaid Account ID on the keeper so the
+// next sync updates it.
+function fixDuplicatePlaidRows() {
+  var ui  = SpreadsheetApp.getUi();
+  var cfg = getPlaidConfig_();
+  if (!cfg.clientId || !cfg.secret) { ui.alert('Plaid credentials not set.'); return; }
+
+  var p       = PropertiesService.getScriptProperties();
+  var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
+
+  // Fetch live account_ids across every active token, so we know which
+  // row's Plaid ID currently maps to a real Plaid account.
+  var activeAcctIds = {};
+  if (tokens.length) {
+    var requests = tokens.map(function(token) {
+      return {
+        url: getPlaidBaseUrl_(cfg.env) + '/accounts/balance/get',
+        method: 'post', contentType: 'application/json',
+        payload: JSON.stringify({ client_id: cfg.clientId, secret: cfg.secret, access_token: token }),
+        muteHttpExceptions: true
+      };
+    });
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(resp) {
+      try {
+        var data = JSON.parse(resp.getContentText());
+        if (data.accounts) data.accounts.forEach(function(a) {
+          if (a.account_id) activeAcctIds[a.account_id] = true;
+        });
+      } catch(e) {}
+    });
+  }
+
+  var sheet   = getSheet_('ASSETS');
+  var rows    = sheet.getDataRange().getValues();
+  var headers = rows[0];
+  function ci(name) { return headers.indexOf(name); }
+  var nameCol      = ci('Name');
+  var plaidCol     = ci('Plaid Account ID');
+  var dateAddedCol = ci('Date Added');
+  if (nameCol < 0 || plaidCol < 0) { ui.alert('Assets sheet is missing Name or Plaid Account ID column.'); return; }
+
+  // Group by (institution + mask). Only consider rows that look like a
+  // Plaid-synced row (institution prefix + ···mask suffix).
+  var groups = {};
+  for (var i = 1; i < rows.length; i++) {
+    var name  = String(rows[i][nameCol] || '');
+    var mMatch = name.match(/···(\S+)$/);
+    var iIdx   = name.indexOf(' - ');
+    if (!mMatch || iIdx <= 0) continue;
+    var key = name.substring(0, iIdx).trim() + '|' + mMatch[1];
+    var plaidId = String(rows[i][plaidCol] || '');
+    var da      = dateAddedCol >= 0 && rows[i][dateAddedCol]
+                  ? new Date(rows[i][dateAddedCol]).getTime() : 0;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push({
+      sheetRow:  i + 1,          // 1-based row number for deletion
+      name:      name,
+      plaidId:   plaidId,
+      dateAdded: da,
+      active:    plaidId && activeAcctIds[plaidId] ? 1 : 0
+    });
+  }
+
+  // Build the delete list: for every group of 2+, keep the winner, mark the rest.
+  var toDelete = [];   // {sheetRow, name}
+  var kept     = [];   // {sheetRow, name, reason}
+  Object.keys(groups).forEach(function(key) {
+    var g = groups[key];
+    if (g.length < 2) return;
+    // Winner priority: active Plaid ID first, then oldest Date Added.
+    g.sort(function(a, b) {
+      if (a.active !== b.active) return b.active - a.active;
+      return a.dateAdded - b.dateAdded;
+    });
+    var winner = g[0];
+    kept.push({ sheetRow: winner.sheetRow, name: winner.name,
+                reason: winner.active ? 'active Plaid ID' : 'oldest row' });
+    for (var j = 1; j < g.length; j++) {
+      toDelete.push({ sheetRow: g[j].sheetRow, name: g[j].name });
+    }
+  });
+
+  if (!toDelete.length) { ui.alert('No duplicate Plaid rows found.'); return; }
+
+  // Confirmation dialog with preview.
+  var preview = ['KEEP:'];
+  kept.forEach(function(k) { preview.push('  row ' + k.sheetRow + ' — ' + k.name + '  (' + k.reason + ')'); });
+  preview.push('', 'DELETE:');
+  toDelete.forEach(function(d) { preview.push('  row ' + d.sheetRow + ' — ' + d.name); });
+  preview.push('', 'Delete ' + toDelete.length + ' duplicate row(s)?');
+
+  var resp = ui.alert('Fix Duplicate Plaid Rows', preview.join('\n'), ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  // Delete from bottom-up so row indices stay valid.
+  toDelete.sort(function(a, b) { return b.sheetRow - a.sheetRow; });
+  toDelete.forEach(function(d) { sheet.deleteRow(d.sheetRow); });
+
+  ui.alert('Deleted ' + toDelete.length + ' duplicate row(s). Run Sync Balances to refresh the keepers.');
+}
+
 // ── REMOVE A SINGLE PLAID CONNECTION ──────────────────────────────────────────
-// Intentionally NOT exposed in the Tracker menu so a regular user can't
-// accidentally trigger it from the spreadsheet. To run it:
-//   1. Extensions → Apps Script
-//   2. Select  removeOnePlaidConnection  from the function dropdown
-//   3. Click Run.  A dialog in the Sheet shows the list of connections.
-//   4. Type the NUMBER of the connection to remove. Two confirmations follow.
+// Invoked from Tracker → Remove ONE Plaid Connection… (the menu provides the
+// UI context that SpreadsheetApp.getUi() requires; running from the editor's
+// Run button can hit a non-UI context and throw).
+//
+// Two confirmations protect against accidental clicks.
 //
 // What this does:
 //   - Removes ONE entry from PLAID_TOKENS + its label from PLAID_INSTITUTIONS
 //   - Other connections are completely untouched
 //   - Spreadsheet rows are NOT deleted — they just stop updating from Plaid
-function removeOnePlaidConnection() {
-  var ui    = SpreadsheetApp.getUi();
-  var props = PropertiesService.getScriptProperties();
-  var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
-  if (!tokens.length) { ui.alert('No Plaid connections to remove.'); return; }
+function removeOnePlaidConnection() { _requireEditor_();
+  var ui     = SpreadsheetApp.getUi();
+  var props  = PropertiesService.getScriptProperties();
+  var txList = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
+  var stList = JSON.parse(props.getProperty('PLAID_STATEMENTS_TOKENS') || '[]');
+  var combined = txList.concat(stList);  // tx tokens first, then statements-only
+  if (!combined.length) { ui.alert('No Plaid connections to remove.'); return; }
 
   var instMap = JSON.parse(props.getProperty('PLAID_INSTITUTIONS') || '{}');
-  var lines = tokens.map(function(t, i) {
+  var lines = combined.map(function(t, i) {
     var name = instMap[t] || '(unnamed)';
     return (i + 1) + '. ' + name + '   (token ···' + t.slice(-4) + ')';
   });
@@ -2178,18 +3997,18 @@ function removeOnePlaidConnection() {
   var resp = ui.prompt(
     'Remove ONE Plaid Connection',
     'Current connections:\n\n' + lines.join('\n') +
-    '\n\nEnter the NUMBER of the connection to remove (1-' + tokens.length + '):',
+    '\n\nEnter the NUMBER of the connection to remove (1-' + combined.length + '):',
     ui.ButtonSet.OK_CANCEL
   );
   if (resp.getSelectedButton() !== ui.Button.OK) return;
 
   var idx = parseInt(resp.getResponseText().trim(), 10) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= tokens.length) {
+  if (isNaN(idx) || idx < 0 || idx >= combined.length) {
     ui.alert('Invalid selection — no changes made.');
     return;
   }
 
-  var token   = tokens[idx];
+  var token   = combined[idx];
   var name    = instMap[token] || '(unnamed)';
   var confirm = ui.alert(
     'Confirm Removal',
@@ -2201,23 +4020,34 @@ function removeOnePlaidConnection() {
   );
   if (confirm !== ui.Button.YES) return;
 
+  // Remove from whichever list contains it.
+  var txIdx = txList.indexOf(token);
+  if (txIdx >= 0) {
+    txList.splice(txIdx, 1);
+    props.setProperty('PLAID_TOKENS', JSON.stringify(txList));
+  } else {
+    var stIdx = stList.indexOf(token);
+    if (stIdx >= 0) {
+      stList.splice(stIdx, 1);
+      props.setProperty('PLAID_STATEMENTS_TOKENS', JSON.stringify(stList));
+    }
+  }
   delete instMap[token];
-  tokens.splice(idx, 1);
-  props.setProperty('PLAID_TOKENS',       JSON.stringify(tokens));
   props.setProperty('PLAID_INSTITUTIONS', JSON.stringify(instMap));
 
+  var remaining = txList.length + stList.length;
   ui.alert(
     'Connection Removed',
-    tokens.length + ' connection(s) remain.\n\n' +
+    remaining + ' connection(s) remain.\n\n' +
     'Next steps:\n' +
     '  1. Run Tracker → Sync Plaid Accounts\n' +
-    '  2. Manually delete the duplicate rows in Assets — they will\n' +
+    '  2. Manually delete any orphan rows in Assets — they will\n' +
     '     stay deleted now that the source token is gone.',
     ui.ButtonSet.OK
   );
 }
 
-function setPlaidInstitutionName(index, name) {
+function setPlaidInstitutionName(index, name) { _requireEditor_();
   var p       = PropertiesService.getScriptProperties();
   var tokens  = JSON.parse(p.getProperty('PLAID_TOKENS') || '[]');
   var instMap = JSON.parse(p.getProperty('PLAID_INSTITUTIONS') || '{}');
@@ -2227,7 +4057,7 @@ function setPlaidInstitutionName(index, name) {
   return { success: true };
 }
 
-function removePlaidConnection() {
+function removePlaidConnection() { _requireEditor_();
   var ui     = SpreadsheetApp.getUi();
   var props  = PropertiesService.getScriptProperties();
   var tokens = JSON.parse(props.getProperty('PLAID_TOKENS') || '[]');
@@ -2239,6 +4069,104 @@ function removePlaidConnection() {
     props.deleteProperty('PLAID_TOKENS');
     ui.alert('All Plaid connections removed.');
   }
+}
+
+// Re-sync the Assets Category and Liabilities Type dropdown validations with
+// the current code (CATEGORIES list + the liability types list below). Use
+// after adding a new category in code — without this, the old dropdown lock
+// rejects new values like 'Promissory Notes' even though the code accepts them.
+// Apply conditional formatting to the Assets + Liabilities sheets so rows
+// where Archived = 'Yes' are visually distinct (gray background, faded text,
+// strikethrough on the name). Idempotent — clears the old archive rule
+// first, then re-adds. Run once after adding the Archived column, or after
+// any change to the Archived column's position in the schema.
+function styleArchivedRows() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  ['Assets', 'Liabilities'].forEach(function(name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+    var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var archCol = headers.indexOf('Archived') + 1; // 1-based
+    if (!archCol) return;
+    var archColLetter = _colLetter_(archCol);
+    var lastCol = sheet.getLastColumn();
+    var lastRow = Math.max(2000, sheet.getLastRow());
+    var range   = sheet.getRange(2, 1, lastRow - 1, lastCol);
+
+    // Preserve any non-archive rules the user added
+    var kept = (sheet.getConditionalFormatRules() || []).filter(function(r) {
+      var f = r.getBooleanCondition && r.getBooleanCondition();
+      if (!f) return true;
+      var v = f.getCriteriaValues && f.getCriteriaValues();
+      return !(v && v[0] && String(v[0]).indexOf('$' + archColLetter + '2') === 0);
+    });
+
+    var rule = SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + archColLetter + '2="Yes"')
+      .setBackground('#e8e8ec')
+      .setFontColor('#7a7a80')
+      .setStrikethrough(true)
+      .setRanges([range])
+      .build();
+    kept.push(rule);
+    sheet.setConditionalFormatRules(kept);
+  });
+  ui.alert('Archive Styling Applied', 'Archived rows on Assets + Liabilities are now gray with strikethrough. New archive/unarchive updates the styling automatically.', ui.ButtonSet.OK);
+  return { success: true };
+}
+
+// Convert 1-based column number to A1-style letter (1 -> 'A', 27 -> 'AA').
+function _colLetter_(n) {
+  var s = '';
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = (n - m - 1) / 26; }
+  return s;
+}
+
+function refreshSheetValidations() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var notes = [];
+
+  var assets = ss.getSheetByName('Assets');
+  if (assets) {
+    var N = Math.max(2000, assets.getLastRow());
+    assets.getRange(2, 3, N).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(CATEGORIES, true)
+        .setAllowInvalid(true)                // warn-only, don't block saves
+        .setHelpText('Pick a category from the list (or type your own)')
+        .build());
+    notes.push('Assets Category dropdown: ' + CATEGORIES.length + ' options');
+  }
+
+  var liabs = ss.getSheetByName('Liabilities');
+  if (liabs) {
+    var liabTypes = [
+      'Credit Card',
+      'Mortgage - United States','Mortgage - Puerto Rico','Mortgage - Colombia',
+      'Mortgage - Dominican Republic','Mortgage - Europe',
+      'Real Estate - Colombia (Liability)','Real Estate - Puerto Rico (Liability)',
+      'Real Estate - Dominican Republic (Liability)',
+      'Real Estate - United States (Liability)','Real Estate - Europe (Liability)',
+      'Promissory Note',
+      'Auto Loan','Business Loan','Personal Loan','Line of Credit',
+      'Student Loan','Other'
+    ];
+    var M = Math.max(1000, liabs.getLastRow());
+    liabs.getRange(2, 3, M).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireValueInList(liabTypes, true)
+        .setAllowInvalid(true)
+        .build());
+    notes.push('Liabilities Type dropdown: ' + liabTypes.length + ' options');
+  }
+
+  SpreadsheetApp.getUi().alert(
+    'Dropdowns Refreshed',
+    notes.join('\n') + '\n\nDropdowns now allow custom values (won\'t block saves).',
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+  return { success: true };
 }
 
 function fixSheetHeaders() {
@@ -2268,11 +4196,20 @@ function debugSheetHeaders() {
 function installTriggers() {
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
-    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail') ScriptApp.deleteTrigger(t);
+    if (fn === 'dailySync_' || fn === 'weeklyPDFEmail' || fn === 'dailyPDFEmail' || fn === '_monthlyStatementSync') {
+      ScriptApp.deleteTrigger(t);
+    }
   });
   ScriptApp.newTrigger('dailySync_').timeBased().everyDays(1).atHour(7).create();
   ScriptApp.newTrigger('weeklyPDFEmail').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
-  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync at 7AM + weekly PDF email on Mondays at 8AM', 'Triggers Installed', 5);
+  // Daily PDF runs Mon-Fri at 8am — one trigger per weekday (Apps Script
+  // doesn't have a built-in 'weekdays only' option, so we install five).
+  [ScriptApp.WeekDay.MONDAY, ScriptApp.WeekDay.TUESDAY, ScriptApp.WeekDay.WEDNESDAY,
+   ScriptApp.WeekDay.THURSDAY, ScriptApp.WeekDay.FRIDAY].forEach(function(day) {
+    ScriptApp.newTrigger('dailyPDFEmail').timeBased().onWeekDay(day).atHour(8).create();
+  });
+  ScriptApp.newTrigger('_monthlyStatementSync').timeBased().onMonthDay(5).atHour(6).create();
+  SpreadsheetApp.getActiveSpreadsheet().toast('Triggers installed: daily sync 7AM, daily PDF Mon-Fri 8AM, weekly PDF Mondays 8AM, monthly statements on the 5th at 6AM', 'Triggers Installed', 7);
   return { success: true };
 }
 
@@ -2286,56 +4223,409 @@ function setWeeklyPDFRecipient() {
   ui.alert('Weekly PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mondays at 8 AM.');
 }
 
+// Shared helper: regenerate the Balances sheet, export it as PDF, send to the
+// given recipient(s) with the given subject prefix. Both weeklyPDFEmail and
+// dailyPDFEmail are thin wrappers around this.
+// Build a dashboard-styled Net Worth PDF via HTML instead of exporting the
+// Balances sheet. Mirrors the web UI (banner + metric cards + two-column
+// grouped list + inline SVG pie charts on their own pages). Fixes the pie
+// chart clipping the sheet exporter suffered from — SVG is native HTML so
+// nothing gets chopped mid-image at page breaks.
+function _buildNetWorthPdfHtml_(subjectPrefix) {
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabs  = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
+
+  assets.forEach(function(a){ a._usd = Number(a['My Share USD']) || 0; a._d = a['Last Updated'] ? new Date(a['Last Updated']) : null; });
+  liabs.forEach(function(l){ l._usd = Number(l['USD Value']) || 0; l._d = l['Last Updated'] ? new Date(l['Last Updated']) : null; });
+
+  var totalAssets = assets.reduce(function(s,a){return s+a._usd;},0);
+  var totalLiabs  = liabs.reduce(function(s,l){return s+l._usd;},0);
+  var netWorth    = totalAssets - totalLiabs;
+  var cashUsd     = assets.filter(function(a){return (a.Category||'').toLowerCase().indexOf('cash')===0;})
+                          .reduce(function(s,a){return s+a._usd;},0);
+
+  // Category color palette (matches the dashboard's CAT_COLORS).
+  var CAT_COLORS = {
+    'Art/Jewelry/Other':'#1B4F8A','Automobile':'#2E6DA4',
+    'Cash - Business':'#4A8DC0','Cash - Personal':'#6AADD4',
+    'Private Equity':'#0D3B6E','Public Equity (Dividends)':'#8FC4E0',
+    'Public Equity (Growth)':'#3A7CA8',
+    'Real Estate - Colombia':'#1A5276','Real Estate - Dominican Republic':'#5B9BBF',
+    'Real Estate - Europe':'#A8CCE0','Real Estate - Puerto Rico':'#2471A3',
+    'Real Estate - United States':'#154360','VIP Medical Group':'#7FB3D3',
+    'Loans Receivable':'#0A2A4A','Promissory Notes':'#123859',
+    'Insurance':'#9DBFCF','Crypto':'#4a90d9','Other':'#B8D4E0'
+  };
+  function catColor(c){ return CAT_COLORS[c] || CAT_COLORS[Object.keys(CAT_COLORS).find(function(k){return k.toLowerCase()===String(c||'').toLowerCase();})] || '#90a4ae'; }
+  var LIAB_COLORS = ['#c5221f','#e07b30','#8b6914','#7f1d1d','#a0522d','#5d3a1a','#b8860b'];
+
+  // Mirror the website's ordering exactly (renderMNWList in Index.html):
+  //   - Assets: categories in CATEGORIES array order (unknown cats sort last
+  //     alphabetically). Items within a category go through _instSort_ —
+  //     grouped by institution/entity, groups sorted by combined total desc,
+  //     items within a group sorted by value desc.
+  //   - Liabilities: types sorted by total desc, items by value desc.
+  function _peGroupKey(name){
+    if(!name) return '';
+    var s = String(name).toLowerCase().trim();
+    s = s.replace(/^\d+(\.\d+)?%\s*(of\s+)?/, '');
+    s = s.replace(/^\d+(\.\d+)?%\s*(ownership\s+of\s+)?/, '');
+    var parts = s.match(/[a-z0-9]+/g) || [];
+    if (!parts.length) return '';
+    if (parts.length >= 2 && /^\d+$/.test(parts[1])) return parts[0] + parts[1];
+    return parts[0];
+  }
+  function _instSort_(items, cat){
+    var groupMap = {};
+    items.forEach(function(a){
+      var key;
+      if (cat === 'Private Equity') {
+        key = _peGroupKey(a.Name) || (a.Entity || '(No Entity)');
+      } else if (cat === 'Loans Receivable' || cat === 'Promissory Notes') {
+        key = a.Entity || '(No Entity)';
+      } else {
+        var n = a.Name || '';
+        var di = n.indexOf(' - ');
+        key = di >= 0 ? n.substring(0, di) : n;
+        key = key.replace(/\s+Brokerage$/i, '').trim();
+      }
+      if (!groupMap[key]) groupMap[key] = [];
+      groupMap[key].push(a);
+    });
+    return Object.keys(groupMap)
+      .map(function(k){ var arr = groupMap[k]; return { key:k, accts:arr, tot:arr.reduce(function(s,a){return s+a._usd;},0) }; })
+      .sort(function(a,b){ return b.tot - a.tot; })
+      .reduce(function(out, g){
+        g.accts.sort(function(a,b){return b._usd - a._usd;}).forEach(function(a){ out.push(a); });
+        return out;
+      }, []);
+  }
+
+  // Categories in CATEGORIES order. Unknown ones sort to the end alphabetically.
+  var CATEGORIES_ORDER = [
+    'Art/Jewelry/Other','Automobile','Cash - Business','Cash - Personal',
+    'Public Equity (Dividends)','Public Equity (Growth)',
+    'Loans Receivable','Promissory Notes','Private Equity',
+    'Real Estate - Colombia','Real Estate - Dominican Republic',
+    'Real Estate - Europe','Real Estate - Puerto Rico','Real Estate - United States',
+    'VIP Medical Group','Crypto','Insurance','Other'
+  ];
+  var byCat = {};
+  assets.forEach(function(a){ var c = a.Category || 'Other'; if(!byCat[c]) byCat[c] = []; byCat[c].push(a); });
+  var catEntries = Object.keys(byCat).map(function(c){
+    return { cat:c, items:_instSort_(byCat[c], c), total:byCat[c].reduce(function(s,a){return s+a._usd;},0) };
+  }).sort(function(a,b){
+    var ai = CATEGORIES_ORDER.indexOf(a.cat), bi = CATEGORIES_ORDER.indexOf(b.cat);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.cat.localeCompare(b.cat);
+  });
+
+  // Liabilities: types sorted by total desc, items by value desc.
+  var byType = {};
+  liabs.forEach(function(l){ var t = l.Type || 'Other'; if(!byType[t]) byType[t] = []; byType[t].push(l); });
+  var typeEntries = Object.keys(byType).map(function(t){
+    var items = byType[t].sort(function(x,y){return y._usd - x._usd;});
+    return { type:t, items:items, total:items.reduce(function(s,l){return s+l._usd;},0) };
+  }).sort(function(a,b){ return b.total - a.total; });
+
+  function fmt(v){ if(v==null||isNaN(v))return'$0'; var s=Math.abs(Math.round(v)).toLocaleString('en-US'); return (v<0?'−':'')+'$'+s; }
+  function daysAgo(d){
+    if(!d||!(d instanceof Date)||isNaN(d.getTime()))return'';
+    var n=Math.floor((Date.now()-d.getTime())/86400000);
+    if(n===0)return'today'; if(n===1)return'1d'; return n+'d';
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  // Truncate a long asset name so it doesn't wrap inside the row.
+  function trunc(s, n){ s = String(s||''); return s.length > n ? s.substring(0, n-1).trim()+'…' : s; }
+
+  // Inline SVG pie. Sized to sit LEFT-of-legend on a single landscape page.
+  function svgPie(entries, size, colorFn){
+    var total = entries.reduce(function(s,e){return s+e.value;},0) || 1;
+    var cx = size/2, cy = size/2, r = size/2 - 8;
+    var angle = -Math.PI/2, paths = '', labels = '';
+    entries.forEach(function(e, i){
+      var pct = e.value / total;
+      var a2 = angle + pct * 2 * Math.PI;
+      var x1 = cx + r*Math.cos(angle), y1 = cy + r*Math.sin(angle);
+      var x2 = cx + r*Math.cos(a2), y2 = cy + r*Math.sin(a2);
+      var large = pct > 0.5 ? 1 : 0;
+      var color = colorFn(e, i);
+      if (Math.abs(pct - 1) < 0.0001) {
+        paths += '<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
+      } else {
+        paths += '<path d="M'+cx+','+cy+' L'+x1.toFixed(2)+','+y1.toFixed(2)+' A'+r+','+r+' 0 '+large+' 1 '+x2.toFixed(2)+','+y2.toFixed(2)+' Z" fill="'+color+'" stroke="#fff" stroke-width="2"/>';
+      }
+      if (pct > 0.035) {
+        var mid = (angle + a2) / 2;
+        var lr = r * 0.68;
+        var lx = cx + lr*Math.cos(mid), ly = cy + lr*Math.sin(mid);
+        labels += '<text x="'+lx.toFixed(1)+'" y="'+ly.toFixed(1)+'" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="12" font-weight="700">'+(pct*100).toFixed(1)+'%</text>';
+      }
+      angle = a2;
+    });
+    return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 '+size+' '+size+'" xmlns="http://www.w3.org/2000/svg">'+paths+labels+'</svg>';
+  }
+  function legendRows(entries, colorFn, total){
+    var t = total || entries.reduce(function(s,e){return s+e.value;},0) || 1;
+    return entries.map(function(e, i){
+      var pct = ((e.value/t)*100).toFixed(1);
+      return '<tr>' +
+             '<td class="lg-dot-cell"><span class="lg-dot" style="background:'+colorFn(e,i)+'"></span></td>' +
+             '<td class="lg-name">'+esc(e.label)+'</td>' +
+             '<td class="lg-val">'+fmt(e.value)+'</td>' +
+             '<td class="lg-pct">'+pct+'%</td>' +
+             '</tr>';
+    }).join('');
+  }
+
+  // Build the grouped list HTML. Category header row uses colored left band
+  // + white bold text on a lighter tone so each group is easy to visually pick
+  // out. Item rows below are indented + zebra-striped for scanning.
+  function assetGroupHtml(g){
+    var itemsHtml = g.items.map(function(a, idx){
+      return '<tr class="row'+(idx%2?' zebra':'')+'">'+
+             '<td class="nm">'+esc(trunc(a.Name||'', 62))+'</td>'+
+             '<td class="ago">'+esc(daysAgo(a._d))+'</td>'+
+             '<td class="val">'+fmt(a._usd)+'</td></tr>';
+    }).join('');
+    var color = catColor(g.cat);
+    return '<tr class="cat-hdr" style="border-left:4px solid '+color+'">'+
+             '<td>'+esc(g.cat)+'</td>'+
+             '<td class="ago"></td>'+
+             '<td class="val">'+fmt(g.total)+'</td>' +
+           '</tr>' + itemsHtml;
+  }
+  function liabGroupHtml(g, i){
+    var itemsHtml = g.items.map(function(l, idx){
+      return '<tr class="row'+(idx%2?' zebra':'')+'">'+
+             '<td class="nm">'+esc(trunc(l.Name||'', 62))+'</td>'+
+             '<td class="ago">'+esc(daysAgo(l._d))+'</td>'+
+             '<td class="val neg">'+fmt(l._usd)+'</td></tr>';
+    }).join('');
+    var color = LIAB_COLORS[i % LIAB_COLORS.length];
+    return '<tr class="cat-hdr" style="border-left:4px solid '+color+'">'+
+             '<td>'+esc(g.type)+'</td>'+
+             '<td class="ago"></td>'+
+             '<td class="val neg">'+fmt(g.total)+'</td>' +
+           '</tr>' + itemsHtml;
+  }
+  var assetListHtml = catEntries.map(assetGroupHtml).join('');
+  var liabListHtml  = typeEntries.map(liabGroupHtml).join('');
+
+  // Pie chart data (categories with value > 0 only).
+  var assetPie = catEntries.filter(function(g){return g.total>0;}).map(function(g){ return { label:g.cat, value:g.total }; });
+  var liabPie  = typeEntries.filter(function(g){return g.total>0;}).map(function(g){ return { label:g.type, value:g.total }; });
+
+  var dateLabel = Utilities.formatDate(new Date(),'America/New_York','MMMM d, yyyy');
+
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
+    '@page { size: letter landscape; margin: 0.35in; }' +
+    'body { font-family: -apple-system, "Helvetica Neue", Arial, sans-serif; color: #14263d; margin: 0; padding: 0; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    '.page-title { display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 10px; padding: 0 4px; }' +
+    '.page-title .t { font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: #4a6b8e; }' +
+    '.page-title .d { font-size: 11px; color: #7a8ba8; }' +
+    /* Big net worth banner */
+    '.banner { background: linear-gradient(135deg,#0a1a2f 0%,#1e3a5f 100%); color: #fff; padding: 22px 28px; border-radius: 10px; margin-bottom: 12px; display:flex; justify-content:space-between; align-items:center; }' +
+    '.banner .side { }' +
+    '.banner .lbl { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #a3c1e0; margin-bottom: 4px; }' +
+    '.banner .val { font-size: 42px; font-weight: 700; letter-spacing: -1px; line-height: 1; color:#fff; }' +
+    '.banner .r { text-align:right; }' +
+    '.banner .r .lbl { color: #8fadd0; }' +
+    '.banner .r .val { font-size: 18px; font-weight: 600; color: #d0e0f0; }' +
+    /* Metric cards row */
+    '.metrics { display: table; width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 12px; }' +
+    '.metric { display: table-cell; background: #fff; border: 1px solid #dfe6ee; border-left: 4px solid #6aadd4; border-radius: 6px; padding: 10px 14px; width: 25%; }' +
+    '.metric.m-a { border-left-color: #1e8e3e; }' +
+    '.metric.m-l { border-left-color: #c5221f; }' +
+    '.metric.m-c { border-left-color: #4a90d9; }' +
+    '.metric.m-n { border-left-color: #8b6914; }' +
+    '.metric .lbl { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: #7a8ba8; margin-bottom: 3px; font-weight: 600; }' +
+    '.metric .num { font-size: 19px; font-weight: 700; color: #14263d; letter-spacing: -0.4px; }' +
+    /* Two-column list */
+    '.two-col { display: table; width: 100%; border-spacing: 8px 0; table-layout: fixed; }' +
+    '.col { display: table-cell; width: 50%; vertical-align: top; }' +
+    '.col-inner { background: #fff; border: 1px solid #dfe6ee; border-radius: 6px; overflow: hidden; }' +
+    /* Section header (ASSETS / LIABILITIES) */
+    '.sec-hdr { padding: 9px 14px; display:flex; justify-content:space-between; align-items:baseline; background:#14263d; color:#fff; }' +
+    '.sec-hdr.liab { background:#8b1c1c; }' +
+    '.sec-hdr .h { font-size: 11px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase; }' +
+    '.sec-hdr .tot { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }' +
+    /* List table */
+    'table.list { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }' +
+    'table.list col.c1 { width: auto; } table.list col.c2 { width: 40px; } table.list col.c3 { width: 90px; }' +
+    'table.list .cat-hdr td { background: #f0f4f9; font-weight: 700; color: #14263d; border-top: 1px solid #dfe6ee; padding: 7px 12px; font-size: 11px; letter-spacing: 0.3px; }' +
+    'table.list .cat-hdr .val { text-align: right; font-variant-numeric: tabular-nums; }' +
+    'table.list .row td { padding: 4px 12px; border-top: 1px solid #f4f6fa; }' +
+    'table.list .row.zebra td { background: #fafbfd; }' +
+    'table.list .row .nm { color: #2f4a6b; padding-left: 22px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }' +
+    'table.list .row .ago { color: #9ba9bd; font-size: 9.5px; white-space: nowrap; text-align: right; }' +
+    'table.list .row .val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; color: #14263d; }' +
+    'table.list .row .val.neg { color: #c5221f; }' +
+    /* Chart pages — chart LEFT + legend RIGHT, both fit one landscape page */
+    '.chart-page { page-break-before: always; padding: 8px 4px; }' +
+    '.chart-page h2 { font-size: 18px; color: #14263d; margin: 0 0 12px; letter-spacing: 0.3px; padding: 0 8px; border-left:5px solid #14263d; padding-left:14px; }' +
+    '.chart-page.liab h2 { border-left-color:#8b1c1c; }' +
+    '.chart-body { display: table; width: 100%; }' +
+    '.chart-body > div { display: table-cell; vertical-align: middle; }' +
+    '.chart-body .cell-svg { width: 44%; text-align: center; padding: 10px; }' +
+    '.chart-body .cell-lg  { width: 56%; padding: 10px 20px; }' +
+    'table.leg { width: 100%; border-collapse: collapse; font-size: 12px; }' +
+    'table.leg td { padding: 6px 8px; vertical-align: middle; }' +
+    'table.leg tr { border-bottom: 1px solid #eef2f7; }' +
+    'table.leg tr:last-child { border-bottom: none; }' +
+    'table.leg .lg-dot-cell { width: 20px; }' +
+    'table.leg .lg-dot { display:inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }' +
+    'table.leg .lg-name { color: #14263d; font-weight: 500; }' +
+    'table.leg .lg-val { color: #4a6b8e; font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; white-space: nowrap; }' +
+    'table.leg .lg-pct { color: #7a8ba8; font-variant-numeric: tabular-nums; text-align: right; font-weight: 700; width: 60px; }' +
+    '</style></head><body>' +
+    /* Page 1 header */
+    '<div class="page-title">' +
+      '<span class="t">' + esc(subjectPrefix) + '</span>' +
+      '<span class="d">as of ' + esc(dateLabel) + '</span>' +
+    '</div>' +
+    /* Net worth banner */
+    '<div class="banner">' +
+      '<div class="side">' +
+        '<div class="lbl">Net Worth</div>' +
+        '<div class="val">' + fmt(netWorth) + '</div>' +
+      '</div>' +
+      '<div class="side r">' +
+        '<div class="lbl">Assets − Liabilities</div>' +
+        '<div class="val">' + fmt(totalAssets) + '  −  ' + fmt(totalLiabs) + '</div>' +
+      '</div>' +
+    '</div>' +
+    /* Metric cards */
+    '<div class="metrics">' +
+      '<div class="metric m-a"><div class="lbl">Total Assets</div><div class="num">'+fmt(totalAssets)+'</div></div>' +
+      '<div class="metric m-l"><div class="lbl">Total Liabilities</div><div class="num">'+fmt(totalLiabs)+'</div></div>' +
+      '<div class="metric m-c"><div class="lbl">Liquid Cash</div><div class="num">'+fmt(cashUsd)+'</div></div>' +
+      '<div class="metric m-n"><div class="lbl">Asset Count</div><div class="num">'+assets.length+'</div></div>' +
+    '</div>' +
+    /* Two-column grouped list */
+    '<div class="two-col">' +
+      '<div class="col"><div class="col-inner">' +
+        '<div class="sec-hdr"><span class="h">Assets</span><span class="tot">'+fmt(totalAssets)+'</span></div>' +
+        '<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>' +
+          assetListHtml +
+        '</table>' +
+      '</div></div>' +
+      '<div class="col"><div class="col-inner">' +
+        '<div class="sec-hdr liab"><span class="h">Liabilities</span><span class="tot">'+fmt(totalLiabs)+'</span></div>' +
+        '<table class="list"><colgroup><col class="c1"><col class="c2"><col class="c3"></colgroup>' +
+          (liabListHtml || '<tr class="row"><td colspan="3" style="text-align:center;color:#8091a8;padding:20px;background:#fff">No liabilities recorded</td></tr>') +
+        '</table>' +
+      '</div></div>' +
+    '</div>' +
+    /* Pie chart pages: chart LEFT + legend RIGHT so everything fits on one page */
+    (assetPie.length ?
+      '<div class="chart-page">' +
+        '<h2>Assets by Category</h2>' +
+        '<div class="chart-body">' +
+          '<div class="cell-svg">' + svgPie(assetPie, 340, function(e){ return catColor(e.label); }) + '</div>' +
+          '<div class="cell-lg"><table class="leg">' + legendRows(assetPie, function(e){ return catColor(e.label); }, totalAssets) + '</table></div>' +
+        '</div>' +
+      '</div>' : '') +
+    (liabPie.length ?
+      '<div class="chart-page liab">' +
+        '<h2>Liabilities by Type</h2>' +
+        '<div class="chart-body">' +
+          '<div class="cell-svg">' + svgPie(liabPie, 340, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }) + '</div>' +
+          '<div class="cell-lg"><table class="leg">' + legendRows(liabPie, function(e,i){ return LIAB_COLORS[i % LIAB_COLORS.length]; }, totalLiabs) + '</table></div>' +
+        '</div>' +
+      '</div>' : '') +
+    '</body></html>';
+}
+
+function sendBalancesPDF_(recipient, subjectPrefix) {
+  if (!recipient) return { success: false, error: 'No recipient configured.' };
+
+  var html = _buildNetWorthPdfHtml_(subjectPrefix);
+  if (!html) return { success: false, error: 'Failed to build report HTML.' };
+
+  var dateStr   = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
+  var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
+  var pdfBlob   = Utilities.newBlob(html, 'text/html', 'Net_Worth_' + dateStr + '.html')
+    .getAs('application/pdf').setName('Net_Worth_' + dateStr + '.pdf');
+
+  MailApp.sendEmail({
+    to:          recipient,
+    subject:     subjectPrefix + ' — ' + dateLabel,
+    body:        'Your ' + subjectPrefix.toLowerCase() + ' is attached.\n\n' +
+                 'This PDF is generated to mirror the dashboard view (net worth banner,\n' +
+                 'metric cards, grouped assets & liabilities, then pie charts on their\n' +
+                 'own pages).',
+    name:        'Net Worth Tracker',
+    attachments: [pdfBlob]
+  });
+  Logger.log('sendBalancesPDF_: HTML-based PDF sent to ' + recipient);
+  return { success: true };
+}
+
 function weeklyPDFEmail() {
-  var props     = PropertiesService.getScriptProperties();
-  var recipient = props.getProperty('WEEKLY_PDF_RECIPIENT');
+  var recipient = PropertiesService.getScriptProperties().getProperty('WEEKLY_PDF_RECIPIENT');
   if (!recipient) {
     Logger.log('weeklyPDFEmail: WEEKLY_PDF_RECIPIENT not set — skipping');
     return { success: false, error: 'No recipient configured. Use Tracker → Set Weekly PDF Email Recipient.' };
   }
-
-  // Regenerate Balances sheet to ensure it is current
-  generateBalancesSheet();
-
-  var ss    = getSpreadsheet_();
-  var sheet = ss.getSheetByName('Balances');
-  if (!sheet) return { success: false, error: 'Balances sheet not found after generation.' };
-
-  var ssId    = ss.getId();
-  var sheetId = sheet.getSheetId();
-  var url = 'https://docs.google.com/spreadsheets/d/' + ssId +
-            '/export?exportFormat=pdf&format=pdf' +
-            '&size=letter&portrait=false&fitw=true&gridlines=false' +
-            '&sheetnames=false&printtitle=false&pagenumbers=false' +
-            '&gid=' + sheetId;
-
-  var token    = ScriptApp.getOAuthToken();
-  var response = UrlFetchApp.fetch(url, {
-    headers: { 'Authorization': 'Bearer ' + token },
-    muteHttpExceptions: true
-  });
-
-  if (response.getResponseCode() !== 200) {
-    return { success: false, error: 'PDF export failed: HTTP ' + response.getResponseCode() };
-  }
-
-  var dateStr = Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd');
-  var dateLabel = Utilities.formatDate(new Date(), 'America/New_York', 'MMMM d, yyyy');
-  var pdfBlob = response.getBlob().setName('Net_Worth_' + dateStr + '.pdf');
-
-  MailApp.sendEmail({
-    to:          recipient,
-    subject:     'Weekly Net Worth Summary — ' + dateLabel,
-    body:        'Your weekly net worth summary is attached.',
-    name:        'Net Worth Tracker',
-    attachments: [pdfBlob]
-  });
-
-  Logger.log('weeklyPDFEmail: sent to ' + recipient);
-  return { success: true };
+  return sendBalancesPDF_(recipient, 'Weekly Net Worth Summary');
 }
 
-function syncAllAccounts() {
+// Menu-callable preview — renders the Net Worth PDF as HTML in a modal
+// dialog so you can see how it will look BEFORE emailing. Same builder
+// used by sendBalancesPDF_, so what you see is what the recipient gets.
+function previewNetWorthPdfHtml() {
+  var html = _buildNetWorthPdfHtml_('Net Worth Preview');
+  if (!html) { SpreadsheetApp.getUi().alert('Failed to build preview HTML.'); return; }
+  var out  = HtmlService.createHtmlOutput(html).setWidth(1100).setHeight(720);
+  SpreadsheetApp.getUi().showModalDialog(out, 'Net Worth PDF Preview');
+}
+
+// Menu-callable test send — Weekly Net Worth PDF to the current user only.
+function sendWeeklyNetWorthPdfTest() {
+  var ui = SpreadsheetApp.getUi();
+  var me = Session.getActiveUser().getEmail();
+  if (!me) { ui.alert('Could not determine your email address.'); return; }
+  var r = sendBalancesPDF_(me, 'TEST — Weekly Net Worth Summary');
+  ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
+}
+
+// Daily PDF — runs Mon-Fri at 8am via 5 weekday triggers. Uses a separate
+// DAILY_PDF_RECIPIENT property so the daily list can differ from the weekly
+// list (e.g. send daily only to internal team, weekly to broader stakeholders).
+function dailyPDFEmail() {
+  var recipient = PropertiesService.getScriptProperties().getProperty('DAILY_PDF_RECIPIENT');
+  if (!recipient) {
+    Logger.log('dailyPDFEmail: DAILY_PDF_RECIPIENT not set — skipping');
+    return { success: false, error: 'No recipient configured. Use Tracker → Set Daily PDF Email Recipient.' };
+  }
+  return sendBalancesPDF_(recipient, 'Daily Net Worth Summary');
+}
+
+// Menu-callable test send — Daily Net Worth PDF to the current user only.
+function sendDailyNetWorthPdfTest() {
+  var ui = SpreadsheetApp.getUi();
+  var me = Session.getActiveUser().getEmail();
+  if (!me) { ui.alert('Could not determine your email address.'); return; }
+  var r = sendBalancesPDF_(me, 'TEST — Daily Net Worth Summary');
+  ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
+}
+
+function setDailyPDFRecipient() {
+  var ui   = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Daily PDF Email', 'Enter email address(es) to receive the DAILY (Mon-Fri) Balances PDF.\nFor multiple recipients, separate with commas:\n e.g. alice@example.com, bob@example.com', ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var email = resp.getResponseText().trim();
+  if (!email) { ui.alert('No email entered.'); return; }
+  PropertiesService.getScriptProperties().setProperty('DAILY_PDF_RECIPIENT', email);
+  ui.alert('Daily PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mon-Fri at 8 AM.');
+}
+
+
+
+function syncAllAccounts() { _requireEditor_();
   var synced = 0;
   var errors = [];
   try { var p = syncPlaidAccounts();    if (p && p.synced)  synced += p.synced;  } catch(e) { errors.push('Plaid: '     + e.message); }
@@ -2347,6 +4637,13 @@ function dailySync_() {
   fetchExchangeRates();
   syncAllAccounts();
   refreshPropertyValues();
+  // Push each loan's current outstanding balance to its Linked Asset row on
+  // the Assets sheet. Fresh dashboard shows the right net worth without
+  // needing anyone to visit the Loans tab first.
+  try { syncAllLoanLinkedAssets(); } catch(e) { Logger.log('dailySync_: syncAllLoanLinkedAssets failed: ' + e.message); }
+  // Alert Amanda about any expected outgoing loan payments (Direction=Payable)
+  // that are >5 days overdue with no matching Plaid outflow.
+  try { checkLoanPaymentAlerts(); } catch(e) { Logger.log('dailySync_: checkLoanPaymentAlerts failed: ' + e.message); }
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
     takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet
@@ -2432,12 +4729,32 @@ function quickChartPie_(title, labels, values, colors) {
     +   'var tot=ctx.dataset.data.reduce(function(a,b){return a+b;},0);'
     +   'return (val/tot*100).toFixed(1)+"%";'
     + '}},'
-    + 'legend:{position:"right",labels:{color:"#1a2e44",font:{size:11},padding:10,boxWidth:14}},'
+    + 'legend:{position:"bottom",align:"start",labels:{color:"#1a2e44",font:{size:10},padding:6,boxWidth:12}},'
     + 'title:{display:true,text:"' + title + '",color:"#0d2137",font:{size:13,weight:"bold"},padding:{bottom:8}}'
     + '}}}';
-  var url = 'https://quickchart.io/chart?v=3&w=750&h=360&devicePixelRatio=1&backgroundColor=white&c='
-            + encodeURIComponent(cfg);
-  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var url = 'https://quickchart.io/chart';
+  // POST the chart config in the body instead of as a URL query parameter so
+  // we don't hit Apps Script's UrlFetch URL length limit when the asset list
+  // grows large (~30+ accounts). GET request was failing with 'Limit
+  // Exceeded: URLFetch URL Length' and breaking weeklyPDFEmail.
+  var resp = UrlFetchApp.fetch(url, {
+    method:      'post',
+    contentType: 'application/json',
+    payload:     JSON.stringify({
+      chart:               cfg,
+      // 900x340 — landscape "long ways" layout since the two pies are
+      // now stacked vertically (each gets the full page width). Bottom
+      // legend has plenty of room to spread horizontally so all
+      // categories fit in a couple of rows without clipping.
+      width:               900,
+      height:              340,
+      devicePixelRatio:    1,
+      backgroundColor:     'white',
+      format:              'png',
+      version:             '3'
+    }),
+    muteHttpExceptions: true
+  });
   return resp.getBlob().setName(title + '.png');
 }
 
@@ -2457,8 +4774,10 @@ function generateBalancesSheet() {
   }
 
   // ── pull live data ─────────────────────────────────────────────────────────
-  var assets      = sheetToObjects_('ASSETS');
-  var liabilities = sheetToObjects_('LIABILITIES');
+  // Exclude archived rows — kept in the sheet for history, never count toward
+  // net worth or the Balances PDF totals.
+  var assets      = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabilities = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
 
   // Compute USD values
   assets.forEach(function(a) {
@@ -2781,8 +5100,37 @@ function generateBalancesSheet() {
     }
   });
 
-  sheet.insertImage(quickChartPie_('Assets by Category',  assetLabels, assetValues, assetBg), 1, chartAnchorRow);
-  sheet.insertImage(quickChartPie_('Liabilities by Type', liabLabels,  liabValues,  liabBg),  9, chartAnchorRow);
+  // Sort each pie's data largest-first so slices go around clockwise from
+  // biggest to smallest (and the legend reads the same way).
+  function _sortPieData(labels, values, colors) {
+    var rows = labels.map(function(l, i) { return { label: l, value: values[i], color: colors[i] }; });
+    rows.sort(function(a, b) { return b.value - a.value; });
+    return {
+      labels: rows.map(function(r) { return r.label; }),
+      values: rows.map(function(r) { return r.value; }),
+      colors: rows.map(function(r) { return r.color; })
+    };
+  }
+  var aSorted = _sortPieData(assetLabels, assetValues, assetBg);
+  var lSorted = _sortPieData(liabLabels,  liabValues,  liabBg);
+
+  // Put each pie in its own TALL row on the Balances sheet. Setting row
+  // heights to ~700px means each row nearly fills a landscape-letter page
+  // (usable height ~758px at 0.3" margins), so Google's PDF exporter
+  // pushes each row to its own dedicated page rather than trying to
+  // break the chart image across a page boundary. Result: charts appear
+  // as the last 2 pages of the ONE PDF, each intact on its own page.
+  // Remove any pre-existing "Balances Charts" sheet from the earlier
+  // two-PDF approach so it doesn't linger.
+  var oldCharts = ss.getSheetByName('Balances Charts');
+  if (oldCharts) ss.deleteSheet(oldCharts);
+
+  var chartRow1 = chartAnchorRow;
+  var chartRow2 = chartAnchorRow + 1;
+  sheet.setRowHeight(chartRow1, 700);
+  sheet.setRowHeight(chartRow2, 700);
+  sheet.insertImage(quickChartPie_('Assets by Category',  aSorted.labels, aSorted.values, aSorted.colors), 1, chartRow1);
+  sheet.insertImage(quickChartPie_('Liabilities by Type', lSorted.labels, lSorted.values, lSorted.colors), 1, chartRow2);
 
   // ── Activate the sheet ────────────────────────────────────────────────────
   ss.setActiveSheet(sheet);
@@ -2841,8 +5189,12 @@ function takeNWSnapshot(force) {
   // Delete in reverse order so indices stay valid
   rowsToDelete.sort(function(a,b){return b-a;}).forEach(function(r){ snapSheet.deleteRow(r); });
 
-  var assets = sheetToObjects_('ASSETS');
-  var liabs  = sheetToObjects_('LIABILITIES');
+  // Exclude archived rows from the monthly NW snapshot — the snapshot is the
+  // historical record of net worth; once an asset/liability is archived it
+  // shouldn't contribute to current or future snapshots (its historical
+  // contribution stays in prior monthly rows).
+  var assets = sheetToObjects_('ASSETS').filter(function(a){ return !isArchived_(a); });
+  var liabs  = sheetToObjects_('LIABILITIES').filter(function(l){ return !isArchived_(l); });
   var rows   = [];
 
   assets.forEach(function(a) {
@@ -3118,8 +5470,11 @@ function generateNetWorthHistorySheet() {
   });
 
   // ── Chart area offset ────────────────────────────────────────────────────
-  // The top CHART_OFFSET rows are reserved for the line chart; data starts below.
-  var CHART_OFFSET = 17; // rows of blank space above the data table for the chart
+  // No embedded chart in the sheet anymore — Google Sheets kept relocating
+  // it below the data no matter how we ordered setFrozenRows/insertChart.
+  // The dashboard Balance History tab has its own chart. Sheet is now a
+  // clean data table starting right below the title row.
+  var CHART_OFFSET = 1; // just the title row above the data table
   var totalRows    = CHART_OFFSET + numRows;
 
   // Resize sheet to accommodate chart rows + data rows
@@ -3188,7 +5543,6 @@ function generateNetWorthHistorySheet() {
 
   // ── Row heights ───────────────────────────────────────────────────────────
   sheet.setRowHeight(1, 30); // title
-  for (var ci = 2; ci <= CHART_OFFSET; ci++) sheet.setRowHeight(ci, 18); // chart area rows
   sheet.setRowHeight(CHART_OFFSET + 1, 26); // month header
   sheet.setRowHeight(CHART_OFFSET + 2, 32); // NET WORTH
   sheet.setRowHeight(CHART_OFFSET + 3, 22); // % Change
@@ -3198,57 +5552,19 @@ function generateNetWorthHistorySheet() {
   sheet.setColumnWidth(1, 235);
   for (var ci2 = 0; ci2 < numMonths; ci2++) sheet.setColumnWidth(2 + ci2, 105);
 
-  // ── Freeze: lock the month header row + label column ────────────────────
+  // ── Remove any lingering embedded charts from prior runs ──────────────────
+  // We used to render a line chart in reserved rows at the top of this sheet,
+  // but Google Sheets kept relocating it below the data no matter how we
+  // ordered setFrozenRows/insertChart. The dashboard already has a proper
+  // chart on the Balance History tab, so we drop the sheet chart entirely
+  // and just present a clean data table here.
+  sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
+
+  // Freeze the header row (month labels) + label column so users can scroll
+  // both directions and keep context. Safe now that no chart is anchored.
   sheet.setFrozenRows(CHART_OFFSET + 1);
   sheet.setFrozenColumns(1);
   sheet.setHiddenGridlines(true);
-
-  // ── Line chart ────────────────────────────────────────────────────────────
-  // Write chart series data in off-screen columns (to the right of the visible data)
-  // so the chart has contiguous data to read from.
-  var chartDataCol = numCols + 3;
-  var chartSeries  = [
-    [''].concat(months.map(fmtMK)),           // row 0: x-axis labels
-    ['Net Worth'].concat(months.map(nwTotal)), // row 1
-    ['Assets'].concat(months.map(assetTotal)), // row 2
-    ['Liabilities'].concat(months.map(liabTotal)) // row 3
-  ];
-  sheet.getRange(1, chartDataCol, 4, numMonths + 1).setValues(chartSeries);
-
-  // Remove any existing chart before inserting a new one
-  sheet.getCharts().forEach(function(c) { sheet.removeChart(c); });
-
-  var chartWidthPx  = Math.min(235 + numMonths * 105, 1100);
-  var chartHeightPx = (CHART_OFFSET - 1) * 18; // match reserved rows
-
-  var chart = sheet.newChart()
-    .setChartType(Charts.ChartType.LINE)
-    .addRange(sheet.getRange(1, chartDataCol, 4, numMonths + 1))
-    .setTransposeRowsAndColumns(true) // rows become series, first row = x-axis labels
-    .setPosition(2, 1, 0, 0)         // anchor top-left at row 2, col 1
-    .setOption('title', '')
-    .setOption('legend', { position: 'right' })
-    .setOption('series', {
-      0: { color: '#1e8e3e', lineWidth: 2 },  // Net Worth — green
-      1: { color: '#1a73e8', lineWidth: 2 },  // Assets — blue
-      2: { color: '#c5221f', lineWidth: 2 }   // Liabilities — red
-    })
-    .setOption('vAxis', {
-      format: '$#,##0,,"M"',
-      textStyle: { fontSize: 9, color: '#555555' },
-      gridlines: { color: '#e8eef4' }
-    })
-    .setOption('hAxis', {
-      textStyle: { fontSize: 9, color: '#555555' },
-      gridlines: { color: 'transparent' }
-    })
-    .setOption('backgroundColor', { fill: '#f8fafd' })
-    .setOption('chartArea', { left: 75, top: 15, width: Math.max(100, chartWidthPx - 205), height: Math.max(50, chartHeightPx - 50) })
-    .setOption('height', chartHeightPx)
-    .setOption('width', chartWidthPx)
-    .build();
-
-  sheet.insertChart(chart);
 
   ss.toast('Net Worth History refreshed — ' + numMonths + ' months shown', 'Done', 4);
   return { success: true, months: numMonths, rows: numRows };
