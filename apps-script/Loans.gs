@@ -1012,18 +1012,27 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
   return { success: false, error: 'Manual payment not found for that date/amount.' };
 }
 
-// Daily 7 AM alert: check every ACTIVE Payable loan; if a schedule row's
-// due date is more than GRACE days ago and there's no matching Plaid outflow
-// AND no manual "Received/Missed" entry, email Amanda so she can check on
-// it. Prevents missed-payment surprises on loans Mike owes.
-var _LOAN_ALERT_GRACE_DAYS = 5;
+// Daily 7 AM alert: check every ACTIVE loan (both directions); if a schedule
+// row's due date is more than GRACE days ago and there's no matching Plaid
+// payment AND no manual Received/Missed entry, email Amanda + Brandon so
+// someone can chase it down. Covers:
+//   Receivable (📥 owed to Mike) — borrower hasn't paid this month
+//   Payable    (📤 Mike owes)   — outgoing payment didn't get taken out
+var _LOAN_ALERT_GRACE_DAYS = 10;   // Amanda: "by the 10th of the month if it isnt there then email me"
+var _LOAN_ALERT_CC_DEFAULT = 'brandon.cheema@nf6capital.com';
+
 function checkLoanPaymentAlerts() {
   var props = PropertiesService.getScriptProperties();
-  var recipient = props.getProperty('LOAN_ALERT_RECIPIENT')
-               || props.getProperty('DAILY_PDF_RECIPIENT')
-               || props.getProperty('WEEKLY_PDF_RECIPIENT');
-  if (!recipient) {
-    Logger.log('checkLoanPaymentAlerts: no recipient configured (LOAN_ALERT_RECIPIENT / DAILY_PDF_RECIPIENT / WEEKLY_PDF_RECIPIENT).');
+  // Primary recipient: LOAN_ALERT_RECIPIENT if set, else the owner email
+  // (Amanda), else the daily/weekly PDF recipient as a final fallback.
+  var to = props.getProperty('LOAN_ALERT_RECIPIENT')
+        || (typeof _getOwnerEmail_ === 'function' ? _getOwnerEmail_() : '')
+        || props.getProperty('DAILY_PDF_RECIPIENT')
+        || props.getProperty('WEEKLY_PDF_RECIPIENT');
+  // CC: LOAN_ALERT_CC_RECIPIENT if set, else Brandon (per Amanda's default).
+  var cc = props.getProperty('LOAN_ALERT_CC_RECIPIENT') || _LOAN_ALERT_CC_DEFAULT;
+  if (!to) {
+    Logger.log('checkLoanPaymentAlerts: no primary recipient configured.');
     return;
   }
   var statuses;
@@ -1032,22 +1041,24 @@ function checkLoanPaymentAlerts() {
 
   var today = new Date();
   var todayMs = today.getTime();
-  var alerts = [];
+  var receivableAlerts = [];
+  var payableAlerts = [];
 
   (statuses || []).forEach(function(s) {
     var loan = s.loan || {};
-    if (String(loan.Direction||'').toLowerCase() !== 'payable') return;
     if (String(loan.Status||'').toLowerCase() !== 'active') return;
+    var dir = String(loan.Direction||'Receivable').toLowerCase();
+    var bucket = dir === 'payable' ? payableAlerts : receivableAlerts;
     var schedule = s.schedule || [];
     schedule.forEach(function(row) {
       if (row.received || row.missed) return;
       var due = new Date(row.dueDate + 'T00:00:00');
       var daysPast = Math.floor((todayMs - due.getTime()) / 86400000);
       if (daysPast >= _LOAN_ALERT_GRACE_DAYS) {
-        alerts.push({
+        bucket.push({
           loanName: loan.Name || '(unnamed loan)',
           entity:   loan.Entity || '',
-          source:   loan['Source Account'] || '(no account set)',
+          source:   loan['Source Account'] || '',
           n: row.n,
           due: row.dueDate,
           expected: row.payment,
@@ -1057,30 +1068,51 @@ function checkLoanPaymentAlerts() {
     });
   });
 
-  if (!alerts.length) { Logger.log('checkLoanPaymentAlerts: no overdue Payable loan payments.'); return; }
+  var totalAlerts = receivableAlerts.length + payableAlerts.length;
+  if (!totalAlerts) { Logger.log('checkLoanPaymentAlerts: no overdue payments (grace=' + _LOAN_ALERT_GRACE_DAYS + ' days).'); return; }
 
-  var body = 'Heads up — ' + alerts.length + ' expected outgoing loan payment(s) have not been detected in Plaid yet:\n\n';
-  alerts.forEach(function(a) {
-    body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
-    body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
-    body += '    Due: ' + a.due + ' (' + a.daysPast + ' days ago)\n';
-    body += '    Should have come from: ' + a.source + '\n\n';
-  });
+  var body = 'Loan payment alerts — ' + totalAlerts + ' payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n';
+
+  if (receivableAlerts.length) {
+    body += '📥 LOANS OWED TO MIKE (borrower payments missing)\n';
+    body += '───────────────────────────────────────────────────\n';
+    receivableAlerts.forEach(function(a) {
+      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
+      body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
+      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n\n';
+    });
+  }
+  if (payableAlerts.length) {
+    body += '📤 LOANS MIKE OWES (outgoing payments not detected)\n';
+    body += '───────────────────────────────────────────────────\n';
+    payableAlerts.forEach(function(a) {
+      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
+      body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
+      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n';
+      body += '    Should have come from: ' + (a.source || '(no account set)') + '\n\n';
+    });
+  }
+
   body += 'Next steps:\n' +
-          '  1. Check the source account for a recent outgoing wire/ACH.\n' +
-          '  2. If it went out but Plaid missed it, open the Loans tab and use\n' +
-          '     Mark Payment as Received on the row.\n' +
-          '  3. If it truly wasn\'t paid, follow up with the lender + mark the\n' +
-          '     row as Missed on the Loans tab.\n\n' +
-          'Set LOAN_ALERT_RECIPIENT in Script Properties to change the alert recipient (currently ' + recipient + ').';
+          '  1. For Receivables: reach out to the borrower to confirm they sent the payment.\n' +
+          '     If they say they paid on a specific date, open the Loans tab → click the row →\n' +
+          '     Mark Payment as Received with their actual date.\n' +
+          '  2. For Payables: check the source account for a recent outgoing wire/ACH.\n' +
+          '     If it went out but Plaid missed it, Mark Payment as Received on the row.\n' +
+          '     If it truly didn\'t go out, follow up with the lender + mark as Missed.\n\n' +
+          'Config: recipient = ' + to + (cc ? ' · cc = ' + cc : '') + '\n' +
+          'To change: set LOAN_ALERT_RECIPIENT / LOAN_ALERT_CC_RECIPIENT in Script Properties.';
 
-  MailApp.sendEmail({
-    to: recipient,
-    subject: '⚠ Loan Payment Alert — ' + alerts.length + ' payment(s) not detected',
+  var mailOpts = {
+    to: to,
+    subject: '⚠ Loan Payment Alert — ' + totalAlerts + ' overdue payment(s)',
     body: body,
     name: 'Loan Payment Monitor'
-  });
-  Logger.log('checkLoanPaymentAlerts: emailed ' + alerts.length + ' alerts to ' + recipient);
+  };
+  if (cc) mailOpts.cc = cc;
+
+  MailApp.sendEmail(mailOpts);
+  Logger.log('checkLoanPaymentAlerts: emailed ' + totalAlerts + ' alerts to ' + to + (cc ? ' cc ' + cc : ''));
 }
 
 // Trigger-callable: recompute every loan's status, which internally syncs
