@@ -65,6 +65,19 @@ function _isOwner_() {
   var me = _currentUserEmail_();
   return !!me && me === _getOwnerEmail_();
 }
+// True when running under a time-based / installable trigger context (or any
+// server-side context with no human caller on the line). Apps Script has no
+// direct "am I in a trigger?" API, but the effective user matching the script
+// owner while the active user is empty or equals the effective user is a
+// reliable signal: a trigger runs as its installer with no separate caller.
+function _isSystemContext_() {
+  try {
+    var effective = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+    if (!effective) return false;
+    var active = _currentUserEmail_();
+    return (!active || active === effective);
+  } catch (e) { return false; }
+}
 function _isEditor_() {
   var me = _currentUserEmail_();
   // FAIL-SAFE: if we can't determine the caller's identity at all (empty
@@ -75,6 +88,11 @@ function _isEditor_() {
   // a guarded function whenever the identity check quietly fails.
   if (!me) return true;
   if (me === _getOwnerEmail_()) return true;
+  // Time-based triggers run as the installer with no separate human caller.
+  // Without this bypass, every scheduled fetchExchangeRates / dailySync_ /
+  // checkLoanPaymentAlerts run throws "Read-only view" and sends a Google
+  // failure email — even though the code should absolutely be allowed to run.
+  if (_isSystemContext_()) return true;
   return _getEditors_().map(function(e){return String(e).toLowerCase();}).indexOf(me) >= 0;
 }
 function _requireEditor_() {
@@ -103,6 +121,55 @@ function getAccessInfo() {
     isEditor:   _isEditor_(),
     editors:    isOwner ? _getEditors_() : []   // hide list from non-owners
   };
+}
+
+// Menu diagnostic — shows which identity the script sees itself running as,
+// which OWNER_EMAIL / EDITORS are configured, and every installed trigger and
+// who installed it. Use this when Google is sending "script failed" emails
+// with permission errors — it tells you WHY the gate is rejecting the call.
+function diagnoseAccessAndTriggers() {
+  var ui = SpreadsheetApp.getUi();
+  var active = '', effective = '';
+  try { active = String(Session.getActiveUser().getEmail() || ''); } catch(e) { active = '(threw: ' + e.message + ')'; }
+  try { effective = String(Session.getEffectiveUser().getEmail() || ''); } catch(e) { effective = '(threw: ' + e.message + ')'; }
+  var props = PropertiesService.getScriptProperties();
+  var ownerProp = props.getProperty('OWNER_EMAIL') || '(unset — falls back to default)';
+  var editorsProp = props.getProperty('EDITORS') || '[]';
+  var effectiveOwner = _getOwnerEmail_();
+  var lines = [
+    'IDENTITY',
+    '  Session.getActiveUser().getEmail()    → ' + (active || '(empty)'),
+    '  Session.getEffectiveUser().getEmail() → ' + (effective || '(empty)'),
+    '',
+    'CONFIGURED ACCESS',
+    '  OWNER_EMAIL property → ' + ownerProp,
+    '  Default owner        → ' + OWNER_EMAIL_DEFAULT,
+    '  Effective owner used → ' + effectiveOwner,
+    '  EDITORS property     → ' + editorsProp,
+    '',
+    'GATE RESULT for this run',
+    '  _isSystemContext_() → ' + _isSystemContext_(),
+    '  _isEditor_()        → ' + _isEditor_(),
+    '  _isOwner_()         → ' + _isOwner_(),
+    '',
+    'INSTALLED TRIGGERS (script owner: ' + effective + ')'
+  ];
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    if (!triggers.length) {
+      lines.push('  (none installed)');
+    } else {
+      triggers.forEach(function(t) {
+        var handler = t.getHandlerFunction();
+        var type = String(t.getEventType());
+        var src = String(t.getTriggerSource());
+        lines.push('  • ' + handler + ' [' + type + ' / ' + src + ']');
+      });
+    }
+  } catch(e) {
+    lines.push('  (could not list: ' + e.message + ')');
+  }
+  ui.alert('Access + Trigger Diagnostic', lines.join('\n'), ui.ButtonSet.OK);
 }
 
 // Web-callable (owner-only): grant edit access to another email.
@@ -294,6 +361,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Tracker')
     .addItem('Check Setup', 'deploymentReadinessCheck')
+    .addItem('Diagnose Access + Triggers', 'diagnoseAccessAndTriggers')
     .addSeparator()
     .addItem('Refresh FX Rates', 'fetchExchangeRates')
     .addItem('Refresh US Property Values', 'refreshPropertyValues')
