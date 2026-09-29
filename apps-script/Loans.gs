@@ -1408,10 +1408,20 @@ function _computeLoanStatus_(loan) {
     };
 }
 
-// Update the linked asset's stored balance to match the loan's current
-// outstanding. Uses the asset's My Share % to compute the owner's share.
-// Returns { updated: bool, oldValue, newValue } for the UI to display.
-function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
+// Update the linked ASSET or LIABILITY row's stored balance to match the
+// loan's current outstanding. Dispatches by looking up the ID in Assets
+// first, then Liabilities — a linked Payable loan (e.g. the Texas /
+// Amegy mortgage) can now sync into the Liabilities sheet directly, so
+// paying it down drives the liability total down on the dashboard.
+// Returns { updated: bool, oldValue, newValue, kind } for the UI.
+function _syncLinkedAssetBalance_(linkedId, loanBalance, loanName) {
+  if (!linkedId) return null;
+  var asAsset = _syncLinkedAssetRow_(linkedId, loanBalance, loanName);
+  if (asAsset) return asAsset;
+  return _syncLinkedLiabilityRow_(linkedId, loanBalance, loanName);
+}
+
+function _syncLinkedAssetRow_(assetId, loanBalance, loanName) {
   var sheet = getSheet_('ASSETS');
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
@@ -1428,14 +1438,37 @@ function _syncLinkedAssetBalance_(assetId, loanBalance, loanName) {
     var newLocal = loanBalance;
     var newMine  = loanBalance * sharePct / 100;
     var oldMine  = iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0;
-    // Only write if the value materially differs (>$1 to avoid rounding chatter).
-    if (Math.abs(newMine - oldMine) < 1) return { updated: false, oldValue: oldMine, newValue: newMine };
+    if (Math.abs(newMine - oldMine) < 1) return { updated: false, oldValue: oldMine, newValue: newMine, kind: 'asset' };
     if (iLocal >= 0) sheet.getRange(r + 1, iLocal + 1).setValue(newLocal);
     if (iUsd   >= 0) sheet.getRange(r + 1, iUsd + 1).setValue(newLocal);
     if (iMine  >= 0) sheet.getRange(r + 1, iMine + 1).setValue(newMine);
     if (iUpd   >= 0) sheet.getRange(r + 1, iUpd + 1).setValue(new Date());
     _logAudit_('syncLoanBalance', 'asset', assetId, loanName, 'Synced from loan: ' + newMine.toFixed(2));
-    return { updated: true, oldValue: oldMine, newValue: newMine };
+    return { updated: true, oldValue: oldMine, newValue: newMine, kind: 'asset' };
+  }
+  return null;
+}
+
+// Same idea but for the LIABILITIES sheet. Liabilities have Amount (local)
+// and USD Value — no My Share %, so the loan balance writes 1:1.
+function _syncLinkedLiabilityRow_(liabId, loanBalance, loanName) {
+  var sheet = getSheet_('LIABILITIES');
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var iId    = headers.indexOf('ID');
+  var iAmt   = headers.indexOf('Amount');
+  var iUsd   = headers.indexOf('USD Value');
+  var iUpd   = headers.indexOf('Last Updated');
+  if (iId < 0) return null;
+  for (var r = 1; r < data.length; r++) {
+    if (String(data[r][iId]) !== String(liabId)) continue;
+    var oldUsd = iUsd >= 0 ? (Number(data[r][iUsd]) || 0) : 0;
+    if (Math.abs(loanBalance - oldUsd) < 1) return { updated: false, oldValue: oldUsd, newValue: loanBalance, kind: 'liability' };
+    if (iAmt >= 0) sheet.getRange(r + 1, iAmt + 1).setValue(loanBalance);
+    if (iUsd >= 0) sheet.getRange(r + 1, iUsd + 1).setValue(loanBalance);
+    if (iUpd >= 0) sheet.getRange(r + 1, iUpd + 1).setValue(new Date());
+    _logAudit_('syncLoanBalance', 'liability', liabId, loanName, 'Synced from loan: ' + loanBalance.toFixed(2));
+    return { updated: true, oldValue: oldUsd, newValue: loanBalance, kind: 'liability' };
   }
   return null;
 }
@@ -1585,36 +1618,63 @@ function getLoanLinkedToAsset(assetId) {
   };
 }
 
-// Web-callable — for the "Linked Asset" dropdown in the Loans modal.
-// Returns every non-archived asset so Amanda can link to any category
-// (Loans Receivable, Promissory Notes, Private Equity, Real Estate, or
-// anything else). Sorted by category then name so the dropdown is easy
-// to scan.
+// Web-callable — for the "Linked Asset / Liability" dropdown in the Loans
+// modal. Returns EVERY non-archived asset AND non-archived liability so
+// Amanda can link a Receivable loan to an Asset row (increases net worth)
+// or a Payable loan to a Liability row (increases debt). Each row is
+// tagged with `kind: 'asset' | 'liability'` so the frontend can render
+// them under separate optgroups. Sort: by kind, then category/type, then
+// name.
 function getLoanableAssets() {
-  var sheet = getSheet_('ASSETS');
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var iId    = headers.indexOf('ID');
-  var iName  = headers.indexOf('Name');
-  var iCat   = headers.indexOf('Category');
-  var iEnt   = headers.indexOf('Entity');
-  var iShare = headers.indexOf('My Share %');
-  var iMine  = headers.indexOf('My Share USD');
-  var iArch  = headers.indexOf('Archived');
   var out = [];
-  for (var r = 1; r < data.length; r++) {
-    var isArch = iArch >= 0 ? (String(data[r][iArch] || '').toLowerCase() === 'yes' || data[r][iArch] === true) : false;
-    if (isArch) continue;
+
+  // Assets
+  var aSheet = getSheet_('ASSETS');
+  var aData = aSheet.getDataRange().getValues();
+  var aH = aData[0];
+  var aI = {
+    id: aH.indexOf('ID'), name: aH.indexOf('Name'), cat: aH.indexOf('Category'),
+    ent: aH.indexOf('Entity'), share: aH.indexOf('My Share %'),
+    mine: aH.indexOf('My Share USD'), arch: aH.indexOf('Archived')
+  };
+  for (var r = 1; r < aData.length; r++) {
+    var arch = aI.arch >= 0 ? (String(aData[r][aI.arch] || '').toLowerCase() === 'yes' || aData[r][aI.arch] === true) : false;
+    if (arch) continue;
     out.push({
-      id: String(data[r][iId] || ''),
-      name: String(data[r][iName] || ''),
-      category: String(data[r][iCat] || ''),
-      entity: String(data[r][iEnt] || ''),
-      sharePct: iShare >= 0 ? (Number(data[r][iShare]) || 100) : 100,
-      currentValue: iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0
+      id:           String(aData[r][aI.id] || ''),
+      kind:         'asset',
+      name:         String(aData[r][aI.name] || ''),
+      category:     String(aData[r][aI.cat] || ''),
+      entity:       aI.ent >= 0 ? String(aData[r][aI.ent] || '') : '',
+      sharePct:     aI.share >= 0 ? (Number(aData[r][aI.share]) || 100) : 100,
+      currentValue: aI.mine >= 0 ? (Number(aData[r][aI.mine]) || 0) : 0
     });
   }
+
+  // Liabilities (for Payable loans — Texas / Amegy mortgage, etc.)
+  var lSheet = getSheet_('LIABILITIES');
+  var lData = lSheet.getDataRange().getValues();
+  var lH = lData[0];
+  var lI = {
+    id: lH.indexOf('ID'), name: lH.indexOf('Name'), type: lH.indexOf('Type'),
+    usd: lH.indexOf('USD Value'), arch: lH.indexOf('Archived')
+  };
+  for (var r2 = 1; r2 < lData.length; r2++) {
+    var larch = lI.arch >= 0 ? (String(lData[r2][lI.arch] || '').toLowerCase() === 'yes' || lData[r2][lI.arch] === true) : false;
+    if (larch) continue;
+    out.push({
+      id:           String(lData[r2][lI.id] || ''),
+      kind:         'liability',
+      name:         String(lData[r2][lI.name] || ''),
+      category:     lI.type >= 0 ? String(lData[r2][lI.type] || '') : 'Liability',
+      entity:       '',
+      sharePct:     100,
+      currentValue: lI.usd >= 0 ? (Number(lData[r2][lI.usd]) || 0) : 0
+    });
+  }
+
   out.sort(function(a, b){
+    if (a.kind !== b.kind) return a.kind === 'asset' ? -1 : 1;
     var c = String(a.category||'').localeCompare(String(b.category||''));
     if (c !== 0) return c;
     return String(a.name||'').localeCompare(String(b.name||''));

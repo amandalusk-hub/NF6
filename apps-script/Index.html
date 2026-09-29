@@ -777,7 +777,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <input type="text" id="loan-plaid-pattern" placeholder="e.g. SOLARIS-FL HOLDI  or  WASICA HOLDINGS|WASKAR" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
         </div>
         <div style="grid-column:1/3">
-          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Linked Asset <span style="color:#8091a8">(when set, the asset's balance on the dashboard auto-updates from this loan's outstanding)</span></label>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500">Linked Asset / Liability <span style="color:#8091a8">(when set, that row's balance on the dashboard auto-updates from this loan's outstanding — pick an Asset for Receivable loans, a Liability for Payable loans)</span></label>
           <select id="loan-linked-asset" style="width:100%;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px">
             <option value="">— not linked —</option>
           </select>
@@ -2390,8 +2390,17 @@ function _renderLoanCard(status) {
         '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Balance Remaining</div>' +
         '<div style="font-size:19px;font-weight:700;color:#0d2137">'+fmtUSD(s.currentBalance||0)+'</div>' +
         (loan['Linked Asset ID']
-          ? '<div style="font-size:10px;color:#1e8e3e;margin-top:2px" title="Asset ID: '+esc(loan['Linked Asset ID'])+'">🔗 linked ' + (s.summary && s.summary.linkedAssetSync && s.summary.linkedAssetSync.updated ? '(synced ' + fmtUSD(s.summary.linkedAssetSync.newValue) + ')' : (s.summary && s.summary.linkedAssetSync ? '(up to date)' : '(asset ID: ' + esc(String(loan['Linked Asset ID']).substring(0, 12)) + '…)')) + '</div>'
-          : '<div style="font-size:10px;color:#c5221f;margin-top:2px">⚠ not linked to asset</div>') +
+          ? (function(){
+              var sync = s.summary && s.summary.linkedAssetSync;
+              var kind = sync && sync.kind ? sync.kind : 'row';
+              var kindLabel = kind === 'liability' ? 'liability' : (kind === 'asset' ? 'asset' : 'row');
+              var status;
+              if (sync && sync.updated)      status = '(synced ' + fmtUSD(sync.newValue) + ' to ' + kindLabel + ')';
+              else if (sync)                 status = '(' + kindLabel + ' up to date)';
+              else                           status = '(id: ' + esc(String(loan['Linked Asset ID']).substring(0, 12)) + '…)';
+              return '<div style="font-size:10px;color:#1e8e3e;margin-top:2px" title="Linked ID: '+esc(loan['Linked Asset ID'])+'">🔗 linked ' + status + '</div>';
+            })()
+          : '<div style="font-size:10px;color:#c5221f;margin-top:2px">⚠ not linked to asset / liability</div>') +
       '</div>' +
       '<button onclick="event.stopPropagation();openLoanModal(\''+loan.ID+'\')" style="margin-left:14px;background:#f0f4f9;border:1px solid #dfe6ee;color:#4a6b8e;padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer">Edit</button>' +
     '</div>' +
@@ -2774,20 +2783,27 @@ function openLoanModal(id) {
   document.getElementById('loan-plaid-pattern').value = loan ? (loan['Plaid Match Pattern'] || '') : '';
   document.getElementById('loan-notes').value = loan ? (loan.Notes || '') : '';
   document.getElementById('loan-delete-btn').style.display = loan ? 'inline-block' : 'none';
-  // Populate the Linked Asset dropdown with loans-receivable / promissory-notes /
-  // private-equity assets, then set the current value.
+  // Populate the Linked Asset / Liability dropdown. Assets are shown in one
+  // optgroup, liabilities in another — pick a Liability for the Texas loan
+  // so the mortgage balance on the dashboard drops as the loan is paid.
   var linkedSel = document.getElementById('loan-linked-asset');
-  linkedSel.innerHTML = '<option value="">— not linked — (loading assets…)</option>';
+  linkedSel.innerHTML = '<option value="">— not linked — (loading…)</option>';
   google.script.run
-    .withSuccessHandler(function(assets){
-      linkedSel.innerHTML = '<option value="">— not linked —</option>' +
-        (assets||[]).map(function(a){
-          return '<option value="'+esc(a.id)+'">'+esc(a.name)+' &nbsp; ('+esc(a.category)+', '+esc(a.entity||'—')+')</option>';
-        }).join('');
+    .withSuccessHandler(function(rows){
+      rows = rows || [];
+      var assets = rows.filter(function(r){ return r.kind === 'asset'; });
+      var liabs  = rows.filter(function(r){ return r.kind === 'liability'; });
+      function optHtml(r){
+        return '<option value="'+esc(r.id)+'">'+esc(r.name)+' &nbsp; ('+esc(r.category)+(r.entity ? ', '+esc(r.entity) : '')+')</option>';
+      }
+      var html = '<option value="">— not linked —</option>';
+      if (assets.length) html += '<optgroup label="Assets">' + assets.map(optHtml).join('') + '</optgroup>';
+      if (liabs.length)  html += '<optgroup label="Liabilities">' + liabs.map(optHtml).join('') + '</optgroup>';
+      linkedSel.innerHTML = html;
       linkedSel.value = loan ? (loan['Linked Asset ID'] || '') : '';
     })
     .withFailureHandler(function(e){
-      linkedSel.innerHTML = '<option value="">— not linked — (asset load failed)</option>';
+      linkedSel.innerHTML = '<option value="">— not linked — (load failed)</option>';
     })
     .getLoanableAssets();
   openModal('loan-modal');
