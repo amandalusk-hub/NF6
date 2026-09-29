@@ -1024,6 +1024,14 @@ function sendTestLoanAlertEmail() {
   var cc = props.getProperty('LOAN_ALERT_CC_RECIPIENT') || _LOAN_ALERT_CC_DEFAULT;
   if (!to) { SpreadsheetApp.getUi().alert('No primary recipient found. Set LOAN_ALERT_RECIPIENT or OWNER_EMAIL script property.'); return; }
 
+  // Try to resolve the real Texas source-account balance so the test email
+  // shows the same live balance line Amanda would see in a real alert. Falls
+  // back to a placeholder if no match.
+  var texasAcct = _lookupAccountBalance_('NF USA TX');
+  var texasBalLine = texasAcct
+    ? '    Current balance of ' + texasAcct.name + ': ' + _fmtBalanceUSD_(texasAcct.balance) + (texasAcct.balance < 17666.67 ? '  ⚠ INSUFFICIENT — short by ' + _fmtBalanceUSD_(17666.67 - texasAcct.balance) : '') + '\n'
+    : '    Current balance of NF USA TX: (couldn\'t look up — check that Source Account matches an Asset name)\n';
+
   var body = '⚠ THIS IS A TEST ALERT — for previewing the format only. No real payment is overdue.\n\n' +
              'Loan payment alerts — 2 payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n' +
              '📥 LOANS OWED TO MIKE (borrower payments missing)\n' +
@@ -1036,14 +1044,16 @@ function sendTestLoanAlertEmail() {
              '  • Texas Mortgage — 709 Kuhlman Rd (Amegy Bank) (NF USA TX LLC)\n' +
              '    Payment #1 — Expected $17,666.67\n' +
              '    Due: 2026-11-01 (13 days overdue)\n' +
-             '    Should have come from: NF USA TX\n\n' +
+             '    Should have come from: NF USA TX\n' +
+             texasBalLine + '\n' +
              'Next steps:\n' +
              '  1. For Receivables: reach out to the borrower to confirm they sent the payment.\n' +
              '     If they say they paid on a specific date, open the Loans tab → click the row →\n' +
              '     Mark Payment as Received with their actual date.\n' +
-             '  2. For Payables: check the source account for a recent outgoing wire/ACH.\n' +
-             '     If it went out but Plaid missed it, Mark Payment as Received on the row.\n' +
-             '     If it truly didn\'t go out, follow up with the lender + mark as Missed.\n\n' +
+             '  2. For Payables: check the source account balance above.\n' +
+             '     If the account has funds and the payment went out but Plaid missed it,\n' +
+             '     Mark Payment as Received on the row. If it truly didn\'t go out,\n' +
+             '     follow up with the lender + mark as Missed.\n\n' +
              'Config: recipient = ' + to + (cc ? ' · cc = ' + cc : '') + '\n' +
              'To change: set LOAN_ALERT_RECIPIENT / LOAN_ALERT_CC_RECIPIENT in Script Properties.';
 
@@ -1066,6 +1076,70 @@ function sendTestLoanAlertEmail() {
 //   Payable    (📤 Mike owes)   — outgoing payment didn't get taken out
 var _LOAN_ALERT_GRACE_DAYS = 10;   // Amanda: "by the 10th of the month if it isnt there then email me"
 var _LOAN_ALERT_CC_DEFAULT = 'brandon.cheema@nf6capital.com';
+
+// Look up the current USD balance of the account that a loan's Source Account
+// field refers to. We match Source Account substring against Assets first
+// (since payment accounts are usually cash assets on the tracker), then fall
+// back to Liabilities (in case the source is a linked credit card).
+// Returns { name, balance } or null if we can't find a match.
+function _lookupAccountBalance_(sourceAccount) {
+  var q = String(sourceAccount || '').toLowerCase().trim();
+  if (!q) return null;
+
+  // Assets
+  try {
+    var aSheet = getSheet_('ASSETS');
+    var aData = aSheet.getDataRange().getValues();
+    var aH = aData[0];
+    var iName = aH.indexOf('Name');
+    var iUsd  = aH.indexOf('USD Value');
+    var iMine = aH.indexOf('My Share USD');
+    var iArch = aH.indexOf('Archived');
+    if (iName >= 0) {
+      for (var r = 1; r < aData.length; r++) {
+        var arch = iArch >= 0 ? (String(aData[r][iArch] || '').toLowerCase() === 'yes' || aData[r][iArch] === true) : false;
+        if (arch) continue;
+        var name = String(aData[r][iName] || '').toLowerCase();
+        if (name && name.indexOf(q) >= 0) {
+          // Prefer My Share USD (what actually shows on the dashboard); fall
+          // back to USD Value if the sharing column is empty for this row.
+          var bal = iMine >= 0 ? Number(aData[r][iMine]) || 0 : 0;
+          if (!bal && iUsd >= 0) bal = Number(aData[r][iUsd]) || 0;
+          return { name: String(aData[r][iName] || ''), balance: bal };
+        }
+      }
+    }
+  } catch(e) { Logger.log('_lookupAccountBalance_ (assets) failed: ' + e.message); }
+
+  // Liabilities
+  try {
+    var lSheet = getSheet_('LIABILITIES');
+    var lData = lSheet.getDataRange().getValues();
+    var lH = lData[0];
+    var liName = lH.indexOf('Name');
+    var liUsd  = lH.indexOf('USD Value');
+    var liArch = lH.indexOf('Archived');
+    if (liName >= 0) {
+      for (var lr = 1; lr < lData.length; lr++) {
+        var larch = liArch >= 0 ? (String(lData[lr][liArch] || '').toLowerCase() === 'yes' || lData[lr][liArch] === true) : false;
+        if (larch) continue;
+        var lname = String(lData[lr][liName] || '').toLowerCase();
+        if (lname && lname.indexOf(q) >= 0) {
+          var lbal = liUsd >= 0 ? Number(lData[lr][liUsd]) || 0 : 0;
+          return { name: String(lData[lr][liName] || ''), balance: -lbal };  // liability = negative
+        }
+      }
+    }
+  } catch(e) { Logger.log('_lookupAccountBalance_ (liabilities) failed: ' + e.message); }
+
+  return null;
+}
+
+function _fmtBalanceUSD_(n) {
+  var neg = n < 0;
+  var abs = Math.abs(n);
+  return (neg ? '-' : '') + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
 
 function checkLoanPaymentAlerts() {
   var props = PropertiesService.getScriptProperties();
@@ -1135,7 +1209,19 @@ function checkLoanPaymentAlerts() {
       body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
       body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
       body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n';
-      body += '    Should have come from: ' + (a.source || '(no account set)') + '\n\n';
+      body += '    Should have come from: ' + (a.source || '(no account set)') + '\n';
+      // Include the current balance of the source account so Amanda can tell
+      // at a glance whether the account even has funds to make the payment.
+      if (a.source) {
+        var acct = _lookupAccountBalance_(a.source);
+        if (acct) {
+          var shortfall = acct.balance < Number(a.expected||0) ? '  ⚠ INSUFFICIENT — short by ' + _fmtBalanceUSD_(Number(a.expected||0) - acct.balance) : '';
+          body += '    Current balance of ' + acct.name + ': ' + _fmtBalanceUSD_(acct.balance) + shortfall + '\n';
+        } else {
+          body += '    (couldn\'t find "' + a.source + '" on Assets or Liabilities to check balance)\n';
+        }
+      }
+      body += '\n';
     });
   }
 
