@@ -5804,7 +5804,9 @@ function updateDetailPreview(){
   var localAmt = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   var fxEntry  = (state.fxRates||[]).find(function(r){ return r.Currency === cur; });
   var rate     = fxEntry ? num(fxEntry['Rate to USD']) : 0;
-  var lastUpd  = fxEntry ? fxEntry['Last Updated'] : null;
+  // FX sheet's timestamp column is "Last Fetched" (see SHEETS.FX in Code.gs).
+  // Fall back to "Last Updated" so an older sheet with the old name still works.
+  var lastUpd  = fxEntry ? (fxEntry['Last Fetched'] || fxEntry['Last Updated']) : null;
   // Ownership share (may be set on the ownership input, or on the asset).
   var shareInp = document.getElementById('da-share');
   var idEl     = document.getElementById('detail-id');
