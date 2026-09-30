@@ -352,7 +352,7 @@ function getMovements() {
 //   (via NF6 Joint Mgmt LLC → NF6 Family Holdings, split 1/3 each = 0.333%
 //   per sibling).
 //
-//   NF PR SJ LLC (808) has the same ultimate ownership (99% Mike, 0.333% per
+//   NF PR SJ LLC (5297) has the same ultimate ownership (99% Mike, 0.333% per
 //   sibling) through the same NF6 Family Holdings (7932) parent.
 //
 //   Blue Panda FLP (8686) is 99% owned by MN Trust Irrevocable (100% Mike)
@@ -398,7 +398,7 @@ function seedMovementTemplates() {
   // 2. NF PR SJ Wire (up)
   results.push(_seedTemplate_({
     name: 'NF PR SJ Wire',
-    destination: 'NF PR SJ LLC (808)',
+    destination: 'NF PR SJ LLC (5297)',
     direction: 'up',
     description: 'Money flowing IN to NF PR SJ LLC. 99% via Mike (through 2019 MN Family Rev Trust → NF6 Family Holdings). 1% via siblings (each 1/3 through Personal → NF6 Joint Mgmt → NF6 Family Holdings).',
     hops: [
@@ -414,7 +414,7 @@ function seedMovementTemplates() {
       { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333334, notes:'' },
       // Merger + final leg
       { order: 40, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (7932)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
-      { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (7932)', to:'NF PR SJ LLC (808)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
+      { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (7932)', to:'NF PR SJ LLC (5297)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
     ]
   }, haveByName));
 
@@ -469,12 +469,12 @@ function seedMovementTemplates() {
   //    Inverse of #2. Amanda uses this more often than the UP version.
   results.push(_seedTemplate_({
     name: 'NF PR SJ Distribution (Down)',
-    destination: 'NF PR SJ LLC (808)',
+    destination: 'NF PR SJ LLC (5297)',
     direction: 'down',
     description: 'Distribution OUT of NF PR SJ LLC. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
     hops: [
       // Full amount out of NF PR SJ to Family Holdings
-      { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (808)',     to:'NF6 Family Holdings (7932)',              responsible:'Amanda', pct:100.00, notes:'' },
+      { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (5297)',     to:'NF6 Family Holdings (7932)',              responsible:'Amanda', pct:100.00, notes:'' },
       // Family Holdings splits: 99% to Rev Trust (Mike), 1% to Joint Mgmt (siblings)
       { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (7932)', to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)', to:'NF6 Joint Mgmt LLC (8972)',              responsible:'Amanda', pct:  1.00, notes:'' },
@@ -693,22 +693,41 @@ function formatMovementMessage(movementId) {
   };
 }
 
-// Menu-callable — prompts for a template name substring + a total amount,
-// then shows the generated message so Amanda can eyeball the format before
-// the tab UI is built. Useful for testing the topo-sort logic on real data.
+// Menu-callable — shows a numbered list of every template, prompts for the
+// number, then prompts for a total amount, then pops the generated message.
+// The tab UI (commit 2) will replace this with a proper dropdown; this is
+// the placeholder for testing until then.
 function menuPreviewMovementMessage() {
   var ui = SpreadsheetApp.getUi();
-  var r1 = ui.prompt('Preview Movement Message', 'Template name (substring, e.g. "NF PR SJ" or "Tiger Down"):', ui.ButtonSet.OK_CANCEL);
-  if (r1.getSelectedButton() !== ui.Button.OK) return;
-  var query = String(r1.getResponseText() || '').trim().toLowerCase();
-  if (!query) return;
   var templates = getMovementTemplates();
-  var match = templates.find(function(t) { return String(t['Name']).toLowerCase().indexOf(query) >= 0; });
-  if (!match) {
-    ui.alert('No template found matching "' + query + '".\n\nAvailable:\n' + templates.map(function(t){return '  • ' + t['Name'];}).join('\n'));
+  if (!templates.length) {
+    ui.alert('No templates yet. Run "Money Movement → Seed Templates" first.');
     return;
   }
-  var r2 = ui.prompt('Preview Movement Message', 'Total amount for "' + match['Name'] + '":', ui.ButtonSet.OK_CANCEL);
+  var list = templates.map(function(t, i) {
+    return '  ' + (i + 1) + '. ' + t['Name'] + '  [' + (t['Direction'] || '?') + ']';
+  }).join('\n');
+  var r1 = ui.prompt('Preview Movement Message',
+    'Pick a template — enter a number 1-' + templates.length + ' (or type a name substring):\n\n' + list,
+    ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var raw = String(r1.getResponseText() || '').trim();
+  if (!raw) return;
+  var match;
+  var asNum = Number(raw);
+  if (!isNaN(asNum) && asNum >= 1 && asNum <= templates.length) {
+    match = templates[asNum - 1];
+  } else {
+    var q = raw.toLowerCase();
+    match = templates.find(function(t) { return String(t['Name']).toLowerCase().indexOf(q) >= 0; });
+  }
+  if (!match) {
+    ui.alert('No template found for "' + raw + '".\n\nAvailable:\n' + list);
+    return;
+  }
+  var r2 = ui.prompt('Preview Movement Message',
+    'Selected: ' + match['Name'] + '\n\nEnter the total amount to move (e.g. 100000 or $100,000):',
+    ui.ButtonSet.OK_CANCEL);
   if (r2.getSelectedButton() !== ui.Button.OK) return;
   var amt = Number(String(r2.getResponseText() || '').replace(/[$,\s]/g, '')) || 0;
   if (amt <= 0) { ui.alert('Amount must be > 0.'); return; }
@@ -735,7 +754,12 @@ var _MOVEMENT_ACCOUNT_RELABELS = {
   'NF6 Family Holdings (316)':              'NF6 Family Holdings (7932)',
   'NF6 Family Holding (316)':               'NF6 Family Holdings (7932)',
   'NF6 Family Holdings':                    'NF6 Family Holdings (7932)',
-  'NF6 Family Holding':                     'NF6 Family Holdings (7932)'
+  'NF6 Family Holding':                     'NF6 Family Holdings (7932)',
+  // NF PR SJ LLC — Amanda corrected the account number in her sheet from
+  // my seed's (808) to the actual (5297). Add both directions of the
+  // normalization so any leftover (808) rows get pulled up.
+  'NF PR SJ LLC (808)':                     'NF PR SJ LLC (5297)',
+  'NF PR SJ LLC':                           'NF PR SJ LLC (5297)'
 };
 
 // Menu-callable — walk every hop row and replace any From/To Account whose
