@@ -7866,11 +7866,7 @@ function _renderMovementCard(m, tpl) {
 
 function openMoveNewModal() {
   var sel = document.getElementById('move-template');
-  sel.innerHTML = '<option value="">— pick a template —</option>' +
-    (_mmState.templates || []).map(function(t) {
-      var dir = String(t['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
-      return '<option value="' + esc(t['ID']) + '">' + dir + ' ' + esc(t['Name']) + '</option>';
-    }).join('');
+  sel.innerHTML = '<option value="">Loading templates…</option>';
   document.getElementById('move-amount').value = '';
   document.getElementById('move-date').value = '';
   document.getElementById('move-notes').value = '';
@@ -7878,6 +7874,25 @@ function openMoveNewModal() {
   document.getElementById('move-copy-btn').disabled = true;
   _mmState.lastPreview = '';
   openModal('move-new-modal');
+  // Always re-fetch so the picker isn't empty if the initial tab load lost or
+  // hadn't finished the templates cache.
+  google.script.run
+    .withSuccessHandler(function(templates) {
+      _mmState.templates = templates || [];
+      if (!_mmState.templates.length) {
+        sel.innerHTML = '<option value="">— no templates found — run Tracker → Money Movement → Seed Templates from the sheet menu</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">— pick a template —</option>' +
+        _mmState.templates.map(function(t) {
+          var dir = String(t['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
+          return '<option value="' + esc(t['ID']) + '">' + dir + ' ' + esc(t['Name']) + '</option>';
+        }).join('');
+    })
+    .withFailureHandler(function(e) {
+      sel.innerHTML = '<option value="">— load failed: ' + esc(e.message || e) + '</option>';
+    })
+    .getMovementTemplates();
 }
 
 function _renderMovePreview() {
