@@ -429,6 +429,7 @@ function onOpen() {
     .addItem('Properties → Debug: List Plaid Accounts (for setup)', 'debugListPlaidAccounts')
     .addSeparator()
     .addItem('Money Movement → Seed Templates (Blue Panda / NF PR SJ / Tiger Up + Down)', 'seedMovementTemplates')
+    .addItem('Money Movement → Fix Responsibles (Amanda / Ben rule)', 'updateMovementResponsibles')
     .addItem('Money Movement → Debug: Show Templates + Hops', 'debugMovementTemplates')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')

@@ -388,6 +388,7 @@ function seedMovementTemplates() {
       { order: 30, chain:'Mike (via BPMGMT)',    from:'Michael Nguyen Personal',          to:'2019 MN Family Revocable Trust', responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
       { order: 40, chain:'Mike (via BPMGMT)',    from:'2019 MN Family Revocable Trust',   to:'BPMGMT (5150)',                  responsible:'Amanda', pct:  0.51, notes:'' },
       // Chain C: Nancy via BPMGMT (0.49% of total = 49% of the 1% BPMGMT slice)
+      // Amanda's rule: sibling personal-account wires are Ben's responsibility.
       { order: 30, chain:'Nancy (via BPMGMT)',   from:'Nancy Nguyen Personal',            to:'BPMGMT (5150)',                  responsible:'Ben',    pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
       // Merger + final leg: BPMGMT → Blue Panda FLP (1% total)
       { order: 50, chain:'BPMGMT consolidation', from:'BPMGMT (5150)',                    to:'Blue Panda FLP (8686)',          responsible:'Amanda', pct:  1.00, notes:'After Mike + Nancy contributions merge at BPMGMT.' }
@@ -404,10 +405,11 @@ function seedMovementTemplates() {
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)', from:'Michael Nguyen Personal (1319)',     to:'2019 Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Mike (via Rev Trust)', from:'2019 MN Family Revocable Trust',     to:'NF6 Family Holdings (316)',           responsible:'Amanda', pct: 99.00, notes:'' },
-      // Siblings (1/3 of 1% each = 0.333% each)
-      { order: 30, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Tim',    pct: 0.333, notes:'' },
-      { order: 30, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben',    pct: 0.333, notes:'' },
-      { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Gagan',  pct: 0.334, notes:'' },
+      // Siblings (1/3 of 1% each = 0.333% each). Amanda's rule: sibling
+      // personal-account wires are Ben's responsibility.
+      { order: 30, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 30, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.334, notes:'' },
       // Merger + final leg
       { order: 40, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (316)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
       { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (316)', to:'NF PR SJ LLC (808)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
@@ -429,10 +431,12 @@ function seedMovementTemplates() {
       { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)',   to:'NF6 Joint Mgmt LLC (8972)',       responsible:'Amanda', pct:  1.00, notes:'' },
       // Rev Trust → Mike
       { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust', to:'Michael Nguyen Personal (6916)', responsible:'Amanda', pct: 99.00, notes:'' },
-      // Joint Mgmt → each sibling (1/3 of 1%)
-      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Gagan',  pct: 0.333, notes:'' },
-      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Ben',    pct: 0.333, notes:'' },
-      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Tim',    pct: 0.334, notes:'' }
+      // Joint Mgmt → each sibling (1/3 of 1%). These are money-OUT from the
+      // family LLC to sibling personal accounts — Amanda dispatches from
+      // Joint Mgmt, so Amanda (not Ben) is responsible on the down direction.
+      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Amanda',  pct: 0.333, notes:'' },
+      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Amanda',  pct: 0.333, notes:'' },
+      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Amanda',  pct: 0.334, notes:'' }
     ]
   }, haveByName));
 
@@ -447,10 +451,10 @@ function seedMovementTemplates() {
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (6916)',  to:'2019 MN Family Revocable Trust (7013)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Mike (via Rev Trust)',    from:'2019 MN Family Revocable Trust',  to:'NF6 Family Holdings (7932)',     responsible:'Amanda', pct: 99.00, notes:'' },
-      // Sibling chains (0.333% each)
-      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Gagan',  pct: 0.333, notes:'' },
-      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben',    pct: 0.333, notes:'' },
-      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Tim',    pct: 0.334, notes:'' },
+      // Sibling chains (0.333% each). Sibling personal-account wires are Ben's.
+      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.334, notes:'' },
       // Joint Mgmt consolidation → Family Holdings (1% total)
       { order: 20, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (7932)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
       // Family Holdings → Tiger Capital (100% total)
@@ -507,6 +511,61 @@ function _seedTemplate_(spec, haveByName) {
 
 
 // ── Menu diagnostics ───────────────────────────────────────────────────────
+
+// Menu-callable — apply Amanda's responsible-person rule to every existing
+// hop in MOVEMENT_HOPS. Rule based on FROM Account (not Chain):
+//
+//   • If From Account looks like a sibling personal account (contains
+//     "David", "Michelle", or "Nancy" AND contains "Personal") → Ben.
+//     These are money-OUT wires from a sibling's own account — Ben handles
+//     those with the siblings directly.
+//   • Every other wire → Amanda. This includes wires that ARRIVE at a
+//     sibling's personal account (e.g. Joint Mgmt → David Personal on a
+//     Tiger DOWN distribution) — Amanda dispatches those from the family
+//     LLC, so they're Amanda's responsibility even though a sibling is on
+//     the receiving end.
+//
+// Idempotent + safe to re-run any time preferences change.
+function updateMovementResponsibles() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MOVEMENT_HOPS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('MOVEMENT_HOPS is empty — nothing to update.');
+    try { SpreadsheetApp.getUi().alert('MOVEMENT_HOPS is empty. Run Seed Templates first.'); } catch(e) {}
+    return;
+  }
+  var lastCol = Math.max(sheet.getLastColumn(), MOVEMENT_HOPS_HEADERS.length);
+  var data    = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr     = data[0];
+  var iFrom   = hdr.indexOf('From Account');
+  var iResp   = hdr.indexOf('Responsible');
+  if (iFrom < 0 || iResp < 0) {
+    Logger.log('MOVEMENT_HOPS missing From Account or Responsible column.');
+    return;
+  }
+  // Regex: sibling FIRST name + word char + Personal (matches "David Personal",
+  // "Nancy Nguyen Personal", "Michelle Personal", etc.). Excludes cases where
+  // the sibling's name appears elsewhere in the account label but "Personal"
+  // is not in the string, to be safe.
+  var SIBLING_PERSONAL_RE = /\b(david|michelle|nancy)\b[\s\w()]*personal/i;
+  var changed = 0;
+  var summary = [];
+  for (var r = 1; r < data.length; r++) {
+    var from    = String(data[r][iFrom] || '');
+    var oldResp = String(data[r][iResp] || '');
+    var newResp = SIBLING_PERSONAL_RE.test(from) ? 'Ben' : 'Amanda';
+    if (oldResp !== newResp) {
+      sheet.getRange(r + 1, iResp + 1).setValue(newResp);
+      changed++;
+      summary.push('  from "' + from + '": ' + (oldResp || '(blank)') + ' → ' + newResp);
+    }
+  }
+  var msg = 'Updated ' + changed + ' hop(s).\n\n' + (summary.length ? summary.join('\n') : '(everything was already correct)');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('Responsibles Updated', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+}
+
 
 function debugMovementTemplates() {
   var templates = _getMMRows_('MOVEMENT_TEMPLATES', MOVEMENT_TEMPLATES_HEADERS);
