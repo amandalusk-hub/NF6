@@ -405,11 +405,13 @@ function seedMovementTemplates() {
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)', from:'Michael Nguyen Personal (1319)',     to:'2019 Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Mike (via Rev Trust)', from:'2019 MN Family Revocable Trust',     to:'NF6 Family Holdings (316)',           responsible:'Amanda', pct: 99.00, notes:'' },
-      // Siblings (1/3 of 1% each = 0.333% each). Amanda's rule: sibling
-      // personal-account wires are Ben's responsibility.
-      { order: 30, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
-      { order: 30, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
-      { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.334, notes:'' },
+      // Siblings (1/3 of 1% each = 0.333333% each). Use more precision so
+      // $100,000 × 0.333333% = $333.33 rather than $333.00 with a truncated
+      // 0.333%. Third sibling absorbs the rounding to preserve the sum.
+      // Sibling personal-account wires are Ben's responsibility.
+      { order: 30, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
+      { order: 30, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
+      { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333334, notes:'' },
       // Merger + final leg
       { order: 40, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (316)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
       { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (316)', to:'NF PR SJ LLC (808)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
@@ -431,12 +433,14 @@ function seedMovementTemplates() {
       { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)',   to:'NF6 Joint Mgmt LLC (8972)',       responsible:'Amanda', pct:  1.00, notes:'' },
       // Rev Trust → Mike
       { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust', to:'Michael Nguyen Personal (6916)', responsible:'Amanda', pct: 99.00, notes:'' },
-      // Joint Mgmt → each sibling (1/3 of 1%). These are money-OUT from the
-      // family LLC to sibling personal accounts — Amanda dispatches from
+      // Joint Mgmt → each sibling (1/3 of 1%, using 0.333333% precision so
+      // $100k × 0.333333% = $333.33 rather than $333.00). Third sibling
+      // absorbs the rounding to preserve the sum. These are money-OUT from
+      // the family LLC to sibling personal accounts — Amanda dispatches from
       // Joint Mgmt, so Amanda (not Ben) is responsible on the down direction.
-      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Amanda',  pct: 0.333, notes:'' },
-      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Amanda',  pct: 0.333, notes:'' },
-      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Amanda',  pct: 0.334, notes:'' }
+      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Amanda',  pct: 0.333333, notes:'' },
+      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Amanda',  pct: 0.333333, notes:'' },
+      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Amanda',  pct: 0.333334, notes:'' }
     ]
   }, haveByName));
 
@@ -451,10 +455,12 @@ function seedMovementTemplates() {
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (6916)',  to:'2019 MN Family Revocable Trust (7013)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Mike (via Rev Trust)',    from:'2019 MN Family Revocable Trust',  to:'NF6 Family Holdings (7932)',     responsible:'Amanda', pct: 99.00, notes:'' },
-      // Sibling chains (0.333% each). Sibling personal-account wires are Ben's.
-      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
-      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
-      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.334, notes:'' },
+      // Sibling chains (0.333333% each — precise 1/3 of 1% so amounts round
+      // to $333.33 rather than $333.00 on a $100k movement). Third sibling
+      // absorbs the rounding. Sibling personal-account wires are Ben's.
+      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
+      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
+      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333334, notes:'' },
       // Joint Mgmt consolidation → Family Holdings (1% total)
       { order: 20, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (7932)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
       // Family Holdings → Tiger Capital (100% total)
@@ -667,6 +673,53 @@ function menuPreviewMovementMessage() {
   var preview = formatMovementPreview(match['ID'], amt);
   if (preview.error) { ui.alert(preview.error); return; }
   ui.alert(match['Name'] + ' — ' + _fmtUsdAmount_(amt), preview.message, ui.ButtonSet.OK);
+}
+
+
+// Menu-callable — refresh sibling wire percentages on every existing hop
+// where a David / Michelle / Nancy personal account appears as From or To.
+// Sets Michelle + Nancy to 0.333333% and David to 0.333334% so the sum still
+// equals 1% but $100k movements produce $333.33 wires (not $333.00 with a
+// truncated 0.333%). Idempotent; runs once after Amanda seeds and any time
+// pct precision needs correction later.
+function fixSiblingPercentages() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MOVEMENT_HOPS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('MOVEMENT_HOPS empty.');
+    return;
+  }
+  var lastCol = Math.max(sheet.getLastColumn(), MOVEMENT_HOPS_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iFrom  = hdr.indexOf('From Account');
+  var iTo    = hdr.indexOf('To Account');
+  var iPct   = hdr.indexOf('Amount % of Total');
+  var iChain = hdr.indexOf('Chain');
+  if (iFrom < 0 || iTo < 0 || iPct < 0) return;
+
+  var SIBLING_RE = /\b(david|michelle|nancy)\b[\s\w()]*personal/i;
+  var changed = 0;
+  var summary = [];
+  for (var r = 1; r < data.length; r++) {
+    var from = String(data[r][iFrom] || '');
+    var to   = String(data[r][iTo] || '');
+    var chain = String(data[r][iChain] || '');
+    // Only touch rows involving a sibling personal account.
+    if (!SIBLING_RE.test(from) && !SIBLING_RE.test(to)) continue;
+    var isDavid = /\bdavid\b/i.test(from) || /\bdavid\b/i.test(to);
+    var newPct = isDavid ? 0.333334 : 0.333333;
+    var oldPct = Number(data[r][iPct]) || 0;
+    if (Math.abs(oldPct - newPct) > 0.0000001) {
+      sheet.getRange(r + 1, iPct + 1).setValue(newPct);
+      changed++;
+      summary.push('  ' + chain + ' (' + (isDavid ? 'David' : 'Michelle/Nancy') + '): ' + oldPct + ' → ' + newPct);
+    }
+  }
+  var msg = 'Updated ' + changed + ' sibling wire percentage(s).\n\n' + (summary.length ? summary.join('\n') : '(already precise)');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('Sibling Percentages Fixed', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
 
 
