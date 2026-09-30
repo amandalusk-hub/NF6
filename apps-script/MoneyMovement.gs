@@ -187,13 +187,22 @@ function _updateMMRow_(sheetName, headers, id, patch) {
 
 // ── Web-callable CRUD ──────────────────────────────────────────────────────
 
-// Returns every active template (for the "New Movement" picker).
+// Returns every template (for the "New Movement" picker). Only rows whose
+// Active column is EXPLICITLY 'No' (or false/0) are excluded — an empty or
+// missing Active value counts as active, so a hand-added template row that
+// forgot to fill it still shows up.
 function getMovementTemplates() {
-  return _getMMRows_('MOVEMENT_TEMPLATES', MOVEMENT_TEMPLATES_HEADERS)
+  var rows = _getMMRows_('MOVEMENT_TEMPLATES', MOVEMENT_TEMPLATES_HEADERS)
     .filter(function(t) {
-      var a = String(t['Active'] || '').toLowerCase();
+      var raw = t['Active'];
+      if (raw === false || raw === 0) return false;
+      var a = String(raw == null ? '' : raw).toLowerCase().trim();
       return a !== 'no' && a !== 'false' && a !== '0';
     });
+  // JSON round-trip so Date columns + any nested Google Sheets values
+  // serialize cleanly across google.script.run (same trick we needed on
+  // getLoansStatus before).
+  return JSON.parse(JSON.stringify(rows));
 }
 
 // Returns the hops for a given template, sorted by (Order, Chain, then insertion).
@@ -337,22 +346,23 @@ function getMovementDetail(movementId) {
       return a.chain.localeCompare(b.chain);
     });
   var done = wires.filter(function(w) { return w.status === 'Confirmed' || w.status === 'Sent'; }).length;
-  return {
+  return JSON.parse(JSON.stringify({
     movement: move,
     template: template,
     wires:    wires,
     progress: { done: done, total: wires.length, pct: wires.length ? Math.round(done / wires.length * 100) : 0 }
-  };
+  }));
 }
 
 // List all movements (for the tab's landing view). Newest first.
 function getMovements() {
-  return _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS)
+  var rows = _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS)
     .sort(function(a, b) {
       var da = a['Created At'] instanceof Date ? a['Created At'].getTime() : 0;
       var db = b['Created At'] instanceof Date ? b['Created At'].getTime() : 0;
       return db - da;
     });
+  return JSON.parse(JSON.stringify(rows));
 }
 
 
