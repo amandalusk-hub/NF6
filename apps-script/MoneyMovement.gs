@@ -398,11 +398,11 @@ function seedMovementTemplates() {
 
   var results = [];
 
-  // 1. Blue Panda FLP - Up (money IN to Blue Panda)
+  // 1. Blue Panda FLP - Down (money coming DOWN into Blue Panda from owners)
   results.push(_seedTemplate_({
-    name: 'Blue Panda FLP - Up',
+    name: 'Blue Panda FLP - Down',
     destination: 'Blue Panda FLP (8686)',
-    direction: 'up',
+    direction: 'down',
     description: 'Money flowing IN to Blue Panda FLP. 99% via MN Trust Irrevocable (100% Mike). 1% via BPMGMT (5150), which is 51% Mike / 49% Nancy.',
     hops: [
       // Chain A: Mike via MN Trust (99% of total)
@@ -419,11 +419,11 @@ function seedMovementTemplates() {
     ]
   }, haveByName));
 
-  // 2. NF PR SJ - Up (money IN to NF PR SJ)
+  // 2. NF PR SJ - Down (money coming DOWN into NF PR SJ from owners)
   results.push(_seedTemplate_({
-    name: 'NF PR SJ - Up',
+    name: 'NF PR SJ - Down',
     destination: 'NF PR SJ LLC (5297)',
-    direction: 'up',
+    direction: 'down',
     description: 'Money flowing IN to NF PR SJ LLC. 99% via Mike (through 2019 MN Family Rev Trust → NF6 Family Holdings). 1% via siblings (each 1/3 through Personal → NF6 Joint Mgmt → NF6 Family Holdings).',
     hops: [
       // Mike chain (99%)
@@ -445,10 +445,10 @@ function seedMovementTemplates() {
   // 3. NF6 Tiger Capital — DOWN direction (distribute FROM Tiger Capital TO
   //    individuals). Same ownership as NF PR SJ but reversed hops.
   results.push(_seedTemplate_({
-    name: 'NF6 Tiger Capital - Down',
+    name: 'NF6 Tiger Capital - Up',
     destination: 'NF6 Tiger Capital LLC (5319)',
-    direction: 'down',
-    description: 'Distribution OUT of Tiger Capital, 99% to Mike + 0.333% each to Michelle/Nancy/David. Money flows down through Family Holdings → (Rev Trust for Mike | Joint Mgmt for siblings) → personal accounts.',
+    direction: 'up',
+    description: 'Money flowing UP out of Tiger Capital to owners: 99% to Mike + 0.333% each to Michelle/Nancy/David. Passes through Family Holdings → (Rev Trust for Mike | Joint Mgmt for siblings) → personal accounts.',
     hops: [
       // Full amount out of Tiger to Family Holdings
       { order: 10, chain:'Tiger → Family Holdings', from:'NF6 Tiger Capital LLC (5319)', to:'NF6 Family Holdings (7932)',            responsible:'Amanda', pct:100.00, notes:'' },
@@ -471,10 +471,10 @@ function seedMovementTemplates() {
   // 5. Blue Panda FLP — DOWN direction (distributions OUT of Blue Panda).
   //    Inverse of #1. Amanda uses this more often than the UP version.
   results.push(_seedTemplate_({
-    name: 'Blue Panda FLP - Down',
+    name: 'Blue Panda FLP - Up',
     destination: 'Blue Panda FLP (8686)',
-    direction: 'down',
-    description: 'Distribution OUT of Blue Panda FLP. 99% flows back through MN Trust Irrevocable to Mike. 1% flows through BPMGMT (51% Mike via 2019 Rev Trust, 49% Nancy).',
+    direction: 'up',
+    description: 'Money flowing UP out of Blue Panda FLP to owners. 99% flows back through MN Trust Irrevocable to Mike. 1% flows through BPMGMT (51% Mike via 2019 Rev Trust, 49% Nancy).',
     hops: [
       // First: BPFP splits its outflow — 99% to MN Trust, 1% to BPMGMT
       { order: 10, chain:'MN Trust branch (99%)', from:'Blue Panda FLP (8686)', to:'MN Trust Irrevocable',                     responsible:'Amanda', pct: 99.00, notes:'' },
@@ -492,10 +492,10 @@ function seedMovementTemplates() {
   // 6. NF PR SJ — DOWN direction (distributions OUT of NF PR SJ).
   //    Inverse of #2. Amanda uses this more often than the UP version.
   results.push(_seedTemplate_({
-    name: 'NF PR SJ - Down',
+    name: 'NF PR SJ - Up',
     destination: 'NF PR SJ LLC (5297)',
-    direction: 'down',
-    description: 'Distribution OUT of NF PR SJ LLC. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
+    direction: 'up',
+    description: 'Money flowing UP out of NF PR SJ LLC to owners. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
     hops: [
       // Full amount out of NF PR SJ to Family Holdings
       { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (5297)',     to:'NF6 Family Holdings (7932)',              responsible:'Amanda', pct:100.00, notes:'' },
@@ -514,10 +514,10 @@ function seedMovementTemplates() {
   // 4. NF6 Tiger Capital — UP direction (contributions INTO Tiger Capital).
   //    Same ownership, hops reversed from #3.
   results.push(_seedTemplate_({
-    name: 'NF6 Tiger Capital - Up',
+    name: 'NF6 Tiger Capital - Down',
     destination: 'NF6 Tiger Capital LLC (5319)',
-    direction: 'up',
-    description: 'Contribution INTO Tiger Capital. Mike wires 99%, each sibling wires 0.333%. Each contribution flows up through Family Holdings.',
+    direction: 'down',
+    description: 'Money coming DOWN into Tiger Capital from owners. Mike wires 99%, each sibling wires 0.333%. Each contribution flows through Family Holdings into Tiger.',
     hops: [
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (1319)',       to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
@@ -616,13 +616,16 @@ function _wireExecutionOrder_(hops) {
 
   // Hop C depends on hop P if P.To == C.From (money must land at C.From
   // before C can wire it onward).
+  var allFroms = {}, allTos = {};
   hops.forEach(function(consumer) {
     var cid = String(consumer['ID'] || consumer.hopId);
     var cFrom = String(consumer['From Account'] || consumer.fromAccount || '');
+    allFroms[cFrom] = true;
     hops.forEach(function(producer) {
       var pid = String(producer['ID'] || producer.hopId);
       if (pid === cid) return;
       var pTo = String(producer['To Account'] || producer.toAccount || '');
+      allTos[pTo] = true;
       if (pTo && pTo === cFrom) {
         deps[cid][pid] = true;
         reverseDeps[pid][cid] = true;
@@ -630,21 +633,31 @@ function _wireExecutionOrder_(hops) {
     });
   });
 
+  // Auto-detect direction from the graph shape:
+  //   Fan-in  (many contributors → one destination) = "down" per Amanda's
+  //           convention (money coming DOWN into the entity). Show LARGE
+  //           chains first so Mike's 99% reads before the sibling 0.333%.
+  //   Fan-out (one source → many recipients) = "up" (money going UP to
+  //           owners). Show SMALL branches first so siblings read before
+  //           the final Mike branch (matches Amanda's Tiger Down example).
+  var roots  = Object.keys(allFroms).filter(function(a) { return !allTos[a]; });
+  var leaves = Object.keys(allTos).filter(function(a) { return !allFroms[a]; });
+  var isFanIn = roots.length > leaves.length;
+  var sortSign = isFanIn ? -1 : 1;   // -1 = DESC, 1 = ASC
+
   var pending = Object.keys(byId);
   var result = [];
   while (pending.length) {
     var ready = pending.filter(function(id) { return Object.keys(deps[id]).length === 0; });
     if (!ready.length) {
-      // Cycle or unresolvable dep — emit remaining in original order.
       pending.sort(function(a, b) { return initialOrder[a] - initialOrder[b]; });
       pending.forEach(function(id) { result.push(byId[id]); });
       break;
     }
-    // Tiebreak: percentage ascending (small branches first) then insertion order.
     ready.sort(function(a, b) {
       var pa = Number(byId[a]['Amount % of Total'] || byId[a].pctOfTotal) || 0;
       var pb = Number(byId[b]['Amount % of Total'] || byId[b].pctOfTotal) || 0;
-      if (pa !== pb) return pa - pb;
+      if (pa !== pb) return sortSign * (pa - pb);
       return initialOrder[a] - initialOrder[b];
     });
     var next = ready[0];
@@ -828,12 +841,13 @@ function resyncMovementAccountLabels() {
 }
 
 
-// Menu-callable — rename existing templates from the old "Contribution /
-// Distribution" scheme to the cleaner "Entity - Up / Down" scheme Amanda
-// wanted (the arrow prefix in the dropdown already tells you direction, so
-// the word "Distribution" was redundant AND confusing since Amanda uses
-// "distribution" to describe up-direction wires too). Idempotent — matches
-// old names exactly, skips rows already renamed.
+// Menu-callable — rename + swap direction on existing templates so they
+// match Amanda's mental model:
+//   Up   = money going UP out of the entity to owners  (was called "down")
+//   Down = money coming DOWN into the entity from owners (was called "up")
+// Handles every prior naming scheme in one shot: the original
+// Contribution/Distribution names AND the intermediate " - Up / - Down"
+// names I had backwards. Idempotent.
 function renameMovementTemplatesToDirection() {
   _requireEditor_();
   ensureMoneyMovementSheets_();
@@ -843,28 +857,44 @@ function renameMovementTemplatesToDirection() {
   var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
   var hdr = data[0];
   var iName = hdr.indexOf('Name');
-  if (iName < 0) return;
+  var iDir  = hdr.indexOf('Direction');
+  if (iName < 0 || iDir < 0) return;
 
-  var RENAME_MAP = {
-    'Blue Panda FLP Contribution':              'Blue Panda FLP - Up',
-    'Blue Panda FLP Distribution (Down)':       'Blue Panda FLP - Down',
-    'NF PR SJ Wire':                            'NF PR SJ - Up',
-    'NF PR SJ Distribution (Down)':             'NF PR SJ - Down',
-    'NF6 Tiger Capital Distribution (Down)':    'NF6 Tiger Capital - Down',
-    'NF6 Tiger Capital Contribution (Up)':      'NF6 Tiger Capital - Up'
+  // Map to CANONICAL name + direction (Amanda's convention).
+  // Every prior variant should resolve to one of these targets.
+  var CANONICAL = {
+    // Blue Panda FLP
+    'Blue Panda FLP Contribution':                { name: 'Blue Panda FLP - Down', dir: 'down' },
+    'Blue Panda FLP Distribution (Down)':         { name: 'Blue Panda FLP - Up',   dir: 'up'   },
+    'Blue Panda FLP - Up':                        { name: 'Blue Panda FLP - Down', dir: 'down' },
+    'Blue Panda FLP - Down':                      { name: 'Blue Panda FLP - Up',   dir: 'up'   },
+    // NF PR SJ
+    'NF PR SJ Wire':                              { name: 'NF PR SJ - Down',       dir: 'down' },
+    'NF PR SJ Distribution (Down)':               { name: 'NF PR SJ - Up',         dir: 'up'   },
+    'NF PR SJ - Up':                              { name: 'NF PR SJ - Down',       dir: 'down' },
+    'NF PR SJ - Down':                            { name: 'NF PR SJ - Up',         dir: 'up'   },
+    // Tiger Capital
+    'NF6 Tiger Capital Distribution (Down)':      { name: 'NF6 Tiger Capital - Up',   dir: 'up'   },
+    'NF6 Tiger Capital Contribution (Up)':        { name: 'NF6 Tiger Capital - Down', dir: 'down' },
+    'NF6 Tiger Capital - Down':                   { name: 'NF6 Tiger Capital - Up',   dir: 'up'   },
+    'NF6 Tiger Capital - Up':                     { name: 'NF6 Tiger Capital - Down', dir: 'down' }
   };
   var changed = 0;
   var summary = [];
   for (var r = 1; r < data.length; r++) {
-    var old = String(data[r][iName] || '');
-    var neu = RENAME_MAP[old];
-    if (neu && neu !== old) {
-      sheet.getRange(r + 1, iName + 1).setValue(neu);
+    var oldName = String(data[r][iName] || '');
+    var oldDir  = String(data[r][iDir] || '');
+    var target = CANONICAL[oldName];
+    if (!target) continue;
+    var didChange = false;
+    if (target.name !== oldName) { sheet.getRange(r + 1, iName + 1).setValue(target.name); didChange = true; }
+    if (target.dir  !== oldDir)  { sheet.getRange(r + 1, iDir + 1).setValue(target.dir);   didChange = true; }
+    if (didChange) {
       changed++;
-      summary.push('  "' + old + '" → "' + neu + '"');
+      summary.push('  "' + oldName + '" [' + oldDir + '] → "' + target.name + '" [' + target.dir + ']');
     }
   }
-  var msg = 'Renamed ' + changed + ' template(s).\n\n' + (summary.length ? summary.join('\n') : '(all names already updated)');
+  var msg = 'Updated ' + changed + ' template(s).\n\n' + (summary.length ? summary.join('\n') : '(all already canonical)');
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert('Templates Renamed', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }

@@ -7955,6 +7955,7 @@ function _generateMovementPreviewLocal(hops, total) {
 // so smaller / earlier branches emit first, matching the server-side output.
 function _wireExecutionOrderLocal(hops) {
   var byId = {}, deps = {}, reverseDeps = {}, initialOrder = {};
+  var allFroms = {}, allTos = {};
   hops.forEach(function(h, i) {
     var id = String(h.ID || h.hopId || i);
     byId[id] = h;
@@ -7965,13 +7966,20 @@ function _wireExecutionOrderLocal(hops) {
   hops.forEach(function(consumer) {
     var cid = String(consumer.ID || consumer.hopId);
     var cFrom = String(consumer['From Account'] || '');
+    allFroms[cFrom] = true;
     hops.forEach(function(producer) {
       var pid = String(producer.ID || producer.hopId);
       if (pid === cid) return;
       var pTo = String(producer['To Account'] || '');
+      allTos[pTo] = true;
       if (pTo && pTo === cFrom) { deps[cid][pid] = true; reverseDeps[pid][cid] = true; }
     });
   });
+  // Fan-in (contribution) → big chains first. Fan-out (distribution) → small
+  // chains first. Matches server-side _wireExecutionOrder_.
+  var roots = Object.keys(allFroms).filter(function(a) { return !allTos[a]; });
+  var leaves = Object.keys(allTos).filter(function(a) { return !allFroms[a]; });
+  var sortSign = roots.length > leaves.length ? -1 : 1;
   var pending = Object.keys(byId);
   var result = [];
   while (pending.length) {
@@ -7984,7 +7992,7 @@ function _wireExecutionOrderLocal(hops) {
     ready.sort(function(a, b) {
       var pa = Number(byId[a]['Amount % of Total']) || 0;
       var pb = Number(byId[b]['Amount % of Total']) || 0;
-      if (pa !== pb) return pa - pb;
+      if (pa !== pb) return sortSign * (pa - pb);
       return initialOrder[a] - initialOrder[b];
     });
     var next = ready[0];
@@ -8015,22 +8023,35 @@ function _createMovement() {
   var notes = document.getElementById('move-notes').value;
   if (!tplId) { toast('Pick a template','error'); return; }
   if (!amt || amt <= 0) { toast('Enter a valid amount','error'); return; }
+  var btn = document.querySelector('#move-new-modal .modal-footer .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = 'Creating…'; }
   showLoading(true);
+  // Safety net: if the server call hangs, restore the button after 20s so
+  // Amanda can retry instead of staring at a stuck spinner.
+  var stuck = setTimeout(function() {
+    showLoading(false);
+    if (btn) { btn.disabled = false; btn.textContent = 'Create Movement'; }
+    toast('Server did not respond — try again or refresh', 'error');
+  }, 20000);
   google.script.run
     .withSuccessHandler(function(res) {
+      clearTimeout(stuck);
       showLoading(false);
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Movement'; }
       if (res && res.success) {
         closeModal('move-new-modal');
         toast('Movement created — ' + res.wiresCreated + ' wires queued');
         loadMoneyMovement();
         setTimeout(function() { _openMovementDetail(res.movementId); }, 150);
       } else {
-        toast('Create failed', 'error');
+        toast('Create returned no success flag — check the sheet', 'error');
       }
     })
     .withFailureHandler(function(e) {
+      clearTimeout(stuck);
       showLoading(false);
-      toast(e.message || String(e), 'error');
+      if (btn) { btn.disabled = false; btn.textContent = 'Create Movement'; }
+      toast(e.message || String(e) || 'Create failed', 'error');
     })
     .createMovement(tplId, amt, date, notes);
 }
