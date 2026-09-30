@@ -382,16 +382,16 @@ function seedMovementTemplates() {
     description: 'Money flowing IN to Blue Panda FLP. 99% via MN Trust Irrevocable (100% Mike). 1% via BPMGMT (5150), which is 51% Mike / 49% Nancy.',
     hops: [
       // Chain A: Mike via MN Trust (99% of total)
-      { order: 10, chain:'Mike (via MN Trust)',  from:'Michael Nguyen Personal',          to:'MN Trust Irrevocable',           responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Mike (via MN Trust)',  from:'MN Trust Irrevocable',             to:'Blue Panda FLP (8686)',          responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 10, chain:'Mike (via MN Trust)',  from:'Michael Nguyen Personal (1319)',   to:'MN Trust Irrevocable',                  responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Mike (via MN Trust)',  from:'MN Trust Irrevocable',             to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct: 99.00, notes:'' },
       // Chain B: Mike via BPMGMT (0.51% of total = 51% of the 1% BPMGMT slice)
-      { order: 30, chain:'Mike (via BPMGMT)',    from:'Michael Nguyen Personal',          to:'2019 MN Family Revocable Trust', responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
-      { order: 40, chain:'Mike (via BPMGMT)',    from:'2019 MN Family Revocable Trust',   to:'BPMGMT (5150)',                  responsible:'Amanda', pct:  0.51, notes:'' },
+      { order: 30, chain:'Mike (via BPMGMT)',    from:'Michael Nguyen Personal (1319)',   to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
+      { order: 40, chain:'Mike (via BPMGMT)',    from:'2019 MN Family Revocable Trust (3333)', to:'BPMGMT (5150)',                    responsible:'Amanda', pct:  0.51, notes:'' },
       // Chain C: Nancy via BPMGMT (0.49% of total = 49% of the 1% BPMGMT slice)
       // Amanda's rule: sibling personal-account wires are Ben's responsibility.
-      { order: 30, chain:'Nancy (via BPMGMT)',   from:'Nancy Nguyen Personal',            to:'BPMGMT (5150)',                  responsible:'Ben',    pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
+      { order: 30, chain:'Nancy (via BPMGMT)',   from:'Nancy Nguyen Personal',            to:'BPMGMT (5150)',                         responsible:'Ben',    pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
       // Merger + final leg: BPMGMT → Blue Panda FLP (1% total)
-      { order: 50, chain:'BPMGMT consolidation', from:'BPMGMT (5150)',                    to:'Blue Panda FLP (8686)',          responsible:'Amanda', pct:  1.00, notes:'After Mike + Nancy contributions merge at BPMGMT.' }
+      { order: 50, chain:'BPMGMT consolidation', from:'BPMGMT (5150)',                    to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct:  1.00, notes:'After Mike + Nancy contributions merge at BPMGMT.' }
     ]
   }, haveByName));
 
@@ -427,12 +427,12 @@ function seedMovementTemplates() {
     description: 'Distribution OUT of Tiger Capital, 99% to Mike + 0.333% each to Michelle/Nancy/David. Money flows down through Family Holdings → (Rev Trust for Mike | Joint Mgmt for siblings) → personal accounts.',
     hops: [
       // Full amount out of Tiger to Family Holdings
-      { order: 10, chain:'Tiger → Family Holdings', from:'NF6 Tiger Capital LLC (5319)', to:'NF6 Family Holdings (7932)',     responsible:'Amanda', pct:100.00, notes:'' },
+      { order: 10, chain:'Tiger → Family Holdings', from:'NF6 Tiger Capital LLC (5319)', to:'NF6 Family Holdings (7932)',            responsible:'Amanda', pct:100.00, notes:'' },
       // Family Holdings splits: 99% to Rev Trust, 1% to Joint Mgmt
-      { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (7932)',   to:'2019 MN Family Revocable Trust (7013)', responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)',   to:'NF6 Joint Mgmt LLC (8972)',       responsible:'Amanda', pct:  1.00, notes:'' },
+      { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (7932)',   to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)',   to:'NF6 Joint Mgmt LLC (8972)',             responsible:'Amanda', pct:  1.00, notes:'' },
       // Rev Trust → Mike
-      { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust', to:'Michael Nguyen Personal (6916)', responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct: 99.00, notes:'' },
       // Joint Mgmt → each sibling (1/3 of 1%, using 0.333333% precision so
       // $100k × 0.333333% = $333.33 rather than $333.00). Third sibling
       // absorbs the rounding to preserve the sum. These are money-OUT from
@@ -453,8 +453,8 @@ function seedMovementTemplates() {
     description: 'Contribution INTO Tiger Capital. Mike wires 99%, each sibling wires 0.333%. Each contribution flows up through Family Holdings.',
     hops: [
       // Mike chain (99%)
-      { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (6916)',  to:'2019 MN Family Revocable Trust (7013)', responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Mike (via Rev Trust)',    from:'2019 MN Family Revocable Trust',  to:'NF6 Family Holdings (7932)',     responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (1319)',       to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Mike (via Rev Trust)',    from:'2019 MN Family Revocable Trust (3333)', to:'NF6 Family Holdings (7932)',            responsible:'Amanda', pct: 99.00, notes:'' },
       // Sibling chains (0.333333% each — precise 1/3 of 1% so amounts round
       // to $333.33 rather than $333.00 on a $100k movement). Third sibling
       // absorbs the rounding. Sibling personal-account wires are Ben's.
@@ -673,6 +673,62 @@ function menuPreviewMovementMessage() {
   var preview = formatMovementPreview(match['ID'], amt);
   if (preview.error) { ui.alert(preview.error); return; }
   ui.alert(match['Name'] + ' — ' + _fmtUsdAmount_(amt), preview.message, ui.ButtonSet.OK);
+}
+
+
+// Known account-label corrections. Add a new entry any time Amanda confirms
+// an account number from Plaid. Existing rows are updated in-place by the
+// resync menu function; the seed's own labels stay current for fresh seeds.
+// Keys are the OLD (or short/no-ID) label, values are the CORRECT label.
+var _MOVEMENT_ACCOUNT_RELABELS = {
+  // 2019 MN Family Revocable Trust — correct ID is 3333 (was misseeded 7013)
+  '2019 MN Family Revocable Trust (7013)':  '2019 MN Family Revocable Trust (3333)',
+  '2019 Family Revocable Trust (7013)':     '2019 Family Revocable Trust (3333)',
+  '2019 MN Family Revocable Trust':         '2019 MN Family Revocable Trust (3333)',
+  // Mike's personal account — correct is 1319 (was misseeded 6916)
+  'Michael Nguyen Personal (6916)':         'Michael Nguyen Personal (1319)',
+  'Michael Nguyen Personal':                'Michael Nguyen Personal (1319)'
+};
+
+// Menu-callable — walk every hop row and replace any From/To Account whose
+// exact string matches a known-wrong label with the correct one. Idempotent:
+// rows already carrying the correct label are untouched. Uses exact-string
+// match (not substring) so a cell like "Michael Nguyen Personal (1319)"
+// won't accidentally re-match the "Michael Nguyen Personal" no-ID entry.
+function resyncMovementAccountLabels() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MOVEMENT_HOPS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    Logger.log('MOVEMENT_HOPS empty.');
+    return;
+  }
+  var lastCol = Math.max(sheet.getLastColumn(), MOVEMENT_HOPS_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iFrom  = hdr.indexOf('From Account');
+  var iTo    = hdr.indexOf('To Account');
+  var iChain = hdr.indexOf('Chain');
+  if (iFrom < 0 || iTo < 0) return;
+
+  var changed = 0;
+  var summary = [];
+  for (var r = 1; r < data.length; r++) {
+    var chain = String(data[r][iChain] || '');
+    ['From', 'To'].forEach(function(side) {
+      var col = side === 'From' ? iFrom : iTo;
+      var old = String(data[r][col] || '');
+      var _new = _MOVEMENT_ACCOUNT_RELABELS[old];
+      if (_new && _new !== old) {
+        sheet.getRange(r + 1, col + 1).setValue(_new);
+        changed++;
+        summary.push('  [' + chain + '] ' + side + ': "' + old + '" → "' + _new + '"');
+      }
+    });
+  }
+  var msg = 'Updated ' + changed + ' account label(s).\n\n' + (summary.length ? summary.join('\n') : '(all labels already correct)');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('Account Labels Resynced', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
 
 
