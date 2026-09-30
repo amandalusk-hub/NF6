@@ -266,6 +266,20 @@ function createMovement(templateId, totalAmount, dateNeeded, notes) {
   return { success: true, movementId: moveId, wiresCreated: wiresCreated };
 }
 
+// Update a movement's status directly ('Planning' | 'In Progress' |
+// 'Complete' | 'Cancelled'). Used by the checklist page's "Mark Complete"
+// and "Reopen" buttons.
+function setMovementStatus(movementId, newStatus) {
+  _requireEditor_();
+  var ok = _updateMMRow_('MOVEMENTS', MOVEMENTS_HEADERS, movementId, {
+    'Status': String(newStatus || 'Planning'),
+    'Last Updated': new Date()
+  });
+  _logAudit_('setMovementStatus', 'movement', movementId, newStatus,
+             'Status → ' + newStatus);
+  return { success: ok };
+}
+
 // Update a single wire's status. Used by the checklist checkbox: Pending →
 // Sent → Confirmed (or Skipped if a wire doesn't apply for a particular
 // movement).

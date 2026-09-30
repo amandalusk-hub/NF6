@@ -171,6 +171,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
     <button class="tab-btn" data-tab="tlmnd">TLMND Cash Flow</button>
     <button class="tab-btn" data-tab="loans">Loans</button>
+    <button class="tab-btn" data-tab="money">Money Movement</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="balance">Balance History</button>
@@ -687,7 +688,85 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading loans…</div>
     </div>
   </div>
+
+  <!-- Money Movement -->
+  <div class="tab-panel" id="tab-money">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="font-size:20px;color:#0d2137;margin:0">Money Movement</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="openMoveNewModal()">+ New Movement</button>
+        <button class="btn btn-secondary" onclick="loadMoneyMovement()">↻ Refresh</button>
+      </div>
+    </div>
+    <div id="money-content">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading movements…</div>
+    </div>
+  </div>
 </main>
+
+<!-- New Movement Modal -->
+<div class="modal-overlay" id="move-new-modal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <div class="modal-title">New Movement</div>
+      <button class="modal-close" onclick="closeModal('move-new-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Template</label>
+          <select id="move-template" onchange="_renderMovePreview()" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+            <option value="">— pick a template —</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Total Amount (USD)</label>
+          <input id="move-amount" type="text" inputmode="decimal" placeholder="100,000" oninput="_renderMovePreview()"
+                 style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Date Needed (optional)</label>
+          <input id="move-date" type="date" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Notes (optional)</label>
+          <input id="move-notes" type="text" placeholder="e.g. Sep distribution to family" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+      </div>
+
+      <div id="move-preview-box" style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:12px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:#0d2137;letter-spacing:.3px;text-transform:uppercase">Preview · Wire List</div>
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="_copyMovePreview()" id="move-copy-btn" disabled>📋 Copy</button>
+        </div>
+        <pre id="move-preview" style="margin:0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:#0d2137;white-space:pre-wrap;line-height:1.5">Pick a template + enter an amount to preview the wire list.</pre>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('move-new-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="_createMovement()">Create Movement</button>
+    </div>
+  </div>
+</div>
+
+<!-- Movement Detail Modal -->
+<div class="modal-overlay" id="move-detail-modal">
+  <div class="modal" style="max-width:820px">
+    <div class="modal-header">
+      <div class="modal-title" id="move-detail-title">Movement</div>
+      <button class="modal-close" onclick="closeModal('move-detail-modal')">x</button>
+    </div>
+    <div class="modal-body" id="move-detail-body">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading…</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('move-detail-modal')">Close</button>
+      <button class="btn btn-primary" id="move-detail-copy-btn" onclick="_copyMoveDetailMessage()">📋 Copy Message</button>
+    </div>
+  </div>
+</div>
 
 <!-- Loan Add/Edit Modal -->
 <div class="modal-overlay" id="loan-modal">
@@ -2284,6 +2363,7 @@ function switchTab(name){
   if(name==='history')  ensureHistoryLoaded();
   if(name==='tlmnd')    loadTLMNDCashFlow();
   if(name==='loans')    loadLoans();
+  if(name==='money')    loadMoneyMovement();
 }
 
 // ─── LOANS TAB ──────────────────────────────────────────────────────────
@@ -7661,6 +7741,374 @@ function saveBankNames(count) {
         .setPlaidInstitutionName(idx, n);
     })(i, name);
   }
+}
+
+
+// ─── MONEY MOVEMENT TAB ─────────────────────────────────────────────────────
+// Multi-hop wire tracker. Landing page shows in-progress + recent complete
+// movements. Clicking a movement opens the checklist. "+ New Movement"
+// opens a wizard that lets Amanda pick a template + enter the amount,
+// with a live-updating preview of the wire list she can copy to clipboard.
+// See MoneyMovement.gs for the server-side data model + logic.
+
+var _mmState = {
+  templates: [],      // cached from getMovementTemplates()
+  movements: [],      // cached from getMovements()
+  templateHops: {},   // templateId → hops (lazy-loaded on preview)
+  currentDetail: null,// last-loaded movement detail (for the copy button)
+  lastPreview: ''     // last-generated preview text (for the copy button)
+};
+
+function loadMoneyMovement() {
+  var el = document.getElementById('money-content');
+  if (el) el.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading movements…</div>';
+  google.script.run
+    .withSuccessHandler(function(templates) {
+      _mmState.templates = templates || [];
+      google.script.run
+        .withSuccessHandler(function(movements) {
+          _mmState.movements = movements || [];
+          _renderMoneyMovement();
+        })
+        .withFailureHandler(function(e) {
+          document.getElementById('money-content').innerHTML =
+            '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+        })
+        .getMovements();
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('money-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getMovementTemplates();
+}
+
+function _renderMoneyMovement() {
+  var moves = _mmState.movements || [];
+  var templates = _mmState.templates || [];
+  var byTpl = {};
+  templates.forEach(function(t) { byTpl[t.ID] = t; });
+
+  var inProgress = moves.filter(function(m) {
+    var s = String(m['Status'] || '').toLowerCase();
+    return s === 'planning' || s === 'in progress';
+  });
+  var completed = moves.filter(function(m) {
+    var s = String(m['Status'] || '').toLowerCase();
+    return s === 'complete';
+  }).slice(0, 15);   // show recent 15
+
+  var html = '';
+
+  if (!templates.length) {
+    html += '<div style="background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px;color:#7a5c00">' +
+            'No templates yet. Ask Amanda to run <b>Tracker → Money Movement → Seed Templates</b> from the sheet menu.' +
+            '</div>';
+  }
+
+  // In progress section
+  html += '<div style="margin-bottom:22px">';
+  html += '<div style="font-size:12px;font-weight:700;color:#0d2137;letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">In Progress (' + inProgress.length + ')</div>';
+  if (!inProgress.length) {
+    html += '<div style="background:#f8f9ff;border:1px dashed #c8d8ec;border-radius:8px;padding:24px;text-align:center;color:#7a8ba8;font-size:13px">' +
+            'Nothing in progress. Click <b>+ New Movement</b> to start one.' +
+            '</div>';
+  } else {
+    html += inProgress.map(function(m) { return _renderMovementCard(m, byTpl[m['Template ID']]); }).join('');
+  }
+  html += '</div>';
+
+  // Completed section
+  if (completed.length) {
+    html += '<div>';
+    html += '<div style="font-size:12px;font-weight:700;color:#0d2137;letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">Recent Completed</div>';
+    html += completed.map(function(m) { return _renderMovementCard(m, byTpl[m['Template ID']]); }).join('');
+    html += '</div>';
+  }
+
+  document.getElementById('money-content').innerHTML = html;
+}
+
+function _renderMovementCard(m, tpl) {
+  var status = String(m['Status'] || 'Planning');
+  var statusColor = status === 'Complete' ? '#1e8e3e' : status === 'In Progress' ? '#f9a825' : '#5f7791';
+  var arrow = tpl && String(tpl['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
+  var arrowColor = tpl && String(tpl['Direction']||'').toLowerCase() === 'down' ? '#c5221f' : '#1e8e3e';
+  var tplName = tpl ? tpl['Name'] : '(template deleted)';
+  var due = m['Date Needed'] instanceof Date ? m['Date Needed'].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+          : m['Date Needed'] ? new Date(m['Date Needed']).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '';
+  var created = m['Created At'] instanceof Date ? m['Created At'].toLocaleDateString('en-US',{month:'short',day:'numeric'})
+            : m['Created At'] ? new Date(m['Created At']).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+
+  return '<div class="card" style="margin-bottom:10px;cursor:pointer" onclick="_openMovementDetail(' + JSON.stringify(m['ID']) + ')">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:15px;font-weight:600;color:#0d2137;margin-bottom:4px">' +
+          '<span style="color:' + arrowColor + ';margin-right:6px;font-weight:700">' + arrow + '</span>' +
+          esc(tplName) +
+        '</div>' +
+        '<div style="font-size:12px;color:#5f7791">' +
+          fmtUSD(Number(m['Total Amount']) || 0) +
+          (due ? ' · Due ' + esc(due) : '') +
+          (created ? ' · Created ' + esc(created) : '') +
+          (m['Notes'] ? ' · ' + esc(String(m['Notes']).substring(0,60)) : '') +
+        '</div>' +
+      '</div>' +
+      '<div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;background:' + statusColor + '22;color:' + statusColor + ';white-space:nowrap">' +
+        esc(status) +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+
+// ─── New Movement modal ──────────────────────────────────────────────────
+
+function openMoveNewModal() {
+  var sel = document.getElementById('move-template');
+  sel.innerHTML = '<option value="">— pick a template —</option>' +
+    (_mmState.templates || []).map(function(t) {
+      var dir = String(t['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
+      return '<option value="' + esc(t['ID']) + '">' + dir + ' ' + esc(t['Name']) + '</option>';
+    }).join('');
+  document.getElementById('move-amount').value = '';
+  document.getElementById('move-date').value = '';
+  document.getElementById('move-notes').value = '';
+  document.getElementById('move-preview').textContent = 'Pick a template + enter an amount to preview the wire list.';
+  document.getElementById('move-copy-btn').disabled = true;
+  _mmState.lastPreview = '';
+  openModal('move-new-modal');
+}
+
+function _renderMovePreview() {
+  var tplId = document.getElementById('move-template').value;
+  var amtRaw = String(document.getElementById('move-amount').value || '').replace(/[$,\s]/g,'');
+  var amt = Number(amtRaw) || 0;
+  var previewEl = document.getElementById('move-preview');
+  var copyBtn = document.getElementById('move-copy-btn');
+  if (!tplId || !amt) {
+    previewEl.textContent = 'Pick a template + enter an amount to preview the wire list.';
+    copyBtn.disabled = true;
+    _mmState.lastPreview = '';
+    return;
+  }
+  previewEl.textContent = 'Building preview…';
+  copyBtn.disabled = true;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.error) {
+        previewEl.textContent = '⚠ ' + res.error;
+        copyBtn.disabled = true;
+        return;
+      }
+      previewEl.textContent = res.message || '';
+      _mmState.lastPreview = res.message || '';
+      copyBtn.disabled = !res.message;
+    })
+    .withFailureHandler(function(e) {
+      previewEl.textContent = '⚠ ' + (e.message || e);
+      copyBtn.disabled = true;
+    })
+    .formatMovementPreview(tplId, amt);
+}
+
+function _copyMovePreview() {
+  var text = _mmState.lastPreview || document.getElementById('move-preview').textContent || '';
+  if (!text) return;
+  _copyToClipboard(text, 'Wire list copied to clipboard');
+}
+
+function _createMovement() {
+  var tplId = document.getElementById('move-template').value;
+  var amtRaw = String(document.getElementById('move-amount').value || '').replace(/[$,\s]/g,'');
+  var amt = Number(amtRaw) || 0;
+  var date = document.getElementById('move-date').value;
+  var notes = document.getElementById('move-notes').value;
+  if (!tplId) { toast('Pick a template','error'); return; }
+  if (!amt || amt <= 0) { toast('Enter a valid amount','error'); return; }
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      showLoading(false);
+      if (res && res.success) {
+        closeModal('move-new-modal');
+        toast('Movement created — ' + res.wiresCreated + ' wires queued');
+        loadMoneyMovement();
+        setTimeout(function() { _openMovementDetail(res.movementId); }, 150);
+      } else {
+        toast('Create failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e) {
+      showLoading(false);
+      toast(e.message || String(e), 'error');
+    })
+    .createMovement(tplId, amt, date, notes);
+}
+
+
+// ─── Movement Detail modal (checklist) ──────────────────────────────────
+
+function _openMovementDetail(movementId) {
+  document.getElementById('move-detail-title').textContent = 'Movement';
+  document.getElementById('move-detail-body').innerHTML =
+    '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading checklist…</div>';
+  openModal('move-detail-modal');
+  google.script.run
+    .withSuccessHandler(function(detail) {
+      if (detail && detail.error) {
+        document.getElementById('move-detail-body').innerHTML =
+          '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(detail.error) + '</div>';
+        return;
+      }
+      _mmState.currentDetail = detail;
+      _renderMovementDetail(detail);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('move-detail-body').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getMovementDetail(movementId);
+}
+
+function _renderMovementDetail(detail) {
+  var m = detail.movement, t = detail.template, wires = detail.wires || [], p = detail.progress || {done:0,total:0,pct:0};
+  var status = String(m['Status'] || 'Planning');
+  var arrow = t && String(t['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
+  var arrowColor = t && String(t['Direction']||'').toLowerCase() === 'down' ? '#c5221f' : '#1e8e3e';
+
+  document.getElementById('move-detail-title').innerHTML =
+    '<span style="color:' + arrowColor + ';margin-right:6px">' + arrow + '</span>' +
+    esc(t ? t['Name'] : '(unknown template)');
+
+  var due = m['Date Needed'] instanceof Date ? m['Date Needed'].toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+          : m['Date Needed'] ? new Date(m['Date Needed']).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : null;
+
+  var html = '';
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:12px;flex-wrap:wrap">' +
+    '<div style="font-size:22px;font-weight:700;color:#0d2137">' + fmtUSD(Number(m['Total Amount']) || 0) + '</div>' +
+    (due ? '<div style="font-size:12px;color:#5f7791">Due ' + esc(due) + '</div>' : '') +
+    '<div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;background:#0d213722;color:#0d2137;white-space:nowrap">' + esc(status) + '</div>' +
+  '</div>';
+
+  // Progress bar
+  html += '<div style="margin-bottom:16px">' +
+    '<div style="display:flex;justify-content:space-between;font-size:12px;color:#5f7791;margin-bottom:4px">' +
+      '<span>' + p.done + ' of ' + p.total + ' wires done</span>' +
+      '<span>' + p.pct + '%</span>' +
+    '</div>' +
+    '<div style="height:8px;background:#e8eaed;border-radius:4px;overflow:hidden">' +
+      '<div style="height:100%;width:' + p.pct + '%;background:linear-gradient(90deg,#1e8e3e,#34a853);transition:width .2s"></div>' +
+    '</div>' +
+  '</div>';
+
+  if (m['Notes']) {
+    html += '<div style="font-size:12px;color:#5f7791;background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:8px 12px;margin-bottom:12px">' + esc(m['Notes']) + '</div>';
+  }
+
+  // Group wires by chain for readability, preserving the topo order the
+  // server returned. Same chain = same contributor's path.
+  var groupedHtml = '';
+  var lastChain = null;
+  wires.forEach(function(w) {
+    if (w.chain !== lastChain) {
+      if (lastChain !== null) groupedHtml += '';   // no extra spacer needed with border
+      groupedHtml += '<div style="font-size:11px;color:#7a8ba8;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px">─── ' + esc(w.chain || '(no chain)') + ' ───</div>';
+      lastChain = w.chain;
+    }
+    var done = w.status === 'Confirmed' || w.status === 'Sent';
+    var checkStyle = done
+      ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
+      : 'background:#fff;border-color:#c0ccd8;color:transparent';
+    groupedHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid #f0f3f7">' +
+      '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
+              'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
+              'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">✓</button>' +
+      '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
+        esc(w.fromAccount) + ' → ' + esc(w.toAccount) +
+      '</div>' +
+      '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
+        fmtUSD(w.amount) +
+      '</div>' +
+      '<div style="font-size:11px;color:#7a8ba8;min-width:60px;text-align:right">' + esc(w.responsible || '') + '</div>' +
+    '</div>';
+  });
+  html += groupedHtml;
+
+  // Complete / Reopen action
+  html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">';
+  if (p.done === p.total && p.total > 0 && status !== 'Complete') {
+    html += '<button class="btn btn-primary" onclick="_setMovementStatus(' + JSON.stringify(m['ID']) + ',\'Complete\')">Mark Movement Complete</button>';
+  } else if (status === 'Complete') {
+    html += '<button class="btn btn-secondary" onclick="_setMovementStatus(' + JSON.stringify(m['ID']) + ',\'In Progress\')">Reopen</button>';
+  } else if (p.done > 0 && status === 'Planning') {
+    html += '<button class="btn btn-secondary" onclick="_setMovementStatus(' + JSON.stringify(m['ID']) + ',\'In Progress\')">Mark as In Progress</button>';
+  }
+  html += '</div>';
+
+  document.getElementById('move-detail-body').innerHTML = html;
+}
+
+function _toggleWire(wireId, markDone) {
+  var newStatus = markDone ? 'Confirmed' : 'Pending';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        // Reload the detail to reflect the change (progress bar + status)
+        _openMovementDetail(_mmState.currentDetail.movement['ID']);
+      }
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .updateMovementWire(wireId, { status: newStatus, sentDate: markDone ? new Date().toISOString() : '' });
+}
+
+function _setMovementStatus(movementId, newStatus) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        toast('Movement marked ' + newStatus);
+        loadMoneyMovement();
+        _openMovementDetail(movementId);
+      }
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setMovementStatus(movementId, newStatus);
+}
+
+function _copyMoveDetailMessage() {
+  var d = _mmState.currentDetail;
+  if (!d) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.error) { toast(res.error, 'error'); return; }
+      _copyToClipboard(res.message || '', 'Message copied to clipboard');
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .formatMovementMessage(d.movement['ID']);
+}
+
+function _copyToClipboard(text, successMsg) {
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() {
+      toast(successMsg || 'Copied');
+    }, function() {
+      _copyFallback(text, successMsg);
+    });
+  } else {
+    _copyFallback(text, successMsg);
+  }
+}
+
+function _copyFallback(text, successMsg) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); toast(successMsg || 'Copied'); }
+  catch(e) { toast('Copy failed — long-press the preview to select manually', 'error'); }
+  document.body.removeChild(ta);
 }
 </script>
 </body>
