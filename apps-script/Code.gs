@@ -425,6 +425,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
+    .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
     .addSeparator()

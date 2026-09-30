@@ -427,6 +427,518 @@ function seedDoradoProperty() {
   };
 }
 
+// ── Categorization engine ──────────────────────────────────────────────────
+// Given a Plaid transaction and a set of PROPERTY_RULES, find the highest-
+// priority rule that matches and return its category/subcategory. If no rule
+// matches, the transaction lands in the "Needs Review" queue in the UI so
+// Amanda can either categorize it once (via override) or add a rule so all
+// future ones self-categorize.
+
+// Amount matcher: rule field can be
+//   ""              → matches any amount
+//   "-1254.88"      → exact (within 1 cent, to absorb rounding)
+//   "-140|-160"     → any of these values
+// Returns true if the transaction amount matches the rule.
+function _matchAmount_(txAmount, ruleAmount) {
+  var s = String(ruleAmount || '').trim();
+  if (!s) return true;
+  var candidates = s.split('|').map(function(v){ return Number(String(v).trim()); }).filter(function(n){ return !isNaN(n); });
+  if (!candidates.length) return true;
+  return candidates.some(function(c) { return Math.abs(txAmount - c) < 0.01; });
+}
+
+// Substring matcher: rule field can be
+//   ""            → matches any
+//   "oriental"    → substring match, case-insensitive
+// Multiple pipe-separated substrings are all treated as OR.
+function _matchSubstring_(txValue, ruleValue) {
+  var s = String(ruleValue || '').toLowerCase().trim();
+  if (!s) return true;
+  var candidates = s.split('|').map(function(v){ return v.trim(); }).filter(Boolean);
+  var haystack = String(txValue || '').toLowerCase();
+  return candidates.some(function(c) { return haystack.indexOf(c) >= 0; });
+}
+
+// Direction filter — 'in' requires positive, 'out' requires negative, 'any'
+// or unset accepts either. Runs BEFORE amount check so a rule tagged -1254
+// won't accidentally match a +1254 refund.
+function _matchDirection_(txAmount, ruleDirection) {
+  var d = String(ruleDirection || 'any').toLowerCase();
+  if (d === 'in')  return txAmount > 0;
+  if (d === 'out') return txAmount < 0;
+  return true;
+}
+
+// Try each rule in priority order (already sorted by getPropertyRules).
+// Returns { category, subcategory, ruleId } or null if nothing matched.
+function _categorizeTxn_(txn, rules) {
+  for (var i = 0; i < rules.length; i++) {
+    var r = rules[i];
+    if (!_matchSubstring_(txn.account, r['Match Account'])) continue;
+    if (!_matchSubstring_(txn.name,    r['Match Name']))    continue;
+    if (!_matchDirection_(txn.amount,  r['Direction']))     continue;
+    if (!_matchAmount_(txn.amount,     r['Match Amount']))  continue;
+    return {
+      category:    String(r['Category'] || ''),
+      subcategory: String(r['Subcategory'] || ''),
+      ruleId:      r['ID']
+    };
+  }
+  return null;
+}
+
+// Read every TLMND_TRANSACTIONS row that belongs to this property (its
+// Account column contains ANY of the substrings listed in the property's
+// "Plaid Account IDs" field). Optionally clamped to a date range. Returns
+// bare-metal txn objects the categorizer + report builder consume.
+function _getPropertyTransactions_(property, startDate, endDate) {
+  var accountFilters = String(property['Plaid Account IDs'] || '')
+    .split(',').map(function(s){ return s.trim().toLowerCase(); }).filter(Boolean);
+  if (!accountFilters.length) return [];
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iId      = headers.indexOf('Transaction ID');
+  var iDate    = headers.indexOf('Date');
+  var iAccount = headers.indexOf('Account');
+  var iName    = headers.indexOf('Name');
+  var iMerch   = headers.indexOf('Merchant');
+  var iAmount  = headers.indexOf('Amount USD');
+  var iPending = headers.indexOf('Pending');
+  if (iId < 0 || iDate < 0 || iAccount < 0 || iName < 0 || iAmount < 0) return [];
+
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  var startMs = startDate ? startDate.getTime() : -Infinity;
+  var endMs   = endDate   ? endDate.getTime()   :  Infinity;
+  var out = [];
+  rows.forEach(function(r) {
+    var acct = String(r[iAccount] || '').toLowerCase();
+    if (!accountFilters.some(function(f) { return acct.indexOf(f) >= 0; })) return;
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (isNaN(d.getTime())) return;
+    var t = d.getTime();
+    if (t < startMs || t > endMs) return;
+    // Pending transactions are noisy — skip. Report-quality data only.
+    if (iPending >= 0 && String(r[iPending] || '').toLowerCase() === 'yes') return;
+    out.push({
+      id:       String(r[iId] || ''),
+      date:     d,
+      dateIso:  Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd'),
+      account:  String(r[iAccount] || ''),
+      name:     String(r[iName] || ''),
+      merchant: iMerch >= 0 ? String(r[iMerch] || '') : '',
+      amount:   Number(r[iAmount] || 0)
+    });
+  });
+  return out;
+}
+
+// Per-transaction overrides let Amanda promote a specific txn to a different
+// category (e.g. reclassify one guest deposit from Rental Income to
+// Reimbursement) without adding a rule that would blanket-affect similar txns.
+function _getPropertyTxnOverrides_(propertyId) {
+  var rows = _getPropertySheetRows_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS);
+  var map = {};
+  rows.forEach(function(r) {
+    if (String(r['Property ID']) !== String(propertyId)) return;
+    map[String(r['Transaction ID'])] = {
+      category:    String(r['Category'] || ''),
+      subcategory: String(r['Subcategory'] || '')
+    };
+  });
+  return map;
+}
+
+// Web-callable: set a per-transaction override. Overwrites any prior override
+// for the same (txn, property) pair. Amanda calls this from the "Needs Review"
+// queue in the UI when she wants a one-off classification without a rule.
+function setPropertyTxnOverride(txnId, propertyId, category, subcategory, notes) {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_TXN_OVERRIDES');
+  var lastCol = Math.max(sheet.getLastColumn(), PROPERTY_TXN_OVERRIDES_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iTxn  = hdr.indexOf('Transaction ID');
+  var iProp = hdr.indexOf('Property ID');
+  if (sheet.getLastRow() >= 2) {
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+    for (var r = 0; r < data.length; r++) {
+      if (String(data[r][iTxn]) === String(txnId) && String(data[r][iProp]) === String(propertyId)) {
+        var iCat = hdr.indexOf('Category'), iSub = hdr.indexOf('Subcategory');
+        var iNotes = hdr.indexOf('Notes'), iEnt = hdr.indexOf('Entered At');
+        sheet.getRange(r + 2, iCat + 1).setValue(category || '');
+        sheet.getRange(r + 2, iSub + 1).setValue(subcategory || '');
+        if (iNotes >= 0) sheet.getRange(r + 2, iNotes + 1).setValue(notes || '');
+        if (iEnt >= 0)   sheet.getRange(r + 2, iEnt + 1).setValue(new Date());
+        return { success: true, updated: true };
+      }
+    }
+  }
+  _writePropertyRow_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS, {
+    'Transaction ID': String(txnId),
+    'Property ID':    String(propertyId),
+    'Category':       category || '',
+    'Subcategory':    subcategory || '',
+    'Notes':          notes || '',
+    'Entered By':     _currentUserEmail_(),
+    'Entered At':     new Date()
+  });
+  return { success: true, updated: false };
+}
+
+
+// ── Google Calendar reader ─────────────────────────────────────────────────
+// Read the property's linked Google Calendar to figure out (a) upcoming
+// reservations for the "next 60 days" widget, and (b) nights booked for
+// the occupancy % on the monthly report. Event source is inferred from
+// the event's title so Alma / direct-guest bookings (revenue) are
+// distinguished from family / owner stays (occupancy only, no revenue).
+
+// Case-insensitive keywords used to tag an event's source. Amanda can add
+// aliases here or in the event titles — keep this list broad so a naming
+// slip doesn't wreck the classification.
+var _PROPERTY_EVENT_SOURCES = [
+  { source: 'owner',  keywords: ['owner', 'mike', 'dr mike', 'dr. mike'] },
+  { source: 'family', keywords: ['family', 'brother', 'sister', 'parents',
+                                'mom', 'dad', 'kids', 'personal'] },
+  { source: 'friend', keywords: ['friend', 'friends', 'guest of mike'] },
+  { source: 'alma',   keywords: ['alma', 'airbnb', 'vrbo', 'booking.com', 'expedia'] },
+  { source: 'direct', keywords: ['direct'] }
+];
+
+function _classifyEventSource_(title) {
+  var t = String(title || '').toLowerCase();
+  for (var i = 0; i < _PROPERTY_EVENT_SOURCES.length; i++) {
+    var s = _PROPERTY_EVENT_SOURCES[i];
+    for (var j = 0; j < s.keywords.length; j++) {
+      if (t.indexOf(s.keywords[j]) >= 0) return s.source;
+    }
+  }
+  return 'unknown';   // untagged event — Amanda can leave it as-is or tweak
+                      // the title to include a source keyword.
+}
+
+// Return every event on the calendar between startDate (inclusive) and
+// endDate (exclusive), lightly cleaned up. Multi-day events are counted
+// with their FULL night span (checkout — checkin) so occupancy math is right.
+function getPropertyReservations(propertyId, startIso, endIso) {
+  var prop = getProperty(propertyId);
+  if (!prop) return { error: 'Property not found: ' + propertyId, events: [] };
+  var calId = String(prop['Google Calendar ID'] || '').trim();
+  if (!calId) return { error: 'No Google Calendar ID set on property.', events: [] };
+
+  var start = startIso ? new Date(startIso) : new Date();
+  var end   = endIso   ? new Date(endIso)   : new Date(start.getTime() + 60 * 86400000);
+
+  var cal;
+  try { cal = CalendarApp.getCalendarById(calId); }
+  catch(e) { return { error: 'CalendarApp.getCalendarById failed: ' + e.message, events: [] }; }
+  if (!cal) return { error: 'Calendar not accessible. Make sure ' + _currentUserEmail_() + ' has at least read access.', events: [] };
+
+  var events;
+  try { events = cal.getEvents(start, end); }
+  catch(e) { return { error: 'cal.getEvents failed: ' + e.message, events: [] }; }
+
+  var out = events.map(function(e) {
+    var s = e.getStartTime();
+    var f = e.getEndTime();
+    var nights = Math.max(0, Math.round((f.getTime() - s.getTime()) / 86400000));
+    if (e.isAllDayEvent()) {
+      // getAllDayStartDate is timezone-safe; getStartTime for all-day events
+      // may skew by a day depending on script timezone.
+      s = e.getAllDayStartDate();
+      f = e.getAllDayEndDate();
+      nights = Math.max(0, Math.round((f.getTime() - s.getTime()) / 86400000));
+    }
+    return {
+      id:         e.getId(),
+      title:      e.getTitle(),
+      start:      s.toISOString(),
+      end:        f.toISOString(),
+      startIso:   Utilities.formatDate(s, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      endIso:     Utilities.formatDate(f, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      nights:     nights,
+      source:     _classifyEventSource_(e.getTitle()),
+      description: (e.getDescription() || '').substring(0, 500)
+    };
+  });
+  return { propertyId: propertyId, events: out };
+}
+
+// Compute occupancy stats for a given month by clipping every reservation
+// that overlaps the month to that month's window. Nights are summed with
+// zero double-counting when reservations don't overlap; if two events DO
+// overlap (shouldn't happen on a real calendar, but…) it still won't count
+// the same day twice — we build a set of booked date strings.
+function _computeMonthOccupancy_(events, year, month) {
+  var monthStart = new Date(Date.UTC(year, month - 1, 1));
+  var monthEnd   = new Date(Date.UTC(year, month, 1));   // exclusive
+  var daysInMonth = new Date(year, month, 0).getDate();
+  var bookedDates = {};
+  var revenueDates = {};   // Alma / direct / unknown = revenue-generating
+                           // occupancy. Family/owner/friend = non-revenue.
+  var reservations = 0;
+  events.forEach(function(e) {
+    var s = new Date(e.start);
+    var f = new Date(e.end);
+    if (f <= monthStart || s >= monthEnd) return;   // no overlap
+    reservations++;
+    var cur = s > monthStart ? new Date(s) : new Date(monthStart);
+    var stop = f < monthEnd ? new Date(f) : new Date(monthEnd);
+    while (cur < stop) {
+      var iso = Utilities.formatDate(cur, 'UTC', 'yyyy-MM-dd');
+      bookedDates[iso] = true;
+      if (e.source === 'alma' || e.source === 'direct' || e.source === 'unknown') {
+        revenueDates[iso] = true;
+      }
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+  });
+  var nightsBooked = Object.keys(bookedDates).length;
+  var revenueNights = Object.keys(revenueDates).length;
+  return {
+    nightsBooked:  nightsBooked,
+    revenueNights: revenueNights,
+    reservations:  reservations,
+    daysInMonth:   daysInMonth,
+    occupancyPct:  daysInMonth > 0 ? Math.round(nightsBooked / daysInMonth * 100) : 0
+  };
+}
+
+
+// ── Monthly report builder ─────────────────────────────────────────────────
+// Web-callable — for a property + year + month, returns the FULL data
+// structure the Properties tab (and later, the PDF) render from. Stitches
+// together bank transactions (categorized via rules + overrides), manual
+// entries, calendar reservations, and the linked liability's mortgage
+// balance. Never writes anywhere — safe to call repeatedly from the UI.
+
+function getPropertyMonthlyReport(propertyId, year, month) {
+  var prop = getProperty(propertyId);
+  if (!prop) return { error: 'Property not found: ' + propertyId };
+
+  year  = Number(year)  || new Date().getFullYear();
+  month = Number(month) || (new Date().getMonth() + 1);
+  var monthStart = new Date(Date.UTC(year, month - 1, 1));
+  var monthEnd   = new Date(Date.UTC(year, month, 1));   // exclusive
+  var monthKey   = Utilities.formatDate(monthStart, 'UTC', 'yyyy-MM');
+
+  // 1. Bank transactions ↔ rules.
+  var rules = getPropertyRules(propertyId);
+  var txns  = _getPropertyTransactions_(prop, monthStart, new Date(monthEnd.getTime() - 1));
+  var overrides = _getPropertyTxnOverrides_(propertyId);
+  var categorized = [];
+  var needsReview = [];
+  txns.forEach(function(t) {
+    var ovr = overrides[t.id];
+    if (ovr && (ovr.category || ovr.subcategory)) {
+      categorized.push(Object.assign({}, t, { category: ovr.category, subcategory: ovr.subcategory, source: 'override' }));
+      return;
+    }
+    var hit = _categorizeTxn_(t, rules);
+    if (hit) {
+      categorized.push(Object.assign({}, t, { category: hit.category, subcategory: hit.subcategory, ruleId: hit.ruleId, source: 'rule' }));
+    } else {
+      needsReview.push(t);
+    }
+  });
+
+  // 2. Manual entries for this month.
+  var manuals = _getPropertySheetRows_('PROPERTY_MANUAL', PROPERTY_MANUAL_HEADERS)
+    .filter(function(m) { return String(m['Property ID']) === String(propertyId) && String(m['Month']) === monthKey; })
+    .map(function(m) {
+      return {
+        id:          'manual:' + m['ID'],
+        date:        m['Date'] instanceof Date ? m['Date'] : (m['Date'] ? new Date(m['Date']) : monthStart),
+        account:     '(manual)',
+        name:        String(m['Notes'] || ''),
+        amount:      Number(m['Amount']) || 0,
+        category:    String(m['Category'] || ''),
+        subcategory: String(m['Subcategory'] || ''),
+        source:      'manual'
+      };
+    });
+
+  var lines = categorized.concat(manuals);
+
+  // 3. Aggregate by category → subcategory. Preserves order of appearance
+  //    within a category so the PDF renders line items in the same order
+  //    Amanda's Excel does. Signed amounts are kept negative for out; the
+  //    UI + PDF layer decides display formatting.
+  var buckets = {};
+  var subOrder = {};   // per-category insertion order
+  lines.forEach(function(l) {
+    var c = l.category || 'Uncategorized';
+    var s = l.subcategory || '(no subcategory)';
+    buckets[c] = buckets[c] || {};
+    buckets[c][s] = buckets[c][s] || { total: 0, transactions: [] };
+    buckets[c][s].total += l.amount;
+    buckets[c][s].transactions.push({
+      id: l.id, date: l.dateIso || (l.date && l.date.toISOString ? l.date.toISOString().substring(0,10) : ''),
+      account: l.account, name: l.name, amount: l.amount, source: l.source
+    });
+    subOrder[c] = subOrder[c] || [];
+    if (subOrder[c].indexOf(s) < 0) subOrder[c].push(s);
+  });
+
+  // 4. Rental income gross-up.
+  //    Amanda receives NET (after Alma's fee %) but her Excel reports GROSS.
+  //    Compute the implied Alma fee and expose both numbers.
+  var feePct = Number(prop['Manager Fee %']) || 0;
+  var almaBucket = buckets['Revenue'] && buckets['Revenue']['Rental Income (Alma)'];
+  var netRoomRevenue = almaBucket ? almaBucket.total : 0;
+  var grossRentalAmount = feePct > 0 && feePct < 100
+    ? netRoomRevenue / (1 - feePct / 100)
+    : netRoomRevenue;
+  var almaFee = grossRentalAmount - netRoomRevenue;   // negative sign convention
+
+  // Non-Alma revenue rows (direct guest, other) count at face value.
+  var otherRevenue = 0;
+  if (buckets['Revenue']) {
+    Object.keys(buckets['Revenue']).forEach(function(sub) {
+      if (sub !== 'Rental Income (Alma)') otherRevenue += buckets['Revenue'][sub].total;
+    });
+  }
+  var totalRentAmount = grossRentalAmount + otherRevenue;
+
+  // 5. Top-line totals (match the PDF's 4 tiles + Net Cash Flow).
+  var directCostsTotal = 0;
+  if (buckets['Direct Cost']) Object.keys(buckets['Direct Cost']).forEach(function(s) { directCostsTotal += buckets['Direct Cost'][s].total; });
+  directCostsTotal += -almaFee;  // Alma fee is a direct cost too (already
+                                  // reflected in the net deposit, but shown
+                                  // explicitly on the report).
+
+  var opexTotal = 0;
+  if (buckets['Operating Expense']) Object.keys(buckets['Operating Expense']).forEach(function(s) { opexTotal += buckets['Operating Expense'][s].total; });
+
+  var debtServiceTotal = 0;
+  if (buckets['Debt Service']) Object.keys(buckets['Debt Service']).forEach(function(s) { debtServiceTotal += buckets['Debt Service'][s].total; });
+
+  // Rents Collected (per Excel) = gross rental amount (top-line, pre-fees).
+  var rentsCollected = totalRentAmount;
+  var totalOpExOnly  = opexTotal + directCostsTotal;   // Amanda's "Total Operating Expenses" tile
+  var netOperatingIncome = rentsCollected + totalOpExOnly;   // signs cancel: rents + (−costs)
+  var netCashFlow    = netOperatingIncome + debtServiceTotal;
+
+  // 6. Calendar / occupancy for the month.
+  var occupancy = { nightsBooked: 0, revenueNights: 0, reservations: 0, daysInMonth: 0, occupancyPct: 0 };
+  var res = getPropertyReservations(propertyId, monthStart.toISOString(), monthEnd.toISOString());
+  if (res.events) {
+    occupancy = _computeMonthOccupancy_(res.events, year, month);
+  }
+  var adr = occupancy.revenueNights > 0 ? (grossRentalAmount / occupancy.revenueNights) : 0;
+
+  return {
+    property:   prop,
+    year:       year,
+    month:      month,
+    monthKey:   monthKey,
+    monthLabel: Utilities.formatDate(monthStart, 'UTC', 'MMMM yyyy'),
+    tiles: {
+      rentsCollected:       rentsCollected,
+      totalOperatingExpense: totalOpExOnly,
+      netOperatingIncome:    netOperatingIncome,
+      debtService:           debtServiceTotal,
+      netCashFlow:           netCashFlow
+    },
+    operational: {
+      occupancyPct:  occupancy.occupancyPct,
+      reservations:  occupancy.reservations,
+      nightsBooked:  occupancy.nightsBooked,
+      averageDailyRate: adr
+    },
+    revenue: {
+      grossRentalAmount:  grossRentalAmount,
+      netRoomRevenue:     netRoomRevenue,
+      otherRevenue:       otherRevenue
+    },
+    directCosts: {
+      almaFee: almaFee,   // will be negative
+      subcategories: buckets['Direct Cost'] || {}
+    },
+    operatingExpenses: buckets['Operating Expense'] || {},
+    debtService:       buckets['Debt Service']       || {},
+    reimbursements:    buckets['Reimbursement']      || {},
+    uncategorized:     buckets['Uncategorized']      || {},
+    needsReview:       needsReview,
+    reservations:      (res.events || []).filter(function(e) {
+      var s = new Date(e.start);
+      var f = new Date(e.end);
+      return f > monthStart && s < monthEnd;
+    }),
+    calendarError:     res.error || null
+  };
+}
+
+// Web-callable — next N days of upcoming reservations, for the Properties
+// tab "Upcoming Bookings" widget above the monthly report.
+function getPropertyUpcoming(propertyId, days) {
+  var d = Number(days) || 60;
+  var start = new Date();
+  var end   = new Date(start.getTime() + d * 86400000);
+  return getPropertyReservations(propertyId, start.toISOString(), end.toISOString());
+}
+
+
+// ── Menu diagnostics ───────────────────────────────────────────────────────
+
+// Menu-callable: run the categorization engine for Dorado's current month,
+// show a summary — helps Amanda confirm the rules are firing on the right
+// transactions before we build the UI.
+function debugDoradoThisMonth() {
+  var props = getProperties();
+  var dorado = props.find(function(p) { return /dorado/i.test(String(p['Name'] || '')); });
+  if (!dorado) { SpreadsheetApp.getUi().alert('Dorado property not found. Run Seed Dorado first.'); return; }
+  var now = new Date();
+  var report = getPropertyMonthlyReport(dorado['ID'], now.getFullYear(), now.getMonth() + 1);
+  var lines = [
+    'Dorado — ' + report.monthLabel,
+    '',
+    'TILES',
+    '  Rents Collected:       $' + report.tiles.rentsCollected.toFixed(2),
+    '  Total Operating Exp:   $' + report.tiles.totalOperatingExpense.toFixed(2),
+    '  Net Operating Income:  $' + report.tiles.netOperatingIncome.toFixed(2),
+    '  Debt Service:          $' + report.tiles.debtService.toFixed(2),
+    '  Net Cash Flow:         $' + report.tiles.netCashFlow.toFixed(2),
+    '',
+    'OPERATIONAL',
+    '  Occupancy: ' + report.operational.occupancyPct + '%',
+    '  Reservations: ' + report.operational.reservations,
+    '  Nights booked: ' + report.operational.nightsBooked,
+    '  ADR: $' + report.operational.averageDailyRate.toFixed(2),
+    '',
+    'REVENUE',
+    '  Gross Rental Amount:  $' + report.revenue.grossRentalAmount.toFixed(2),
+    '  Net Room Revenue:     $' + report.revenue.netRoomRevenue.toFixed(2),
+    '',
+    'OPERATING EXPENSES'
+  ];
+  Object.keys(report.operatingExpenses).forEach(function(sub) {
+    lines.push('  ' + sub + ':  $' + report.operatingExpenses[sub].total.toFixed(2) +
+               '  (' + report.operatingExpenses[sub].transactions.length + ' txn)');
+  });
+  lines.push('');
+  lines.push('DEBT SERVICE');
+  Object.keys(report.debtService).forEach(function(sub) {
+    lines.push('  ' + sub + ':  $' + report.debtService[sub].total.toFixed(2));
+  });
+  lines.push('');
+  lines.push('NEEDS REVIEW: ' + report.needsReview.length + ' uncategorized transaction(s)');
+  report.needsReview.slice(0, 8).forEach(function(t) {
+    lines.push('  ' + t.dateIso + '  ' + t.account + '  $' + t.amount.toFixed(2) + '  ' + t.name.substring(0, 40));
+  });
+  if (report.needsReview.length > 8) lines.push('  … +' + (report.needsReview.length - 8) + ' more');
+  lines.push('');
+  lines.push('CALENDAR: ' + (report.calendarError ? ('⚠ ' + report.calendarError) : (report.reservations.length + ' reservation(s) this month')));
+  report.reservations.forEach(function(r) {
+    lines.push('  ' + r.startIso + ' → ' + r.endIso + '  [' + r.source + ']  ' + r.title);
+  });
+
+  SpreadsheetApp.getUi().alert('Dorado This Month', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+
 // Menu-callable — dumps every property + rule to a text alert. Handy after
 // seeding to confirm everything landed. Read-only.
 function debugProperties() {
