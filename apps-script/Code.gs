@@ -426,6 +426,7 @@ function onOpen() {
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
     .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
+    .addItem('Properties → Debug: List Plaid Accounts (for setup)', 'debugListPlaidAccounts')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
     .addSeparator()

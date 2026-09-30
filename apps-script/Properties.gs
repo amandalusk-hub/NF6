@@ -939,6 +939,50 @@ function debugDoradoThisMonth() {
 }
 
 
+// Menu-callable — scans TLMND_TRANSACTIONS to list every distinct Account
+// value with its transaction count, most recent date, and a short recent
+// sample. Used to figure out what substrings to type into a property's
+// "Plaid Account IDs" field (e.g. does the Oriental account show up as
+// "Oriental Bank ...4321" or "ORIENTAL - Checking" or something else?).
+function debugListPlaidAccounts() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('TLMND_TRANSACTIONS is empty. Run Sync Plaid Accounts first.');
+    return;
+  }
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iAcct  = headers.indexOf('Account');
+  var iDate  = headers.indexOf('Date');
+  var iName  = headers.indexOf('Name');
+  if (iAcct < 0) { SpreadsheetApp.getUi().alert('No "Account" column found on TLMND_TRANSACTIONS.'); return; }
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  var acctMap = {};
+  rows.forEach(function(r) {
+    var a = String(r[iAcct] || '').trim();
+    if (!a) return;
+    if (!acctMap[a]) acctMap[a] = { count: 0, latest: null, samples: [] };
+    acctMap[a].count++;
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (!isNaN(d.getTime()) && (!acctMap[a].latest || d > acctMap[a].latest)) acctMap[a].latest = d;
+    if (acctMap[a].samples.length < 3) acctMap[a].samples.push(String(r[iName] || '').substring(0, 45));
+  });
+  var lines = ['PLAID ACCOUNTS FOUND (' + Object.keys(acctMap).length + ')', ''];
+  Object.keys(acctMap).sort().forEach(function(a) {
+    var m = acctMap[a];
+    lines.push('  • "' + a + '"');
+    lines.push('      ' + m.count + ' txn(s) · latest: ' + (m.latest ? Utilities.formatDate(m.latest, Session.getScriptTimeZone(), 'yyyy-MM-dd') : '—'));
+    m.samples.forEach(function(s) { lines.push('      ex: ' + s); });
+    lines.push('');
+  });
+  lines.push('To attach an account to a property:');
+  lines.push('  1. Open the PROPERTIES sheet');
+  lines.push('  2. In the row for that property, edit the "Plaid Account IDs" column');
+  lines.push('  3. Comma-separate substrings that appear in the account names above');
+  lines.push('     (e.g. "oriental,ath,9007" catches all three)');
+  SpreadsheetApp.getUi().alert('Plaid Accounts', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+
 // Menu-callable — dumps every property + rule to a text alert. Handy after
 // seeding to confirm everything landed. Read-only.
 function debugProperties() {
