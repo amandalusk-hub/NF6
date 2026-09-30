@@ -7844,12 +7844,13 @@ function _renderMovementCard(m, tpl) {
             : m['Created At'] ? new Date(m['Created At']).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
   var idJson = esc(JSON.stringify(m['ID']));
 
-  // role="button" + tabindex + explicit tap handler makes iOS Safari treat
-  // the card as clickable (a plain <div> with onclick sometimes doesn't
-  // fire the first tap on iOS). Delete button uses event.stopPropagation
-  // so tapping X doesn't also open the detail.
+  // Card click routes through _mmCardClick, which checks if the tap landed
+  // on the delete button (class "mm-delete-btn") and bails out. This is more
+  // reliable than inline event.stopPropagation on iOS Safari, where inline
+  // stopPropagation can still let the parent onclick fire.
+  var labelForConfirm = tplName + ' — ' + fmtUSD(Number(m['Total Amount']) || 0);
   return '<div class="card" role="button" tabindex="0" style="margin-bottom:10px;cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,0.05)" ' +
-              'onclick="_openMovementDetail(' + idJson + ')">' +
+              'onclick="_mmCardClick(event,' + idJson + ')">' +
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
       '<div style="flex:1;min-width:0">' +
         '<div style="font-size:15px;font-weight:600;color:#0d2137;margin-bottom:4px">' +
@@ -7867,12 +7868,26 @@ function _renderMovementCard(m, tpl) {
         '<div style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;background:' + statusColor + '22;color:' + statusColor + ';white-space:nowrap">' +
           esc(status) +
         '</div>' +
-        '<button onclick="event.stopPropagation();_confirmDeleteMovement(' + idJson + ',' + JSON.stringify(tplName + ' — ' + fmtUSD(Number(m['Total Amount']) || 0)) + ')" ' +
+        '<button class="mm-delete-btn" data-mid="' + esc(m['ID']) + '" data-label="' + esc(labelForConfirm) + '" ' +
                 'title="Delete movement" ' +
                 'style="background:transparent;border:1px solid #e0e6ee;color:#c5221f;width:28px;height:28px;border-radius:6px;cursor:pointer;font-size:14px;line-height:1;padding:0;flex-shrink:0">×</button>' +
       '</div>' +
     '</div>' +
   '</div>';
+}
+
+// Card tap router: if the tap landed on or inside the .mm-delete-btn,
+// handle the delete confirmation and skip opening the detail. Otherwise
+// open the detail. More reliable than inline stopPropagation on iOS.
+function _mmCardClick(e, movementId) {
+  var deleteBtn = e.target && e.target.closest ? e.target.closest('.mm-delete-btn') : null;
+  if (deleteBtn) {
+    var mid = deleteBtn.getAttribute('data-mid') || movementId;
+    var label = deleteBtn.getAttribute('data-label') || '';
+    _confirmDeleteMovement(mid, label);
+    return;
+  }
+  _openMovementDetail(movementId);
 }
 
 function _confirmDeleteMovement(movementId, label) {
