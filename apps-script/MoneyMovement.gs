@@ -275,6 +275,52 @@ function createMovement(templateId, totalAmount, dateNeeded, notes) {
   return { success: true, movementId: moveId, wiresCreated: wiresCreated };
 }
 
+// Delete a movement + all its wires. Physical delete — the row goes away.
+// The audit log preserves the fact the delete happened. Used by the trash
+// button on the movement card / detail modal.
+function deleteMovement(movementId) {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Look up the movement name for the audit log before we delete the row.
+  var move = _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS)
+    .find(function(m) { return String(m['ID']) === String(movementId); });
+  var label = move ? (move['Notes'] || move['ID']) : movementId;
+
+  // Delete every wire row belonging to this movement.
+  var wSheet = ss.getSheetByName('MOVEMENT_WIRES');
+  if (wSheet && wSheet.getLastRow() >= 2) {
+    var lastCol = Math.max(wSheet.getLastColumn(), MOVEMENT_WIRES_HEADERS.length);
+    var data = wSheet.getRange(1, 1, wSheet.getLastRow(), lastCol).getValues();
+    var hdr = data[0];
+    var iMove = hdr.indexOf('Movement ID');
+    // Iterate bottom-up so row numbers stay valid after deletes.
+    for (var r = data.length - 1; r >= 1; r--) {
+      if (String(data[r][iMove]) === String(movementId)) {
+        wSheet.deleteRow(r + 1);
+      }
+    }
+  }
+
+  // Delete the movement row itself.
+  var mSheet = ss.getSheetByName('MOVEMENTS');
+  if (mSheet && mSheet.getLastRow() >= 2) {
+    var mLastCol = Math.max(mSheet.getLastColumn(), MOVEMENTS_HEADERS.length);
+    var mData = mSheet.getRange(1, 1, mSheet.getLastRow(), mLastCol).getValues();
+    var mHdr = mData[0];
+    var mIid = mHdr.indexOf('ID');
+    for (var mr = mData.length - 1; mr >= 1; mr--) {
+      if (String(mData[mr][mIid]) === String(movementId)) {
+        mSheet.deleteRow(mr + 1);
+      }
+    }
+  }
+
+  _logAudit_('deleteMovement', 'movement', movementId, label, 'Deleted movement');
+  return { success: true };
+}
+
 // Update a movement's status directly ('Planning' | 'In Progress' |
 // 'Complete' | 'Cancelled'). Used by the checklist page's "Mark Complete"
 // and "Reopen" buttons.
