@@ -398,9 +398,9 @@ function seedMovementTemplates() {
 
   var results = [];
 
-  // 1. Blue Panda FLP Contribution
+  // 1. Blue Panda FLP - Up (money IN to Blue Panda)
   results.push(_seedTemplate_({
-    name: 'Blue Panda FLP Contribution',
+    name: 'Blue Panda FLP - Up',
     destination: 'Blue Panda FLP (8686)',
     direction: 'up',
     description: 'Money flowing IN to Blue Panda FLP. 99% via MN Trust Irrevocable (100% Mike). 1% via BPMGMT (5150), which is 51% Mike / 49% Nancy.',
@@ -419,9 +419,9 @@ function seedMovementTemplates() {
     ]
   }, haveByName));
 
-  // 2. NF PR SJ Wire (up)
+  // 2. NF PR SJ - Up (money IN to NF PR SJ)
   results.push(_seedTemplate_({
-    name: 'NF PR SJ Wire',
+    name: 'NF PR SJ - Up',
     destination: 'NF PR SJ LLC (5297)',
     direction: 'up',
     description: 'Money flowing IN to NF PR SJ LLC. 99% via Mike (through 2019 MN Family Rev Trust → NF6 Family Holdings). 1% via siblings (each 1/3 through Personal → NF6 Joint Mgmt → NF6 Family Holdings).',
@@ -445,7 +445,7 @@ function seedMovementTemplates() {
   // 3. NF6 Tiger Capital — DOWN direction (distribute FROM Tiger Capital TO
   //    individuals). Same ownership as NF PR SJ but reversed hops.
   results.push(_seedTemplate_({
-    name: 'NF6 Tiger Capital Distribution (Down)',
+    name: 'NF6 Tiger Capital - Down',
     destination: 'NF6 Tiger Capital LLC (5319)',
     direction: 'down',
     description: 'Distribution OUT of Tiger Capital, 99% to Mike + 0.333% each to Michelle/Nancy/David. Money flows down through Family Holdings → (Rev Trust for Mike | Joint Mgmt for siblings) → personal accounts.',
@@ -471,7 +471,7 @@ function seedMovementTemplates() {
   // 5. Blue Panda FLP — DOWN direction (distributions OUT of Blue Panda).
   //    Inverse of #1. Amanda uses this more often than the UP version.
   results.push(_seedTemplate_({
-    name: 'Blue Panda FLP Distribution (Down)',
+    name: 'Blue Panda FLP - Down',
     destination: 'Blue Panda FLP (8686)',
     direction: 'down',
     description: 'Distribution OUT of Blue Panda FLP. 99% flows back through MN Trust Irrevocable to Mike. 1% flows through BPMGMT (51% Mike via 2019 Rev Trust, 49% Nancy).',
@@ -492,7 +492,7 @@ function seedMovementTemplates() {
   // 6. NF PR SJ — DOWN direction (distributions OUT of NF PR SJ).
   //    Inverse of #2. Amanda uses this more often than the UP version.
   results.push(_seedTemplate_({
-    name: 'NF PR SJ Distribution (Down)',
+    name: 'NF PR SJ - Down',
     destination: 'NF PR SJ LLC (5297)',
     direction: 'down',
     description: 'Distribution OUT of NF PR SJ LLC. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
@@ -514,7 +514,7 @@ function seedMovementTemplates() {
   // 4. NF6 Tiger Capital — UP direction (contributions INTO Tiger Capital).
   //    Same ownership, hops reversed from #3.
   results.push(_seedTemplate_({
-    name: 'NF6 Tiger Capital Contribution (Up)',
+    name: 'NF6 Tiger Capital - Up',
     destination: 'NF6 Tiger Capital LLC (5319)',
     direction: 'up',
     description: 'Contribution INTO Tiger Capital. Mike wires 99%, each sibling wires 0.333%. Each contribution flows up through Family Holdings.',
@@ -825,6 +825,48 @@ function resyncMovementAccountLabels() {
   var msg = 'Updated ' + changed + ' account label(s).\n\n' + (summary.length ? summary.join('\n') : '(all labels already correct)');
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert('Account Labels Resynced', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+}
+
+
+// Menu-callable — rename existing templates from the old "Contribution /
+// Distribution" scheme to the cleaner "Entity - Up / Down" scheme Amanda
+// wanted (the arrow prefix in the dropdown already tells you direction, so
+// the word "Distribution" was redundant AND confusing since Amanda uses
+// "distribution" to describe up-direction wires too). Idempotent — matches
+// old names exactly, skips rows already renamed.
+function renameMovementTemplatesToDirection() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MOVEMENT_TEMPLATES');
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var lastCol = Math.max(sheet.getLastColumn(), MOVEMENT_TEMPLATES_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iName = hdr.indexOf('Name');
+  if (iName < 0) return;
+
+  var RENAME_MAP = {
+    'Blue Panda FLP Contribution':              'Blue Panda FLP - Up',
+    'Blue Panda FLP Distribution (Down)':       'Blue Panda FLP - Down',
+    'NF PR SJ Wire':                            'NF PR SJ - Up',
+    'NF PR SJ Distribution (Down)':             'NF PR SJ - Down',
+    'NF6 Tiger Capital Distribution (Down)':    'NF6 Tiger Capital - Down',
+    'NF6 Tiger Capital Contribution (Up)':      'NF6 Tiger Capital - Up'
+  };
+  var changed = 0;
+  var summary = [];
+  for (var r = 1; r < data.length; r++) {
+    var old = String(data[r][iName] || '');
+    var neu = RENAME_MAP[old];
+    if (neu && neu !== old) {
+      sheet.getRange(r + 1, iName + 1).setValue(neu);
+      changed++;
+      summary.push('  "' + old + '" → "' + neu + '"');
+    }
+  }
+  var msg = 'Renamed ' + changed + ' template(s).\n\n' + (summary.length ? summary.join('\n') : '(all names already updated)');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('Templates Renamed', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
 
 
