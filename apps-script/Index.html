@@ -7910,24 +7910,95 @@ function _renderMovePreview() {
     _mmState.lastPreview = '';
     return;
   }
-  previewEl.textContent = 'Building preview…';
-  copyBtn.disabled = true;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.error) {
-        previewEl.textContent = '⚠ ' + res.error;
+  // Fetch hops once per template (cached in _mmState.templateHops), then
+  // compute the preview locally on every amount keystroke — instant, no
+  // round-trip to the server after the first template pick.
+  var hops = _mmState.templateHops[tplId];
+  if (!hops) {
+    previewEl.textContent = 'Loading template…';
+    copyBtn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function(fetched) {
+        _mmState.templateHops[tplId] = fetched || [];
+        _renderMovePreview();
+      })
+      .withFailureHandler(function(e) {
+        previewEl.textContent = String.fromCharCode(9888) + ' ' + (e.message || e);
         copyBtn.disabled = true;
-        return;
-      }
-      previewEl.textContent = res.message || '';
-      _mmState.lastPreview = res.message || '';
-      copyBtn.disabled = !res.message;
-    })
-    .withFailureHandler(function(e) {
-      previewEl.textContent = '⚠ ' + (e.message || e);
-      copyBtn.disabled = true;
-    })
-    .formatMovementPreview(tplId, amt);
+      })
+      .getMovementHops(tplId);
+    return;
+  }
+  // Local render — instant.
+  var text = _generateMovementPreviewLocal(hops, amt);
+  previewEl.textContent = text;
+  _mmState.lastPreview = text;
+  copyBtn.disabled = !text;
+}
+
+// Compute the numbered wire list from cached template hops + a total amount.
+// Mirrors formatMovementPreview + _wireExecutionOrder_ in MoneyMovement.gs so
+// the on-screen preview matches what the server generates when the movement
+// is eventually created.
+function _generateMovementPreviewLocal(hops, total) {
+  if (!hops || !hops.length) return '';
+  var ordered = _wireExecutionOrderLocal(hops);
+  return ordered.map(function(h, i) {
+    var pct = Number(h['Amount % of Total']) || 0;
+    var amt = Math.round(total * pct / 100 * 100) / 100;
+    return (i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtMoneyAccounting(amt);
+  }).join('\n');
+}
+
+// Kahn's algorithm topological sort — ported from the server's
+// _wireExecutionOrder_. Sort ready hops by (percentage asc, insertion order)
+// so smaller / earlier branches emit first, matching the server-side output.
+function _wireExecutionOrderLocal(hops) {
+  var byId = {}, deps = {}, reverseDeps = {}, initialOrder = {};
+  hops.forEach(function(h, i) {
+    var id = String(h.ID || h.hopId || i);
+    byId[id] = h;
+    initialOrder[id] = i;
+    deps[id] = {};
+    reverseDeps[id] = {};
+  });
+  hops.forEach(function(consumer) {
+    var cid = String(consumer.ID || consumer.hopId);
+    var cFrom = String(consumer['From Account'] || '');
+    hops.forEach(function(producer) {
+      var pid = String(producer.ID || producer.hopId);
+      if (pid === cid) return;
+      var pTo = String(producer['To Account'] || '');
+      if (pTo && pTo === cFrom) { deps[cid][pid] = true; reverseDeps[pid][cid] = true; }
+    });
+  });
+  var pending = Object.keys(byId);
+  var result = [];
+  while (pending.length) {
+    var ready = pending.filter(function(id) { return Object.keys(deps[id]).length === 0; });
+    if (!ready.length) {
+      pending.sort(function(a, b) { return initialOrder[a] - initialOrder[b]; });
+      pending.forEach(function(id) { result.push(byId[id]); });
+      break;
+    }
+    ready.sort(function(a, b) {
+      var pa = Number(byId[a]['Amount % of Total']) || 0;
+      var pb = Number(byId[b]['Amount % of Total']) || 0;
+      if (pa !== pb) return pa - pb;
+      return initialOrder[a] - initialOrder[b];
+    });
+    var next = ready[0];
+    result.push(byId[next]);
+    pending.splice(pending.indexOf(next), 1);
+    Object.keys(reverseDeps[next]).forEach(function(childId) { delete deps[childId][next]; });
+  }
+  return result;
+}
+
+function _fmtMoneyAccounting(n) {
+  var neg = n < 0;
+  var abs = Math.abs(n);
+  return (neg ? '-' : '') + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function _copyMovePreview() {
