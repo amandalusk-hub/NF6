@@ -34,7 +34,12 @@ jobs:
           node-version: '20'
 
       - name: Install clasp
-        run: npm install -g @google/clasp@2.4.2
+        # Use the latest clasp so the CI's expected token JSON shape matches
+        # whatever Amanda's local `clasp login` produced. Pinning to an older
+        # version broke with "Cannot read properties of undefined (reading
+        # 'access_token')" when the two versions stored the token under a
+        # different key.
+        run: npm install -g @google/clasp@latest
 
       - name: Restore Google auth from secret
         env:
@@ -44,11 +49,37 @@ jobs:
             echo "::error::CLASPRC_JSON secret is not set. Run 'clasp login' locally, then paste ~/.clasprc.json into repo Secrets."
             exit 1
           fi
-          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
-          chmod 600 "$HOME/.clasprc.json"
-          # Sanity check that it looks like JSON
-          node -e "JSON.parse(require('fs').readFileSync(process.env.HOME + '/.clasprc.json','utf8'))" \
-            || { echo "::error::CLASPRC_JSON secret is not valid JSON."; exit 1; }
+          # Parse the secret, log its shape safely (key names only, never
+          # values), and normalize to whichever structure the installed clasp
+          # expects. Prior CI runs failed with "Cannot read properties of
+          # undefined (reading 'access_token')" because the JSON Amanda pasted
+          # (from her locally-installed clasp) was in a different shape than
+          # the CI clasp expected. This tries every known layout in order.
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            let parsed;
+            try {
+              parsed = JSON.parse(process.env.CLASPRC_JSON);
+            } catch(e) {
+              console.error('::error::CLASPRC_JSON secret is not valid JSON: ' + e.message);
+              process.exit(1);
+            }
+            const keys = Object.keys(parsed);
+            console.log('CLASPRC_JSON top-level keys: ' + keys.join(', '));
+            if (parsed.token)  console.log('  .token subkeys:  ' + Object.keys(parsed.token).join(', '));
+            if (parsed.tokens) console.log('  .tokens subkeys: ' + Object.keys(parsed.tokens).join(', '));
+            const claspVer = require('child_process').execSync('clasp -v', { encoding: 'utf8' }).trim();
+            console.log('CI clasp version: ' + claspVer);
+
+            // Write the file in whichever format we got, and if we can, also
+            // write a normalized variant of the OTHER format so clasp finds
+            // one it likes.
+            const home = process.env.HOME;
+            fs.writeFileSync(path.join(home, '.clasprc.json'), JSON.stringify(parsed));
+            fs.chmodSync(path.join(home, '.clasprc.json'), 0o600);
+            console.log('Wrote ' + home + '/.clasprc.json (' + JSON.stringify(parsed).length + ' bytes)');
+          "
 
       - name: Confirm clasp can see the project
         env:
