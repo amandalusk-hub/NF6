@@ -935,7 +935,23 @@ function debugDoradoThisMonth() {
     lines.push('  ' + r.startIso + ' → ' + r.endIso + '  [' + r.source + ']  ' + r.title);
   });
 
-  SpreadsheetApp.getUi().alert('Dorado This Month', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  _propertyDebugOutput_('Dorado This Month', lines.join('\n'));
+}
+
+// Prints debug output to whatever channel is available — the sheet UI if we
+// were invoked from a menu click, otherwise the execution log (for when
+// Amanda has to Run from the Apps Script editor to trigger a reauth). Either
+// way she sees the report; neither invocation throws "Cannot call getUi from
+// this context".
+function _propertyDebugOutput_(title, body) {
+  Logger.log('══════ ' + title + ' ══════\n' + body);
+  try {
+    SpreadsheetApp.getUi().alert(title, body, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (e) {
+    // No spreadsheet UI (running from Apps Script editor). The output is in
+    // the execution log; nothing else to do. Rethrowing would hide it.
+    Logger.log('(No spreadsheet UI — output above is in this execution log.)');
+  }
 }
 
 
@@ -979,7 +995,7 @@ function debugListPlaidAccounts() {
   lines.push('  2. In the row for that property, edit the "Plaid Account IDs" column');
   lines.push('  3. Comma-separate substrings that appear in the account names above');
   lines.push('     (e.g. "oriental,ath,9007" catches all three)');
-  SpreadsheetApp.getUi().alert('Plaid Accounts', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  _propertyDebugOutput_('Plaid Accounts', lines.join('\n'));
 }
 
 
@@ -1005,5 +1021,5 @@ function debugProperties() {
     });
     lines.push('');
   });
-  SpreadsheetApp.getUi().alert('Properties Diagnostic', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+  _propertyDebugOutput_('Properties Diagnostic', lines.join('\n'));
 }
