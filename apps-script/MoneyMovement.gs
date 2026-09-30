@@ -804,12 +804,19 @@ function resyncMovementAccountLabels() {
 }
 
 
-// Menu-callable — refresh sibling wire percentages on every existing hop
-// where a David / Michelle / Nancy personal account appears as From or To.
-// Sets Michelle + Nancy to 0.333333% and David to 0.333334% so the sum still
-// equals 1% but $100k movements produce $333.33 wires (not $333.00 with a
-// truncated 0.333%). Idempotent; runs once after Amanda seeds and any time
-// pct precision needs correction later.
+// Menu-callable — canonicalize known percentages on every existing hop. Now
+// scoped correctly so it doesn't accidentally overwrite non-1/3 sibling
+// wires (Nancy's Blue Panda 0.49% got clobbered by an earlier broad version
+// of this function — see the Nancy Blue Panda restore below).
+//
+// Rules applied:
+//   • Sibling → NF6 Joint Mgmt LLC (or reverse): 0.333333% for
+//     Michelle/Nancy, 0.333334% for David (third sibling absorbs the
+//     rounding so $100k → $333.33 not $333.00).
+//   • Nancy Nguyen Personal → BPMGMT (5150): 0.49% (Blue Panda BPMGMT
+//     split with Mike getting 51% / Nancy 49% of the 1% slice).
+//
+// Rows that don't match either rule are left alone. Idempotent.
 function fixSiblingPercentages() {
   _requireEditor_();
   ensureMoneyMovementSheets_();
@@ -827,27 +834,40 @@ function fixSiblingPercentages() {
   var iChain = hdr.indexOf('Chain');
   if (iFrom < 0 || iTo < 0 || iPct < 0) return;
 
-  var SIBLING_RE = /\b(david|michelle|nancy)\b[\s\w()]*personal/i;
+  var SIBLING_RE   = /\b(david|michelle|nancy)\b[\s\w()]*personal/i;
+  var JOINT_MGMT_RE = /nf6 joint mgmt/i;
   var changed = 0;
   var summary = [];
   for (var r = 1; r < data.length; r++) {
     var from = String(data[r][iFrom] || '');
     var to   = String(data[r][iTo] || '');
     var chain = String(data[r][iChain] || '');
-    // Only touch rows involving a sibling personal account.
-    if (!SIBLING_RE.test(from) && !SIBLING_RE.test(to)) continue;
-    var isDavid = /\bdavid\b/i.test(from) || /\bdavid\b/i.test(to);
-    var newPct = isDavid ? 0.333334 : 0.333333;
     var oldPct = Number(data[r][iPct]) || 0;
-    if (Math.abs(oldPct - newPct) > 0.0000001) {
-      sheet.getRange(r + 1, iPct + 1).setValue(newPct);
+
+    var targetPct = null;
+    // Rule 1: Nancy Nguyen Personal → BPMGMT (Blue Panda 49% slice)
+    if (/nancy nguyen personal/i.test(from) && /bpmgmt/i.test(to)) {
+      targetPct = 0.49;
+    }
+    // Rule 2: sibling ↔ Joint Mgmt (the actual 1/3 splits)
+    else if ((SIBLING_RE.test(from) || SIBLING_RE.test(to)) &&
+             (JOINT_MGMT_RE.test(from) || JOINT_MGMT_RE.test(to))) {
+      var isDavid = /\bdavid\b/i.test(from) || /\bdavid\b/i.test(to);
+      targetPct = isDavid ? 0.333334 : 0.333333;
+    }
+    // Other rows (Nancy → Joint Mgmt is caught by Rule 2, Nancy → BPMGMT
+    // by Rule 1, etc.): don't touch.
+    if (targetPct === null) continue;
+
+    if (Math.abs(oldPct - targetPct) > 0.0000001) {
+      sheet.getRange(r + 1, iPct + 1).setValue(targetPct);
       changed++;
-      summary.push('  ' + chain + ' (' + (isDavid ? 'David' : 'Michelle/Nancy') + '): ' + oldPct + ' → ' + newPct);
+      summary.push('  ' + chain + ': ' + oldPct + ' → ' + targetPct);
     }
   }
-  var msg = 'Updated ' + changed + ' sibling wire percentage(s).\n\n' + (summary.length ? summary.join('\n') : '(already precise)');
+  var msg = 'Updated ' + changed + ' wire percentage(s).\n\n' + (summary.length ? summary.join('\n') : '(already correct)');
   Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert('Sibling Percentages Fixed', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+  try { SpreadsheetApp.getUi().alert('Wire Percentages Canonicalized', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
 
 
