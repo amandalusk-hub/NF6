@@ -444,6 +444,49 @@ function seedMovementTemplates() {
     ]
   }, haveByName));
 
+  // 5. Blue Panda FLP — DOWN direction (distributions OUT of Blue Panda).
+  //    Inverse of #1. Amanda uses this more often than the UP version.
+  results.push(_seedTemplate_({
+    name: 'Blue Panda FLP Distribution (Down)',
+    destination: 'Blue Panda FLP (8686)',
+    direction: 'down',
+    description: 'Distribution OUT of Blue Panda FLP. 99% flows back through MN Trust Irrevocable to Mike. 1% flows through BPMGMT (51% Mike via 2019 Rev Trust, 49% Nancy).',
+    hops: [
+      // First: BPFP splits its outflow — 99% to MN Trust, 1% to BPMGMT
+      { order: 10, chain:'MN Trust branch (99%)', from:'Blue Panda FLP (8686)', to:'MN Trust Irrevocable',                     responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 10, chain:'BPMGMT branch (1%)',    from:'Blue Panda FLP (8686)', to:'BPMGMT (5150)',                            responsible:'Amanda', pct:  1.00, notes:'' },
+      // MN Trust → Mike (99% goes home)
+      { order: 20, chain:'MN Trust → Mike',       from:'MN Trust Irrevocable',   to:'Michael Nguyen Personal (1319)',           responsible:'Amanda', pct: 99.00, notes:'' },
+      // BPMGMT splits between Mike (via Rev Trust) and Nancy
+      { order: 20, chain:'BPMGMT → Mike branch',  from:'BPMGMT (5150)',          to:'2019 MN Family Revocable Trust (3333)',    responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
+      { order: 20, chain:'BPMGMT → Nancy',        from:'BPMGMT (5150)',          to:'Nancy Nguyen Personal',                    responsible:'Amanda', pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
+      // Rev Trust → Mike (final leg for the BPMGMT Mike branch)
+      { order: 30, chain:'Rev Trust → Mike',      from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct:  0.51, notes:'' }
+    ]
+  }, haveByName));
+
+  // 6. NF PR SJ — DOWN direction (distributions OUT of NF PR SJ).
+  //    Inverse of #2. Amanda uses this more often than the UP version.
+  results.push(_seedTemplate_({
+    name: 'NF PR SJ Distribution (Down)',
+    destination: 'NF PR SJ LLC (808)',
+    direction: 'down',
+    description: 'Distribution OUT of NF PR SJ LLC. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
+    hops: [
+      // Full amount out of NF PR SJ to Family Holdings
+      { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (808)',     to:'NF6 Family Holdings (316)',              responsible:'Amanda', pct:100.00, notes:'' },
+      // Family Holdings splits: 99% to Rev Trust (Mike), 1% to Joint Mgmt (siblings)
+      { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (316)', to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (316)', to:'NF6 Joint Mgmt LLC (8972)',              responsible:'Amanda', pct:  1.00, notes:'' },
+      // Rev Trust → Mike
+      { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct: 99.00, notes:'' },
+      // Joint Mgmt → each sibling (0.333333% each, precise to hit $333.33 on $100k)
+      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)', to:'Michelle Personal',                     responsible:'Amanda', pct:  0.333333, notes:'' },
+      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)', to:'Nancy Personal',                        responsible:'Amanda', pct:  0.333333, notes:'' },
+      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)', to:'David Personal',                        responsible:'Amanda', pct:  0.333334, notes:'' }
+    ]
+  }, haveByName));
+
   // 4. NF6 Tiger Capital — UP direction (contributions INTO Tiger Capital).
   //    Same ownership, hops reversed from #3.
   results.push(_seedTemplate_({
