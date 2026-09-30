@@ -721,8 +721,11 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </div>
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Total Amount (USD)</label>
-          <input id="move-amount" type="text" inputmode="decimal" placeholder="100,000" oninput="_renderMovePreview()"
-                 style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+          <input id="move-amount" type="text" inputmode="decimal" placeholder="$100,000"
+                 oninput="_renderMovePreview()"
+                 onblur="_fmtMoneyInputAccounting(this); _renderMovePreview()"
+                 onfocus="this.select()"
+                 style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px;text-align:right;font-variant-numeric:tabular-nums">
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
@@ -8113,6 +8116,23 @@ function _copyToClipboard(text, successMsg) {
   } else {
     _copyFallback(text, successMsg);
   }
+}
+
+// Format a money-input field in accounting style ($XXX,XXX or $XXX,XXX.XX)
+// on blur. Non-destructive: preserves whatever the user typed if it parses
+// to > 0, otherwise leaves the field alone (so a half-typed value stays put).
+function _fmtMoneyInputAccounting(el) {
+  var raw = String(el.value || '').replace(/[$,\s]/g, '');
+  if (raw === '') return;
+  var n = Number(raw);
+  if (isNaN(n) || n <= 0) return;
+  // Show 0 decimals if the amount is a whole dollar, 2 otherwise. Matches
+  // how Amanda writes amounts by hand ($100,000 not $100,000.00 when clean).
+  var hasCents = Math.abs(n - Math.round(n)) > 0.005;
+  el.value = '$' + n.toLocaleString('en-US', {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2
+  });
 }
 
 function _copyFallback(text, successMsg) {
