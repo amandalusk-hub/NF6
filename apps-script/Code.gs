@@ -430,6 +430,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Money Movement → Seed Templates (Blue Panda / NF PR SJ / Tiger Up + Down)', 'seedMovementTemplates')
     .addItem('Money Movement → Fix Responsibles (Amanda / Ben rule)', 'updateMovementResponsibles')
+    .addItem('Money Movement → Preview Message (pick template + amount)', 'menuPreviewMovementMessage')
     .addItem('Money Movement → Debug: Show Templates + Hops', 'debugMovementTemplates')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')

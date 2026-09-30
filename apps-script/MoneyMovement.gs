@@ -512,6 +512,164 @@ function _seedTemplate_(spec, haveByName) {
 
 // ── Menu diagnostics ───────────────────────────────────────────────────────
 
+// ── Wire message formatter ─────────────────────────────────────────────────
+// Amanda writes a message like this every time she does a movement, so
+// everyone involved knows what's happening in what order:
+//
+//   The money is in. I'll move it as follows
+//
+//   1. NF6 Tiger Capital LLC (5319) to NF6 Family Holdings (7932): $100,000.00
+//   2. NF6 Family Holdings (7932) to NF6 Joint Mgmt LLC (8972): $1,000.00
+//   3. NF6 Joint Mgmt LLC (8972) to Michelle Personal: $333.33
+//   ...
+//
+// The wire ordering matters — a hop shouldn't appear before all of its
+// inputs. We use Kahn's algorithm (topological sort) with a tiebreak that
+// puts smaller-percentage branches first, which produces the "small stuff
+// first, then the big consolidation" flow Amanda used in her example.
+
+function _wireExecutionOrder_(hops) {
+  var byId = {};
+  var deps = {};          // hopId → { producerId: true }
+  var reverseDeps = {};   // hopId → { consumerId: true }
+  var initialOrder = {};
+
+  hops.forEach(function(h, i) {
+    var id = String(h['ID'] || h.hopId);
+    byId[id] = h;
+    initialOrder[id] = i;
+    deps[id] = {};
+    reverseDeps[id] = {};
+  });
+
+  // Hop C depends on hop P if P.To == C.From (money must land at C.From
+  // before C can wire it onward).
+  hops.forEach(function(consumer) {
+    var cid = String(consumer['ID'] || consumer.hopId);
+    var cFrom = String(consumer['From Account'] || consumer.fromAccount || '');
+    hops.forEach(function(producer) {
+      var pid = String(producer['ID'] || producer.hopId);
+      if (pid === cid) return;
+      var pTo = String(producer['To Account'] || producer.toAccount || '');
+      if (pTo && pTo === cFrom) {
+        deps[cid][pid] = true;
+        reverseDeps[pid][cid] = true;
+      }
+    });
+  });
+
+  var pending = Object.keys(byId);
+  var result = [];
+  while (pending.length) {
+    var ready = pending.filter(function(id) { return Object.keys(deps[id]).length === 0; });
+    if (!ready.length) {
+      // Cycle or unresolvable dep — emit remaining in original order.
+      pending.sort(function(a, b) { return initialOrder[a] - initialOrder[b]; });
+      pending.forEach(function(id) { result.push(byId[id]); });
+      break;
+    }
+    // Tiebreak: percentage ascending (small branches first) then insertion order.
+    ready.sort(function(a, b) {
+      var pa = Number(byId[a]['Amount % of Total'] || byId[a].pctOfTotal) || 0;
+      var pb = Number(byId[b]['Amount % of Total'] || byId[b].pctOfTotal) || 0;
+      if (pa !== pb) return pa - pb;
+      return initialOrder[a] - initialOrder[b];
+    });
+    var next = ready[0];
+    result.push(byId[next]);
+    pending.splice(pending.indexOf(next), 1);
+    Object.keys(reverseDeps[next]).forEach(function(childId) {
+      delete deps[childId][next];
+    });
+  }
+  return result;
+}
+
+function _fmtUsdAmount_(n) {
+  var neg = n < 0;
+  var abs = Math.abs(n);
+  return (neg ? '-' : '') + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// Web-callable — generate the "here's the wire order" message for a template
+// + total amount, WITHOUT needing an existing Movement record. Used by the
+// New Movement wizard for a live preview. Same output the UI's "Copy Message"
+// button will produce once a movement is saved.
+function formatMovementPreview(templateId, totalAmount) {
+  var detail = getMovementTemplateDetail(templateId);
+  if (detail.error) return { error: detail.error };
+  var total = Number(totalAmount) || 0;
+  if (total <= 0) return { error: 'Total amount must be > 0.' };
+  var ordered = _wireExecutionOrder_(detail.hops);
+  var lines = ['The money is in. I' + String.fromCharCode(8217) + 'll move it as follows', ''];
+  ordered.forEach(function(h, i) {
+    var pct = Number(h['Amount % of Total']) || 0;
+    var amt = Math.round(total * pct / 100 * 100) / 100;
+    lines.push((i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtUsdAmount_(amt));
+  });
+  return {
+    template: detail.template,
+    totalAmount: total,
+    wireCount: ordered.length,
+    message: lines.join('\n')
+  };
+}
+
+// Same idea but for an existing movement — uses the actual snapshotted wire
+// amounts (which may differ from a fresh template calc if the template's
+// percentages have been edited since the movement was created).
+function formatMovementMessage(movementId) {
+  var d = getMovementDetail(movementId);
+  if (d.error) return { error: d.error };
+  // getMovementDetail's wires already have hop fields (fromAccount, toAccount,
+  // pctOfTotal, order). Feed those into the topo sort.
+  var normalized = d.wires.map(function(w) {
+    return {
+      ID: w.wireId, hopId: w.hopId,
+      'From Account': w.fromAccount, fromAccount: w.fromAccount,
+      'To Account':   w.toAccount,   toAccount:   w.toAccount,
+      'Amount % of Total': w.pctOfTotal, pctOfTotal: w.pctOfTotal,
+      _amount: w.amount
+    };
+  });
+  var ordered = _wireExecutionOrder_(normalized);
+  var lines = ['The money is in. I' + String.fromCharCode(8217) + 'll move it as follows', ''];
+  ordered.forEach(function(w, i) {
+    lines.push((i + 1) + '. ' + w['From Account'] + ' to ' + w['To Account'] + ': ' + _fmtUsdAmount_(w._amount));
+  });
+  return {
+    movement:  d.movement,
+    template:  d.template,
+    wireCount: ordered.length,
+    message:   lines.join('\n')
+  };
+}
+
+// Menu-callable — prompts for a template name substring + a total amount,
+// then shows the generated message so Amanda can eyeball the format before
+// the tab UI is built. Useful for testing the topo-sort logic on real data.
+function menuPreviewMovementMessage() {
+  var ui = SpreadsheetApp.getUi();
+  var r1 = ui.prompt('Preview Movement Message', 'Template name (substring, e.g. "NF PR SJ" or "Tiger Down"):', ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var query = String(r1.getResponseText() || '').trim().toLowerCase();
+  if (!query) return;
+  var templates = getMovementTemplates();
+  var match = templates.find(function(t) { return String(t['Name']).toLowerCase().indexOf(query) >= 0; });
+  if (!match) {
+    ui.alert('No template found matching "' + query + '".\n\nAvailable:\n' + templates.map(function(t){return '  • ' + t['Name'];}).join('\n'));
+    return;
+  }
+  var r2 = ui.prompt('Preview Movement Message', 'Total amount for "' + match['Name'] + '":', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var amt = Number(String(r2.getResponseText() || '').replace(/[$,\s]/g, '')) || 0;
+  if (amt <= 0) { ui.alert('Amount must be > 0.'); return; }
+  var preview = formatMovementPreview(match['ID'], amt);
+  if (preview.error) { ui.alert(preview.error); return; }
+  ui.alert(match['Name'] + ' — ' + _fmtUsdAmount_(amt), preview.message, ui.ButtonSet.OK);
+}
+
+
 // Menu-callable — apply Amanda's responsible-person rule to every existing
 // hop in MOVEMENT_HOPS. Rule based on FROM Account (not Chain):
 //
