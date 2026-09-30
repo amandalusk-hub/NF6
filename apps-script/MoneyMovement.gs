@@ -353,7 +353,7 @@ function getMovements() {
 //   per sibling).
 //
 //   NF PR SJ LLC (808) has the same ultimate ownership (99% Mike, 0.333% per
-//   sibling) through the same NF6 Family Holdings (316) parent.
+//   sibling) through the same NF6 Family Holdings (7932) parent.
 //
 //   Blue Panda FLP (8686) is 99% owned by MN Trust Irrevocable (100% Mike)
 //   and 1% by BPMGMT (5150). BPMGMT is 51% Mike (via 2019 MN Family Rev
@@ -404,7 +404,7 @@ function seedMovementTemplates() {
     hops: [
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)', from:'Michael Nguyen Personal (1319)',     to:'2019 Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Mike (via Rev Trust)', from:'2019 MN Family Revocable Trust',     to:'NF6 Family Holdings (316)',           responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Mike (via Rev Trust)', from:'2019 MN Family Revocable Trust',     to:'NF6 Family Holdings (7932)',           responsible:'Amanda', pct: 99.00, notes:'' },
       // Siblings (1/3 of 1% each = 0.333333% each). Use more precision so
       // $100,000 × 0.333333% = $333.33 rather than $333.00 with a truncated
       // 0.333%. Third sibling absorbs the rounding to preserve the sum.
@@ -413,8 +413,8 @@ function seedMovementTemplates() {
       { order: 30, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
       { order: 30, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333334, notes:'' },
       // Merger + final leg
-      { order: 40, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (316)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
-      { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (316)', to:'NF PR SJ LLC (808)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
+      { order: 40, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (7932)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
+      { order: 50, chain:'Final leg',                from:'NF6 Family Holdings (7932)', to:'NF PR SJ LLC (808)',        responsible:'Amanda', pct:100.00, notes:'Full amount to destination.' }
     ]
   }, haveByName));
 
@@ -474,10 +474,10 @@ function seedMovementTemplates() {
     description: 'Distribution OUT of NF PR SJ LLC. 99% goes back to Mike (via NF6 Family Holdings → 2019 MN Family Rev Trust → Michael Personal). 1% split 1/3 each to Michelle/Nancy/David via NF6 Joint Mgmt.',
     hops: [
       // Full amount out of NF PR SJ to Family Holdings
-      { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (808)',     to:'NF6 Family Holdings (316)',              responsible:'Amanda', pct:100.00, notes:'' },
+      { order: 10, chain:'PR SJ → Family Holdings', from:'NF PR SJ LLC (808)',     to:'NF6 Family Holdings (7932)',              responsible:'Amanda', pct:100.00, notes:'' },
       // Family Holdings splits: 99% to Rev Trust (Mike), 1% to Joint Mgmt (siblings)
-      { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (316)', to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (316)', to:'NF6 Joint Mgmt LLC (8972)',              responsible:'Amanda', pct:  1.00, notes:'' },
+      { order: 20, chain:'Mike branch (99%)',       from:'NF6 Family Holdings (7932)', to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
+      { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)', to:'NF6 Joint Mgmt LLC (8972)',              responsible:'Amanda', pct:  1.00, notes:'' },
       // Rev Trust → Mike
       { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct: 99.00, notes:'' },
       // Joint Mgmt → each sibling (0.333333% each, precise to hit $333.33 on $100k)
@@ -730,7 +730,13 @@ var _MOVEMENT_ACCOUNT_RELABELS = {
   '2019 MN Family Revocable Trust':         '2019 MN Family Revocable Trust (3333)',
   // Mike's personal account — correct is 1319 (was misseeded 6916)
   'Michael Nguyen Personal (6916)':         'Michael Nguyen Personal (1319)',
-  'Michael Nguyen Personal':                'Michael Nguyen Personal (1319)'
+  'Michael Nguyen Personal':                'Michael Nguyen Personal (1319)',
+  // NF6 Family Holdings — Amanda uses the Chase account (7932); the Charles
+  // Schwab one (316) is retired. Normalize all variants to 7932.
+  'NF6 Family Holdings (316)':              'NF6 Family Holdings (7932)',
+  'NF6 Family Holding (316)':               'NF6 Family Holdings (7932)',
+  'NF6 Family Holdings':                    'NF6 Family Holdings (7932)',
+  'NF6 Family Holding':                     'NF6 Family Holdings (7932)'
 };
 
 // Menu-callable — walk every hop row and replace any From/To Account whose
