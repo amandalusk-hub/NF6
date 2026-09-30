@@ -562,10 +562,9 @@ function _seedTemplate_(spec, haveByName) {
 // ── Menu diagnostics ───────────────────────────────────────────────────────
 
 // ── Wire message formatter ─────────────────────────────────────────────────
-// Amanda writes a message like this every time she does a movement, so
-// everyone involved knows what's happening in what order:
-//
-//   The money is in. I'll move it as follows
+// Generates the numbered wire list Amanda pastes into her outgoing message.
+// Just the numbered lines — she writes her own intro text ("the money is in"
+// or similar) around it. Format:
 //
 //   1. NF6 Tiger Capital LLC (5319) to NF6 Family Holdings (7932): $100,000.00
 //   2. NF6 Family Holdings (7932) to NF6 Joint Mgmt LLC (8972): $1,000.00
@@ -650,7 +649,7 @@ function formatMovementPreview(templateId, totalAmount) {
   var total = Number(totalAmount) || 0;
   if (total <= 0) return { error: 'Total amount must be > 0.' };
   var ordered = _wireExecutionOrder_(detail.hops);
-  var lines = ['The money is in. I' + String.fromCharCode(8217) + 'll move it as follows', ''];
+  var lines = [];
   ordered.forEach(function(h, i) {
     var pct = Number(h['Amount % of Total']) || 0;
     var amt = Math.round(total * pct / 100 * 100) / 100;
@@ -682,7 +681,7 @@ function formatMovementMessage(movementId) {
     };
   });
   var ordered = _wireExecutionOrder_(normalized);
-  var lines = ['The money is in. I' + String.fromCharCode(8217) + 'll move it as follows', ''];
+  var lines = [];
   ordered.forEach(function(w, i) {
     lines.push((i + 1) + '. ' + w['From Account'] + ' to ' + w['To Account'] + ': ' + _fmtUsdAmount_(w._amount));
   });
