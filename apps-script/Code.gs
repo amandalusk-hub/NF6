@@ -434,6 +434,7 @@ function onOpen() {
     .addItem('Money Movement → Seed Templates (Blue Panda / NF PR SJ / Tiger Up + Down)', 'seedMovementTemplates')
     .addItem('Money Movement → Fix Responsibles (Amanda / Ben rule)', 'updateMovementResponsibles')
     .addItem('Money Movement → Fix Sibling Percentages (0.333333)', 'fixSiblingPercentages')
+    .addItem('Money Movement → Rescale Blue Panda (input = MN Trust wire)', 'fixBluePandaInputScale')
     .addItem('Money Movement → Rename Templates to "- Up / - Down"', 'renameMovementTemplatesToDirection')
     .addItem('Money Movement → Fix Account Labels (Rev Trust 3333 / Mike 1319)', 'resyncMovementAccountLabels')
     .addItem('Money Movement → Preview Message (pick template + amount)', 'menuPreviewMovementMessage')

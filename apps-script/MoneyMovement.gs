@@ -451,17 +451,32 @@ function seedMovementTemplates() {
     direction: 'down',
     description: 'Money flowing IN to Blue Panda FLP. 99% via MN Trust Irrevocable (100% Mike). 1% via BPMGMT (5150), which is 51% Mike / 49% Nancy.',
     hops: [
-      // Chain A: Mike via MN Trust (99% of total)
-      { order: 10, chain:'Mike (via MN Trust)',  from:'Michael Nguyen Personal (1319)',   to:'MN Trust Irrevocable',                  responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 20, chain:'Mike (via MN Trust)',  from:'MN Trust Irrevocable',             to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct: 99.00, notes:'' },
-      // Chain B: Mike via BPMGMT (0.51% of total = 51% of the 1% BPMGMT slice)
-      { order: 30, chain:'Mike (via BPMGMT)',    from:'Michael Nguyen Personal (1319)',   to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
-      { order: 40, chain:'Mike (via BPMGMT)',    from:'2019 MN Family Revocable Trust (3333)', to:'BPMGMT (5150)',                    responsible:'Amanda', pct:  0.51, notes:'' },
-      // Chain C: Nancy via BPMGMT (0.49% of total = 49% of the 1% BPMGMT slice)
-      // Amanda's rule: sibling personal-account wires are Ben's responsibility.
-      { order: 30, chain:'Nancy (via BPMGMT)',   from:'Nancy Nguyen Personal',            to:'BPMGMT (5150)',                         responsible:'Ben',    pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
-      // Merger + final leg: BPMGMT → Blue Panda FLP (1% total)
-      { order: 50, chain:'BPMGMT consolidation', from:'BPMGMT (5150)',                    to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct:  1.00, notes:'After Mike + Nancy contributions merge at BPMGMT.' }
+      // Blue Panda scaling model: Amanda's input = MN Trust wire amount
+      // (= Mike's main contribution). Her Excel enters this number in
+      // column E and derives everything else. So the MN Trust chain = 100%
+      // of input, BPMGMT consolidated = 1.0101% (= 1/99 of input), with
+      // sub-splits 51% Mike / 49% Nancy inside BPMGMT.
+      //
+      // Example at user input $1,000,000:
+      //   Mike → MN Trust = $1,000,000 (100%)
+      //   MN Trust → Blue Panda = $1,000,000 (100%)
+      //   Mike → Rev Trust = $5,151.52 (0.515152%)
+      //   Rev Trust → BPMGMT = $5,151.52 (0.515152%)
+      //   Nancy → BPMGMT = $4,949.49 (0.494949%)
+      //   BPMGMT → Blue Panda = $10,101.01 (1.010101%)
+      //   → Destination amount at Blue Panda = $1,010,101.01
+
+      // Chain A: Mike via MN Trust (100% of input)
+      { order: 10, chain:'Mike (via MN Trust)',  from:'Michael Nguyen Personal (1319)',   to:'MN Trust Irrevocable',                  responsible:'Amanda', pct: 100.00, notes:'' },
+      { order: 20, chain:'Mike (via MN Trust)',  from:'MN Trust Irrevocable',             to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct: 100.00, notes:'' },
+      // Chain B: Mike via BPMGMT (51% of the 1.0101% BPMGMT slice)
+      { order: 30, chain:'Mike (via BPMGMT)',    from:'Michael Nguyen Personal (1319)',   to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct:  0.515152, notes:'51% of the 1.0101% BPMGMT slice.' },
+      { order: 40, chain:'Mike (via BPMGMT)',    from:'2019 MN Family Revocable Trust (3333)', to:'BPMGMT (5150)',                    responsible:'Amanda', pct:  0.515152, notes:'' },
+      // Chain C: Nancy via BPMGMT (49% of the 1.0101% BPMGMT slice)
+      // Sibling personal-account wires are Ben's responsibility.
+      { order: 30, chain:'Nancy (via BPMGMT)',   from:'Nancy Nguyen Personal',            to:'BPMGMT (5150)',                         responsible:'Ben',    pct:  0.494949, notes:'49% of the 1.0101% BPMGMT slice.' },
+      // Merger + final leg: BPMGMT → Blue Panda FLP (1.0101% of input)
+      { order: 50, chain:'BPMGMT consolidation', from:'BPMGMT (5150)',                    to:'Blue Panda FLP (8686)',                 responsible:'Amanda', pct:  1.010101, notes:'After Mike + Nancy contributions merge at BPMGMT.' }
     ]
   }, haveByName));
 
@@ -522,16 +537,18 @@ function seedMovementTemplates() {
     direction: 'up',
     description: 'Money flowing UP out of Blue Panda FLP to owners. 99% flows back through MN Trust Irrevocable to Mike. 1% flows through BPMGMT (51% Mike via 2019 Rev Trust, 49% Nancy).',
     hops: [
-      // First: BPFP splits its outflow — 99% to MN Trust, 1% to BPMGMT
-      { order: 10, chain:'MN Trust branch (99%)', from:'Blue Panda FLP (8686)', to:'MN Trust Irrevocable',                     responsible:'Amanda', pct: 99.00, notes:'' },
-      { order: 10, chain:'BPMGMT branch (1%)',    from:'Blue Panda FLP (8686)', to:'BPMGMT (5150)',                            responsible:'Amanda', pct:  1.00, notes:'' },
-      // MN Trust → Mike (99% goes home)
-      { order: 20, chain:'MN Trust → Mike',       from:'MN Trust Irrevocable',   to:'Michael Nguyen Personal (1319)',           responsible:'Amanda', pct: 99.00, notes:'' },
+      // Same scaling model as Blue Panda - Down: input = MN Trust wire
+      // ($1,000,000 produces $1,010,101 total movement out of Blue Panda).
+      // First: Blue Panda sends out 100% via MN Trust + 1.0101% via BPMGMT
+      { order: 10, chain:'MN Trust branch (100%)', from:'Blue Panda FLP (8686)', to:'MN Trust Irrevocable',                     responsible:'Amanda', pct: 100.00, notes:'' },
+      { order: 10, chain:'BPMGMT branch (1.01%)',  from:'Blue Panda FLP (8686)', to:'BPMGMT (5150)',                            responsible:'Amanda', pct:  1.010101, notes:'' },
+      // MN Trust → Mike
+      { order: 20, chain:'MN Trust → Mike',        from:'MN Trust Irrevocable',   to:'Michael Nguyen Personal (1319)',           responsible:'Amanda', pct: 100.00, notes:'' },
       // BPMGMT splits between Mike (via Rev Trust) and Nancy
-      { order: 20, chain:'BPMGMT → Mike branch',  from:'BPMGMT (5150)',          to:'2019 MN Family Revocable Trust (3333)',    responsible:'Amanda', pct:  0.51, notes:'51% of the 1% BPMGMT slice.' },
-      { order: 20, chain:'BPMGMT → Nancy',        from:'BPMGMT (5150)',          to:'Nancy Nguyen Personal',                    responsible:'Amanda', pct:  0.49, notes:'49% of the 1% BPMGMT slice.' },
+      { order: 20, chain:'BPMGMT → Mike branch',   from:'BPMGMT (5150)',          to:'2019 MN Family Revocable Trust (3333)',    responsible:'Amanda', pct:  0.515152, notes:'51% of the 1.0101% BPMGMT slice.' },
+      { order: 20, chain:'BPMGMT → Nancy',         from:'BPMGMT (5150)',          to:'Nancy Nguyen Personal',                    responsible:'Amanda', pct:  0.494949, notes:'49% of the 1.0101% BPMGMT slice.' },
       // Rev Trust → Mike (final leg for the BPMGMT Mike branch)
-      { order: 30, chain:'Rev Trust → Mike',      from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct:  0.51, notes:'' }
+      { order: 30, chain:'Rev Trust → Mike',       from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct:  0.515152, notes:'' }
     ]
   }, haveByName));
 
@@ -817,6 +834,76 @@ function menuPreviewMovementMessage() {
   var preview = formatMovementPreview(match['ID'], amt);
   if (preview.error) { ui.alert(preview.error); return; }
   ui.alert(match['Name'] + ' — ' + _fmtUsdAmount_(amt), preview.message, ui.ButtonSet.OK);
+}
+
+
+// Menu-callable — rescale the Blue Panda templates' percentages so the user's
+// input amount represents the MN Trust wire ($1,000,000) rather than the
+// destination amount ($1,010,101). Matches Amanda's Excel which also takes
+// the MN Trust wire as the input number and derives everything else.
+// Applies to BOTH "Blue Panda FLP - Down" and "Blue Panda FLP - Up".
+// Idempotent.
+function fixBluePandaInputScale() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('MOVEMENT_HOPS');
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var templates = _getMMRows_('MOVEMENT_TEMPLATES', MOVEMENT_TEMPLATES_HEADERS);
+  var bluePandaIds = templates
+    .filter(function(t) { return /blue panda/i.test(String(t['Name']||'')); })
+    .map(function(t) { return String(t['ID']); });
+  if (!bluePandaIds.length) {
+    try { SpreadsheetApp.getUi().alert('No Blue Panda templates found. Run Seed Templates first.'); } catch(e) {}
+    return;
+  }
+  var lastCol = Math.max(sheet.getLastColumn(), MOVEMENT_HOPS_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iTpl   = hdr.indexOf('Template ID');
+  var iFrom  = hdr.indexOf('From Account');
+  var iTo    = hdr.indexOf('To Account');
+  var iPct   = hdr.indexOf('Amount % of Total');
+  if (iTpl < 0 || iFrom < 0 || iTo < 0 || iPct < 0) return;
+
+  // Rule: given a hop's from/to accounts, return the correct pct for the
+  // new "MN Trust = 100% of input" scaling. Returns null if no change.
+  function targetPct(from, to) {
+    var f = from.toLowerCase(), t = to.toLowerCase();
+    // Mike ↔ MN Trust / MN Trust ↔ Blue Panda (both legs of Mike's main chain, either direction)
+    if (/mn trust irrevocable/i.test(from + ' ' + to) &&
+        (/michael.*personal/i.test(from + ' ' + to) || /blue panda/i.test(from + ' ' + to))) return 100.00;
+    // BPMGMT consolidation (either direction)
+    if (/bpmgmt/i.test(from) && /blue panda/i.test(to)) return 1.010101;
+    if (/blue panda/i.test(from) && /bpmgmt/i.test(to)) return 1.010101;
+    // Mike's BPMGMT branch: Mike ↔ Rev Trust ↔ BPMGMT
+    if ((/michael.*personal/i.test(from) && /revocable trust/i.test(to)) ||
+        (/revocable trust/i.test(from) && /michael.*personal/i.test(to))) return 0.515152;
+    if ((/revocable trust/i.test(from) && /bpmgmt/i.test(to)) ||
+        (/bpmgmt/i.test(from) && /revocable trust/i.test(to))) return 0.515152;
+    // Nancy's BPMGMT branch
+    if ((/nancy.*personal/i.test(from) && /bpmgmt/i.test(to)) ||
+        (/bpmgmt/i.test(from) && /nancy.*personal/i.test(to))) return 0.494949;
+    return null;
+  }
+
+  var changed = 0;
+  var summary = [];
+  for (var r = 1; r < data.length; r++) {
+    if (bluePandaIds.indexOf(String(data[r][iTpl])) < 0) continue;
+    var from = String(data[r][iFrom] || '');
+    var to   = String(data[r][iTo] || '');
+    var want = targetPct(from, to);
+    if (want === null) continue;
+    var cur = Number(data[r][iPct]) || 0;
+    if (Math.abs(cur - want) > 0.0000001) {
+      sheet.getRange(r + 1, iPct + 1).setValue(want);
+      changed++;
+      summary.push('  ' + from + ' → ' + to + ': ' + cur + ' → ' + want);
+    }
+  }
+  var msg = 'Updated ' + changed + ' Blue Panda hop(s). Input now represents the MN Trust wire amount.\n\n' + (summary.length ? summary.join('\n') : '(already canonical)');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('Blue Panda Rescaled', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
 
 
