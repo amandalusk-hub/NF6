@@ -8230,6 +8230,13 @@ function _renderMovementDetail(detail) {
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
       : 'background:#fff;border-color:#c0ccd8;color:transparent';
+    // If this wire was auto-matched to a real Plaid transaction, show a
+    // small 🔗 badge so Amanda knows the check wasn't a manual click.
+    var autoMatched = done && w.plaidId;
+    var autoBadge = autoMatched
+      ? '<span title="Auto-matched to Plaid transaction ' + esc(w.plaidId) + '" ' +
+             'style="font-size:10px;color:#1a73e8;background:#e8f0fe;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:600">auto</span>'
+      : '';
     html +=
       '<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f3f7">' +
         '<div style="font-size:12px;color:#7a8ba8;font-weight:600;width:22px;text-align:right;flex-shrink:0">' + n + '.</div>' +
@@ -8237,7 +8244,7 @@ function _renderMovementDetail(detail) {
                 'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
                 'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
         '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
-          esc(w.fromAccount) + ' to ' + esc(w.toAccount) +
+          esc(w.fromAccount) + ' to ' + esc(w.toAccount) + autoBadge +
         '</div>' +
         '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
           _fmtMoneyWhole(w.amount) +

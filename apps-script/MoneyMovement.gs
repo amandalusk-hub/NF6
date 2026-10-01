@@ -973,6 +973,190 @@ var _MOVEMENT_ACCOUNT_RELABELS = {
   'NF PR SJ LLC':                           'NF PR SJ LLC (5297)'
 };
 
+// ── Auto-checkoff (Plaid → wire matching) ──────────────────────────────────
+// For every movement whose status is Planning or In Progress, scan every
+// wire whose status is Pending. Try to find a matching real transaction in
+// PLAID_TRANSACTIONS. If exactly one candidate matches on amount + account
+// + date window, auto-mark the wire Sent and stamp the matched Plaid txn ID.
+//
+// Matching rules:
+//   amount:  real Plaid txn amount within $1 of the wire's expected amount.
+//            Compared using absolute values since Plaid flips signs for
+//            inflow/outflow but our wires store signed amounts anyway (the
+//            amount itself is always positive on the wire row).
+//   account: real txn's Account field contains EITHER the last 4 digits of
+//            the wire's From Account OR the To Account. This way wires
+//            between two of Amanda's own accounts match from either side.
+//   date:    real txn's Date is between (movement.Created At - 2 days) and
+//            today + 1 day. A 2-day lookback handles the case where she
+//            created the movement after the wire already went through.
+//   dedup:   a Plaid txn ID that's already linked to any wire is skipped
+//            for all other wires — no double-counting one deposit as two
+//            wires.
+//
+// Idempotent + safe to re-run. Only touches wires still in Pending status.
+// Already-matched wires (Sent / Confirmed) are left alone.
+
+function autoCheckoffMovementWires() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Load every pending wire across every active movement, with the
+  //    accounts + amount info from their hop joined in.
+  var hopsRows = _getMMRows_('MOVEMENT_HOPS', MOVEMENT_HOPS_HEADERS);
+  var hopById = {};
+  hopsRows.forEach(function(h) { hopById[String(h['ID'])] = h; });
+  var movesRows = _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS)
+    .filter(function(m) {
+      var s = String(m['Status'] || '').toLowerCase();
+      return s === 'planning' || s === 'in progress';
+    });
+  var moveById = {};
+  movesRows.forEach(function(m) { moveById[String(m['ID'])] = m; });
+  var activeMoveIds = Object.keys(moveById);
+  if (!activeMoveIds.length) return { success: true, scanned: 0, matched: 0, note: 'No active movements.' };
+
+  var wiresSheet = ss.getSheetByName('MOVEMENT_WIRES');
+  if (!wiresSheet || wiresSheet.getLastRow() < 2) {
+    return { success: true, scanned: 0, matched: 0, note: 'MOVEMENT_WIRES is empty.' };
+  }
+  var wLastCol = Math.max(wiresSheet.getLastColumn(), MOVEMENT_WIRES_HEADERS.length);
+  var wData = wiresSheet.getRange(1, 1, wiresSheet.getLastRow(), wLastCol).getValues();
+  var wHdr = wData[0];
+  var iwId     = wHdr.indexOf('ID');
+  var iwMove   = wHdr.indexOf('Movement ID');
+  var iwHop    = wHdr.indexOf('Hop ID');
+  var iwAmt    = wHdr.indexOf('Amount');
+  var iwStatus = wHdr.indexOf('Status');
+  var iwPlaid  = wHdr.indexOf('Plaid Txn ID');
+  var iwSent   = wHdr.indexOf('Sent Date');
+  var iwMarkedBy = wHdr.indexOf('Marked Done By');
+  var iwMarkedAt = wHdr.indexOf('Marked Done At');
+
+  // Track all Plaid txn IDs already linked to any wire — don't rematch them.
+  var alreadyLinked = {};
+  for (var r = 1; r < wData.length; r++) {
+    var pid = String(wData[r][iwPlaid] || '').trim();
+    if (pid) alreadyLinked[pid] = true;
+  }
+
+  var candidateWires = [];
+  for (var r2 = 1; r2 < wData.length; r2++) {
+    var mid = String(wData[r2][iwMove] || '');
+    if (!moveById[mid]) continue;
+    var st = String(wData[r2][iwStatus] || '').toLowerCase();
+    if (st !== 'pending') continue;
+    var hop = hopById[String(wData[r2][iwHop] || '')];
+    if (!hop) continue;
+    candidateWires.push({
+      rowNum:    r2 + 1,
+      wireId:    String(wData[r2][iwId]),
+      move:      moveById[mid],
+      hop:       hop,
+      amount:    Math.abs(Number(wData[r2][iwAmt]) || 0)
+    });
+  }
+  if (!candidateWires.length) return { success: true, scanned: 0, matched: 0, note: 'No Pending wires on active movements.' };
+
+  // 2. Load PLAID_TRANSACTIONS once.
+  var pSheet = ss.getSheetByName('PLAID_TRANSACTIONS');
+  if (!pSheet || pSheet.getLastRow() < 2) {
+    return { success: true, scanned: candidateWires.length, matched: 0, note: 'PLAID_TRANSACTIONS is empty — run Sync ALL Plaid Transactions first.' };
+  }
+  var pHdr = pSheet.getRange(1, 1, 1, pSheet.getLastColumn()).getValues()[0];
+  var ipId    = pHdr.indexOf('Transaction ID');
+  var ipDate  = pHdr.indexOf('Date');
+  var ipAcct  = pHdr.indexOf('Account');
+  var ipAmt   = pHdr.indexOf('Amount USD');
+  var pData = pSheet.getRange(2, 1, pSheet.getLastRow() - 1, pHdr.length).getValues();
+
+  // 3. Try to match each pending wire.
+  var matched = 0;
+  var summary = [];
+  var now = new Date();
+  var me  = _currentUserEmail_();
+
+  candidateWires.forEach(function(cw) {
+    var fromAcct = String(cw.hop['From Account'] || '');
+    var toAcct   = String(cw.hop['To Account']   || '');
+    var fromKey  = _lastFourDigits_(fromAcct);
+    var toKey    = _lastFourDigits_(toAcct);
+    if (!fromKey && !toKey) return;   // no account signature to match
+
+    // Date window: created ± 2 days back → today + 1 day.
+    var createdAt = cw.move['Created At'] instanceof Date ? cw.move['Created At'] : new Date(cw.move['Created At']);
+    var dateMin = new Date(createdAt.getTime() - 2 * 86400000);
+    var dateMax = new Date(now.getTime() + 86400000);
+
+    var hits = [];
+    for (var pr = 0; pr < pData.length; pr++) {
+      var pTxnId = String(pData[pr][ipId] || '');
+      if (!pTxnId || alreadyLinked[pTxnId]) continue;
+      var acct = String(pData[pr][ipAcct] || '');
+      var acctLc = acct.toLowerCase();
+      var matchesAcct = (fromKey && acctLc.indexOf(fromKey) >= 0) ||
+                        (toKey   && acctLc.indexOf(toKey)   >= 0);
+      if (!matchesAcct) continue;
+      var pamt = Math.abs(Number(pData[pr][ipAmt]) || 0);
+      if (Math.abs(pamt - cw.amount) > 1.0) continue;   // $1 tolerance
+      var d = pData[pr][ipDate] instanceof Date ? pData[pr][ipDate] : new Date(pData[pr][ipDate]);
+      if (isNaN(d.getTime())) continue;
+      if (d < dateMin || d > dateMax) continue;
+      hits.push({ txnId: pTxnId, date: d, account: acct, amount: pamt });
+    }
+
+    if (hits.length === 1) {
+      var hit = hits[0];
+      wiresSheet.getRange(cw.rowNum, iwStatus + 1).setValue('Sent');
+      wiresSheet.getRange(cw.rowNum, iwPlaid + 1).setValue(hit.txnId);
+      wiresSheet.getRange(cw.rowNum, iwSent + 1).setValue(hit.date);
+      if (iwMarkedBy >= 0) wiresSheet.getRange(cw.rowNum, iwMarkedBy + 1).setValue(me + ' (auto)');
+      if (iwMarkedAt >= 0) wiresSheet.getRange(cw.rowNum, iwMarkedAt + 1).setValue(now);
+      alreadyLinked[hit.txnId] = true;
+      matched++;
+      summary.push('  ✓ ' + fromAcct + ' → ' + toAcct + '  $' + cw.amount.toFixed(2) +
+                   '  ← ' + Utilities.formatDate(hit.date, Session.getScriptTimeZone(), 'yyyy-MM-dd') + '  ' + hit.account);
+    } else if (hits.length > 1) {
+      summary.push('  ? ' + fromAcct + ' → ' + toAcct + '  $' + cw.amount.toFixed(2) +
+                   '  (' + hits.length + ' candidates — left Pending)');
+    }
+  });
+
+  return {
+    success: true,
+    scanned: candidateWires.length,
+    matched: matched,
+    summary: summary
+  };
+}
+
+// Pull the last 4 digits off an account label like "NF6 Tiger Capital LLC
+// (5319)" or "Michael Nguyen Personal (1319)". Returns '' if the label has
+// no 4-digit tail. Used as the substring key for matching against the
+// Plaid account label (which always ends in "···<mask>").
+function _lastFourDigits_(label) {
+  var m = String(label || '').match(/(\d{4})\D*$/);
+  return m ? m[1] : '';
+}
+
+// Menu-callable wrapper with an alert summary.
+function autoCheckoffMovementWiresMenu() {
+  var res = autoCheckoffMovementWires();
+  var lines = ['Auto-checkoff complete.', '',
+               'Pending wires scanned: ' + res.scanned,
+               'Wires auto-matched:    ' + res.matched];
+  if (res.note) { lines.push(''); lines.push(res.note); }
+  if (res.summary && res.summary.length) {
+    lines.push('');
+    lines.push('DETAIL');
+    res.summary.forEach(function(s) { lines.push(s); });
+  }
+  try { SpreadsheetApp.getUi().alert('Auto-checkoff', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK); }
+  catch(e) { Logger.log(lines.join('\n')); }
+}
+
+
 // Menu-callable — walk every hop row and replace any From/To Account whose
 // exact string matches a known-wrong label with the correct one. Idempotent:
 // rows already carrying the correct label are untouched. Uses exact-string

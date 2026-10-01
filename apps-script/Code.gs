@@ -438,6 +438,7 @@ function onOpen() {
     .addItem('Money Movement → Rename Templates to "- Up / - Down"', 'renameMovementTemplatesToDirection')
     .addItem('Money Movement → Fix Account Labels (Rev Trust 3333 / Mike 1319)', 'resyncMovementAccountLabels')
     .addItem('Money Movement → Preview Message (pick template + amount)', 'menuPreviewMovementMessage')
+    .addItem('Money Movement → Auto-Match Pending Wires to Plaid', 'autoCheckoffMovementWiresMenu')
     .addItem('Money Movement → Debug: Show Templates + Hops', 'debugMovementTemplates')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
@@ -4736,6 +4737,9 @@ function dailySync_() {
   // Alert Amanda about any expected outgoing loan payments (Direction=Payable)
   // that are >5 days overdue with no matching Plaid outflow.
   try { checkLoanPaymentAlerts(); } catch(e) { Logger.log('dailySync_: checkLoanPaymentAlerts failed: ' + e.message); }
+  // Scan every active movement's Pending wires and auto-mark any that have a
+  // matching transaction in PLAID_TRANSACTIONS (amount + account + date).
+  try { autoCheckoffMovementWires(); } catch(e) { Logger.log('dailySync_: autoCheckoffMovementWires failed: ' + e.message); }
   if (new Date().getDate() === 1) {
     takeMonthlySnapshot();   // asset-only snapshot for the in-app trend chart
     takeNWSnapshot();        // assets + liabilities for the Tiller-style NW History sheet
