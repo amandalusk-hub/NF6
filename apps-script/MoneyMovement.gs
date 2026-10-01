@@ -734,6 +734,15 @@ function _fmtUsdAmount_(n) {
   return (neg ? '-' : '') + '$' + abs.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
+// Whole-dollar formatter (nearest integer, no decimals). Used in the
+// movement-message output per Amanda's preference for clean round numbers.
+function _fmtUsdWhole_(n) {
+  var rounded = Math.round(Number(n) || 0);
+  var neg = rounded < 0;
+  var abs = Math.abs(rounded);
+  return (neg ? '-' : '') + '$' + String(abs).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 // Web-callable — generate the "here's the wire order" message for a template
 // + total amount, WITHOUT needing an existing Movement record. Used by the
 // New Movement wizard for a live preview. Same output the UI's "Copy Message"
@@ -747,9 +756,26 @@ function formatMovementPreview(templateId, totalAmount) {
   var lines = [];
   ordered.forEach(function(h, i) {
     var pct = Number(h['Amount % of Total']) || 0;
-    var amt = Math.round(total * pct / 100 * 100) / 100;
-    lines.push((i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtUsdAmount_(amt));
+    var amt = Math.round(total * pct / 100);   // whole dollars
+    lines.push((i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtUsdWhole_(amt));
   });
+  // Footer: total landing at (or leaving from) the destination entity.
+  var dest = String(detail.template && detail.template['Destination'] || '').trim();
+  var dir  = String(detail.template && detail.template['Direction']   || '').toLowerCase();
+  if (dest) {
+    var destTotal = 0;
+    ordered.forEach(function(h) {
+      var pct = Number(h['Amount % of Total']) || 0;
+      var amt = Math.round(total * pct / 100);
+      if (dir === 'down' && String(h['To Account']||'') === dest) destTotal += amt;
+      else if (dir === 'up' && String(h['From Account']||'') === dest) destTotal += amt;
+    });
+    if (destTotal) {
+      var label = dir === 'up' ? 'Total leaving ' + dest : 'Total landing at ' + dest;
+      lines.push('');
+      lines.push(label + ': ' + _fmtUsdWhole_(destTotal));
+    }
+  }
   return {
     template: detail.template,
     totalAmount: total,
@@ -778,8 +804,23 @@ function formatMovementMessage(movementId) {
   var ordered = _wireExecutionOrder_(normalized);
   var lines = [];
   ordered.forEach(function(w, i) {
-    lines.push((i + 1) + '. ' + w['From Account'] + ' to ' + w['To Account'] + ': ' + _fmtUsdAmount_(w._amount));
+    lines.push((i + 1) + '. ' + w['From Account'] + ' to ' + w['To Account'] + ': ' + _fmtUsdWhole_(w._amount));
   });
+  var dest = String(d.template && d.template['Destination'] || '').trim();
+  var dir  = String(d.template && d.template['Direction']   || '').toLowerCase();
+  if (dest) {
+    var destTotal = 0;
+    ordered.forEach(function(w) {
+      var amt = Math.round(Number(w._amount) || 0);
+      if (dir === 'down' && String(w['To Account']||'') === dest) destTotal += amt;
+      else if (dir === 'up' && String(w['From Account']||'') === dest) destTotal += amt;
+    });
+    if (destTotal) {
+      var label = dir === 'up' ? 'Total leaving ' + dest : 'Total landing at ' + dest;
+      lines.push('');
+      lines.push(label + ': ' + _fmtUsdWhole_(destTotal));
+    }
+  }
   return {
     movement:  d.movement,
     template:  d.template,

@@ -7984,8 +7984,10 @@ function _renderMovePreview() {
       .getMovementHops(tplId);
     return;
   }
-  // Local render — instant.
-  var text = _generateMovementPreviewLocal(hops, amt);
+  // Look up the template so we can include its direction + destination in
+  // the footer summary (e.g. "Lands at Blue Panda FLP: $1,010,101").
+  var tpl = (_mmState.templates || []).find(function(t) { return String(t['ID']) === String(tplId); });
+  var text = _generateMovementPreviewLocal(hops, amt, tpl);
   previewEl.textContent = text;
   _mmState.lastPreview = text;
   copyBtn.disabled = !text;
@@ -7994,15 +7996,49 @@ function _renderMovePreview() {
 // Compute the numbered wire list from cached template hops + a total amount.
 // Mirrors formatMovementPreview + _wireExecutionOrder_ in MoneyMovement.gs so
 // the on-screen preview matches what the server generates when the movement
-// is eventually created.
-function _generateMovementPreviewLocal(hops, total) {
+// is eventually created. Amounts are rounded to the nearest whole dollar per
+// Amanda's preference (round half-up); a footer line shows the total that
+// lands at (or leaves from) the template's destination entity.
+function _generateMovementPreviewLocal(hops, total, template) {
   if (!hops || !hops.length) return '';
   var ordered = _wireExecutionOrderLocal(hops);
-  return ordered.map(function(h, i) {
+  var lines = ordered.map(function(h, i) {
     var pct = Number(h['Amount % of Total']) || 0;
-    var amt = Math.round(total * pct / 100 * 100) / 100;
-    return (i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtMoneyAccounting(amt);
-  }).join('\n');
+    var amt = Math.round(total * pct / 100);   // round to whole dollar
+    return (i + 1) + '. ' + h['From Account'] + ' to ' + h['To Account'] + ': ' + _fmtMoneyWhole(amt);
+  });
+  // Footer: sum the hops that touch the template's destination.
+  if (template) {
+    var dest = String(template['Destination'] || '').trim();
+    var dir  = String(template['Direction'] || '').toLowerCase();
+    if (dest) {
+      var destTotal = 0;
+      ordered.forEach(function(h) {
+        var pct = Number(h['Amount % of Total']) || 0;
+        var amt = Math.round(total * pct / 100);
+        // Down direction = money lands AT destination (sum hops with to=dest).
+        // Up direction = money leaves FROM destination (sum hops with from=dest).
+        if (dir === 'down' && String(h['To Account']||'') === dest) destTotal += amt;
+        else if (dir === 'up' && String(h['From Account']||'') === dest) destTotal += amt;
+      });
+      if (destTotal) {
+        var label = dir === 'up' ? 'Total leaving ' + dest : 'Total landing at ' + dest;
+        lines.push('');
+        lines.push(label + ': ' + _fmtMoneyWhole(destTotal));
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+// Format a dollar amount as a whole number with $ and commas (no decimals).
+// Rounds half-up: $1,234.50 → $1,235, $1,234.49 → $1,234. Used throughout
+// the Money Movement UI per Amanda's preference for whole-dollar wires.
+function _fmtMoneyWhole(n) {
+  var rounded = Math.round(Number(n) || 0);
+  var neg = rounded < 0;
+  var abs = Math.abs(rounded);
+  return (neg ? '-' : '') + '$' + abs.toLocaleString('en-US');
 }
 
 // Kahn's algorithm topological sort — ported from the server's
@@ -8204,19 +8240,43 @@ function _renderMovementDetail(detail) {
           esc(w.fromAccount) + ' to ' + esc(w.toAccount) +
         '</div>' +
         '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
-          _fmtMoneyAccounting(w.amount) +
+          _fmtMoneyWhole(w.amount) +
         '</div>' +
       '</div>';
   });
+
+  // Footer: total landing at (or leaving from) the destination entity.
+  var destLine = '';
+  if (t) {
+    var destName = String(t['Destination'] || '').trim();
+    var destDir  = String(t['Direction'] || '').toLowerCase();
+    if (destName) {
+      var destSum = 0;
+      orderedForDisplay.forEach(function(sorted) {
+        var w = sorted._wire;
+        var amt = Math.round(Number(w.amount) || 0);
+        if (destDir === 'down' && String(w.toAccount || '') === destName) destSum += amt;
+        else if (destDir === 'up' && String(w.fromAccount || '') === destName) destSum += amt;
+      });
+      if (destSum) {
+        var destLabel = destDir === 'up' ? 'Total leaving ' + destName : 'Total landing at ' + destName;
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 4px 4px;font-size:13px;font-weight:700;color:#0d2137;border-top:2px solid #0d2137;margin-top:6px">' +
+                  '<span>' + esc(destLabel) + '</span>' +
+                  '<span>' + _fmtMoneyWhole(destSum) + '</span>' +
+                '</div>';
+        destLine = '\n' + destLabel + ': ' + _fmtMoneyWhole(destSum);
+      }
+    }
+  }
   html += '</div>';
 
-  // Stash the numbered message text so the Copy Message button can grab it
-  // synchronously in the user's tap handler (no async server round-trip →
-  // iOS Safari clipboard permission stays alive).
+  // Stash the numbered message text + destination summary so the Copy Message
+  // button can grab it synchronously in the user's tap handler (no async
+  // server round-trip → iOS Safari clipboard permission stays alive).
   _mmState.currentDetailMessage = orderedForDisplay.map(function(sorted, i) {
     var w = sorted._wire;
-    return (i + 1) + '. ' + w.fromAccount + ' to ' + w.toAccount + ': ' + _fmtMoneyAccounting(w.amount);
-  }).join('\n');
+    return (i + 1) + '. ' + w.fromAccount + ' to ' + w.toAccount + ': ' + _fmtMoneyWhole(w.amount);
+  }).join('\n') + destLine;
 
   // Complete / Reopen action
   html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">';
