@@ -8240,19 +8240,20 @@ function _renderMovementDetail(detail) {
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
       : 'background:#fff;border-color:#7a8ba8;color:transparent;box-shadow:inset 0 0 0 1px #f0f3f7';
-    // Second indicator (purely informational): a small checked-box icon that
-    // appears ONLY when this wire was auto-matched to a real Plaid txn.
-    // Makes it unmistakable that the check wasn't a manual click. Tooltip
-    // shows the matched Plaid Transaction ID. Click does nothing (it's a
-    // status indicator, not a toggle — the status checkbox on the left is
-    // the one Amanda uses to override).
+    // Second indicator: a small blue ✓P box visible only when this wire was
+    // auto-matched to a real Plaid txn. Clicking it pops the matched Plaid
+    // transaction's full details (date, amount, account, name) in an inline
+    // overlay — gives Amanda a direct view of the real transaction that
+    // confirmed the wire.
     var autoMatched = done && w.plaidId;
     var plaidIndicator = autoMatched
-      ? '<div title="Confirmed via Plaid transaction: ' + esc(w.plaidId) + '" ' +
-             'style="width:22px;height:22px;border-radius:5px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
-                    'display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px">' +
+      ? '<button onclick="_showPlaidTxnDetails(' + JSON.stringify(w.plaidId) + ', event)" ' +
+                'title="Click to see matched Plaid transaction" ' +
+                'style="width:22px;height:22px;border-radius:5px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
+                       'display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px;' +
+                       'cursor:pointer;padding:0">' +
           '✓P' +
-        '</div>'
+        '</button>'
       // Keep width stable with an empty slot so columns line up across rows.
       : '<div style="width:22px;height:22px;flex-shrink:0"></div>';
 
@@ -8344,6 +8345,101 @@ function _setMovementStatus(movementId, newStatus) {
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .setMovementStatus(movementId, newStatus);
 }
+
+// Fetch + show the real Plaid transaction that was auto-matched to a wire.
+// Pops a small floating card anchored near the ✓P button that was tapped,
+// so Amanda can see exactly which transaction confirmed the wire without
+// leaving the movement detail modal.
+function _showPlaidTxnDetails(plaidId, evt) {
+  if (evt) { try { evt.stopPropagation(); } catch(e) {} }
+  // Remove any existing popover first.
+  _closePlaidTxnPopover();
+  var anchor = evt && evt.currentTarget;
+  if (!anchor) return;
+  var popover = document.createElement('div');
+  popover.id = '_plaid-txn-popover';
+  popover.style.cssText =
+    'position:absolute;z-index:10000;background:#fff;border:1px solid #c0ccd8;border-radius:8px;' +
+    'box-shadow:0 4px 20px rgba(13,33,55,.18);padding:12px 14px;max-width:360px;min-width:260px;' +
+    'font-family:inherit;font-size:12px;color:#0d2137;line-height:1.5';
+  popover.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<div style="font-size:11px;font-weight:700;color:#1a73e8;letter-spacing:.4px;text-transform:uppercase">Matched Plaid Transaction</div>' +
+      '<button onclick="_closePlaidTxnPopover()" style="background:transparent;border:0;font-size:16px;cursor:pointer;color:#7a8ba8;padding:0;line-height:1">×</button>' +
+    '</div>' +
+    '<div id="_plaid-txn-popover-body" style="color:#5f7791">Loading…</div>';
+  document.body.appendChild(popover);
+  // Position below the anchor, flipped if it would overflow the viewport.
+  var rect = anchor.getBoundingClientRect();
+  var top  = rect.bottom + window.scrollY + 6;
+  var left = rect.left   + window.scrollX;
+  popover.style.top = top + 'px';
+  popover.style.left = left + 'px';
+  // After measurement, nudge left if we'd overflow the viewport right edge.
+  setTimeout(function() {
+    var pw = popover.offsetWidth;
+    var vw = window.innerWidth;
+    if (left + pw > vw - 10) {
+      popover.style.left = Math.max(10, vw - pw - 10) + 'px';
+    }
+  }, 0);
+
+  // Close on outside click or Escape.
+  setTimeout(function() {   // defer so this click doesn't close us immediately
+    document.addEventListener('click', _plaidPopoverOutsideClick);
+    document.addEventListener('keydown', _plaidPopoverEscape);
+  }, 0);
+
+  google.script.run
+    .withSuccessHandler(function(txn) {
+      var body = document.getElementById('_plaid-txn-popover-body');
+      if (!body) return;
+      if (!txn) {
+        body.innerHTML = '<div style="color:#c5221f">Transaction not found in PLAID_TRANSACTIONS.<br><br>' +
+                         '<span style="font-size:11px;color:#7a8ba8">ID: ' + esc(plaidId) + '</span></div>';
+        return;
+      }
+      var d = txn['Date'];
+      var dStr = d ? new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+      var amt = Number(txn['Amount USD']) || 0;
+      var amtColor = amt >= 0 ? '#1e8e3e' : '#c5221f';
+      var amtPrefix = amt >= 0 ? '+' : '';
+      body.innerHTML =
+        '<div style="margin-bottom:8px"><strong style="color:#0d2137;font-size:14px">' + esc(txn['Account'] || '') + '</strong></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">' +
+          '<span style="color:#5f7791">' + esc(dStr) + '</span>' +
+          '<span style="font-weight:700;color:' + amtColor + ';font-size:15px">' + amtPrefix + _fmtMoneyAccounting(amt) + '</span>' +
+        '</div>' +
+        (txn['Name']     ? '<div style="margin-top:6px;color:#0d2137">' + esc(txn['Name']) + '</div>' : '') +
+        (txn['Merchant'] ? '<div style="color:#5f7791;font-size:11px;margin-top:2px">Merchant: ' + esc(txn['Merchant']) + '</div>' : '') +
+        (txn['Plaid Category'] ? '<div style="color:#5f7791;font-size:11px;margin-top:2px">Category: ' + esc(txn['Plaid Category']) + '</div>' : '') +
+        '<div style="color:#7a8ba8;font-size:10px;margin-top:8px;padding-top:6px;border-top:1px solid #f0f3f7;word-break:break-all">' +
+          'Plaid Txn ID: ' + esc(txn['Transaction ID'] || plaidId) +
+        '</div>';
+    })
+    .withFailureHandler(function(e) {
+      var body = document.getElementById('_plaid-txn-popover-body');
+      if (body) body.innerHTML = '<div style="color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getPlaidTxnDetails(plaidId);
+}
+
+function _closePlaidTxnPopover() {
+  var p = document.getElementById('_plaid-txn-popover');
+  if (p && p.parentNode) p.parentNode.removeChild(p);
+  document.removeEventListener('click', _plaidPopoverOutsideClick);
+  document.removeEventListener('keydown', _plaidPopoverEscape);
+}
+function _plaidPopoverOutsideClick(e) {
+  var p = document.getElementById('_plaid-txn-popover');
+  if (!p) return;
+  if (p.contains(e.target)) return;   // click inside — keep open
+  _closePlaidTxnPopover();
+}
+function _plaidPopoverEscape(e) {
+  if (e.key === 'Escape') _closePlaidTxnPopover();
+}
+
 
 function _copyMoveDetailMessage() {
   // Use the text we already generated client-side when the detail was

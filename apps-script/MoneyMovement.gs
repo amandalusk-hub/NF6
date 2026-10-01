@@ -1196,6 +1196,33 @@ function _recomputeMovementStatus_(movementId) {
   return { movementId: movementId, oldStatus: currentStatus, newStatus: newStatus };
 }
 
+// Web-callable: look up a Plaid transaction by its Transaction ID so the
+// UI can show "here's the real transaction that matched this wire" when
+// Amanda taps a ✓P indicator. Returns the row as a plain object, or null.
+function getPlaidTxnDetails(txnId) {
+  if (!txnId) return null;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iId = headers.indexOf('Transaction ID');
+  if (iId < 0) return null;
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  for (var r = 0; r < data.length; r++) {
+    if (String(data[r][iId]) !== String(txnId)) continue;
+    var obj = {};
+    headers.forEach(function(h, i) {
+      var v = data[r][i];
+      if (v instanceof Date) v = v.toISOString();
+      // Omit the Raw JSON column — it's huge and the UI doesn't need it.
+      if (h === 'Raw JSON') return;
+      obj[h] = v;
+    });
+    return obj;
+  }
+  return null;
+}
+
+
 // Pull the last 4 digits off an account label like "NF6 Tiger Capital LLC
 // (5319)" or "Michael Nguyen Personal (1319)". Returns '' if the label has
 // no 4-digit tail. Used as the substring key for matching against the
