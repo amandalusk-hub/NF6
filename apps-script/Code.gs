@@ -4723,6 +4723,12 @@ function dailySync_() {
   fetchExchangeRates();
   syncAllAccounts();
   refreshPropertyValues();
+  // Full raw-transaction pull from EVERY Plaid-connected account into
+  // PLAID_TRANSACTIONS. Separate from TLMND_TRANSACTIONS which is scoped to
+  // only 3 accounts. This feeds Money Movement auto-checkoff + the Dorado
+  // Properties report. Default 2-month lookback keeps the daily call fast.
+  try { syncAllPlaidTransactions({ monthsBack: 2 }); }
+  catch(e) { Logger.log('dailySync_: syncAllPlaidTransactions failed: ' + e.message); }
   // Push each loan's current outstanding balance to its Linked Asset row on
   // the Assets sheet. Fresh dashboard shows the right net worth without
   // needing anyone to visit the Loans tab first.
