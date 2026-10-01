@@ -1054,6 +1054,103 @@ function _propertyDebugOutput_(title, body) {
 // Amanda runs this once from the Apps Script editor's Run button — it
 // shows the "Review permissions" dialog, she clicks Allow for the
 // calendar scope, and from then on CalendarApp works everywhere else.
+// Deep diagnostic for a specific month: show the Plaid Account IDs filter
+// on the Dorado property, which accounts matched, how many txns got pulled,
+// and the first 15 txns in date-desc order. Pinpoints exactly where the
+// pipeline breaks if the Dorado report shows $0 across tiles.
+function debugDoradoTransactionPull() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var dorado = getProperties().find(function(p) { return /dorado/i.test(String(p['Name']||'')); });
+  if (!dorado) {
+    var m0 = 'No Dorado property found. Run "Properties → Seed Dorado" first.';
+    Logger.log(m0); if (ui) ui.alert(m0); return;
+  }
+  var filterRaw = String(dorado['Plaid Account IDs'] || '').trim();
+  var filters = filterRaw.split(',').map(function(s){return s.trim().toLowerCase();}).filter(Boolean);
+
+  // Default to current month, but let the caller tweak later if needed.
+  var now = new Date();
+  var year = now.getFullYear(), month = now.getMonth() + 1;
+  var monthStart = new Date(Date.UTC(year, month - 1, 1));
+  var monthEnd   = new Date(Date.UTC(year, month, 1));
+
+  var lines = [
+    'DORADO TRANSACTION DIAGNOSTIC — ' + Utilities.formatDate(monthStart,'UTC','MMMM yyyy'),
+    '',
+    'Dorado property:',
+    '  Name: ' + dorado['Name'],
+    '  ID: ' + dorado['ID'],
+    '  Plaid Account IDs filter: "' + filterRaw + '"',
+    '  → substrings matched (case-insensitive): [' + filters.join(', ') + ']',
+    ''
+  ];
+  if (!filters.length) {
+    lines.push('⚠ NO FILTERS SET. Run "Properties → Wire Dorado Plaid Accounts (6179 + 0451)" first.');
+    _propertyDebugOutput_('Dorado Txn Pull', lines.join('\n'));
+    return;
+  }
+
+  // Scan both sheets, group matches by account, count hits in the month.
+  var perAcctAll = {};
+  var perAcctMonth = {};
+  var monthSamples = [];
+  ['TLMND_TRANSACTIONS','PLAID_TRANSACTIONS'].forEach(function(sheetName) {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iAcct = hdr.indexOf('Account');
+    var iDate = hdr.indexOf('Date');
+    var iName = hdr.indexOf('Name');
+    var iAmt  = hdr.indexOf('Amount USD');
+    if (iAcct < 0) return;
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    rows.forEach(function(r) {
+      var acct = String(r[iAcct] || '');
+      var acctLc = acct.toLowerCase();
+      var matchedBy = filters.filter(function(f) { return acctLc.indexOf(f) >= 0; });
+      if (!matchedBy.length) return;
+      perAcctAll[acct] = (perAcctAll[acct] || 0) + 1;
+      var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+      if (isNaN(d.getTime())) return;
+      if (d >= monthStart && d < monthEnd) {
+        perAcctMonth[acct] = (perAcctMonth[acct] || 0) + 1;
+        monthSamples.push({ date: d, acct: acct, name: String(r[iName]||''), amount: Number(r[iAmt]||0), sheet: sheetName });
+      }
+    });
+  });
+
+  lines.push('ACCOUNTS MATCHED (all time)');
+  var allAccts = Object.keys(perAcctAll).sort();
+  if (!allAccts.length) {
+    lines.push('  (none — the filter substrings "' + filterRaw + '" don\'t match any Account value in either sheet)');
+    lines.push('');
+    lines.push('Possible causes:');
+    lines.push('  • You haven\'t run "Wire Dorado Plaid Accounts" yet (sets filter = 6179,0451).');
+    lines.push('  • The Plaid sync hasn\'t populated PLAID_TRANSACTIONS yet (run "All Transactions → Sync ALL Plaid Transactions").');
+    lines.push('  • The sheet names of the Oriental accounts don\'t contain "6179" or "0451" — run "Properties → Debug: List Plaid Accounts" to confirm.');
+  } else {
+    allAccts.forEach(function(a) {
+      lines.push('  • ' + a + '  →  ' + perAcctAll[a] + ' txn(s) total, ' + (perAcctMonth[a] || 0) + ' this month');
+    });
+  }
+
+  lines.push('');
+  lines.push('TRANSACTIONS IN ' + Utilities.formatDate(monthStart,'UTC','MMMM yyyy') + ' (' + monthSamples.length + ' total, showing first 15 date-desc)');
+  monthSamples.sort(function(a, b) { return b.date - a.date; });
+  monthSamples.slice(0, 15).forEach(function(t) {
+    var dStr = Utilities.formatDate(t.date, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var amtStr = (t.amount >= 0 ? '+' : '') + '$' + Math.abs(t.amount).toFixed(2);
+    lines.push('  ' + dStr + '  ' + amtStr.padStart(14) + '  [' + t.sheet.replace('_TRANSACTIONS','').substring(0,5) + ']  ' + t.name.substring(0, 50));
+  });
+  if (!monthSamples.length) {
+    lines.push('  (nothing posted this month on any of the matched accounts)');
+  }
+
+  _propertyDebugOutput_('Dorado Txn Pull', lines.join('\n'));
+}
+
+
 function grantCalendarAccess() {
   // No try/catch on purpose — propagate so Apps Script prompts for the scope.
   var cals = CalendarApp.getAllCalendars();

@@ -426,6 +426,7 @@ function onOpen() {
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
     .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
+    .addItem('Properties → Debug: Dorado Txn Pull (which accounts match this month)', 'debugDoradoTransactionPull')
     .addItem('Properties → Grant Calendar Access (one-time auth prompt)', 'grantCalendarAccess')
     .addItem('Properties → Debug: List Plaid Accounts (for setup)', 'debugListPlaidAccounts')
     .addItem('Properties → Wire Dorado Plaid Accounts (6179 + 0451)', 'wireDoradoPlaidAccounts')
