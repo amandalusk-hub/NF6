@@ -8206,6 +8206,15 @@ function _renderMovementDetail(detail) {
     html += '<div style="font-size:12px;color:#5f7791;background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:8px 12px;margin-bottom:12px">' + esc(m['Notes']) + '</div>';
   }
 
+  // Legend — small key so Amanda knows the Plaid-match indicator is informational.
+  var anyAutoMatched = wires.some(function(w) { return w.plaidId && (w.status === 'Sent' || w.status === 'Confirmed'); });
+  if (anyAutoMatched) {
+    html += '<div style="display:flex;gap:14px;font-size:11px;color:#5f7791;margin-bottom:8px;padding:4px 0">' +
+              '<div style="display:flex;align-items:center;gap:4px"><div style="width:14px;height:14px;background:#1e8e3e;border-radius:3px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700">✓</div> status (tap to toggle)</div>' +
+              '<div style="display:flex;align-items:center;gap:4px"><div style="width:14px;height:14px;background:#1a73e8;border-radius:3px;color:#fff;display:flex;align-items:center;justify-content:center;font-size:7px;font-weight:800;letter-spacing:-.3px">✓P</div> matched via Plaid</div>' +
+            '</div>';
+  }
+
   // Sort wires with the SAME Kahn's topo logic the message preview uses so
   // the on-screen numbered list and the Copy Message output match 1:1. The
   // helper expects hop-shaped objects — adapt the wire fields it needs.
@@ -8229,21 +8238,31 @@ function _renderMovementDetail(detail) {
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
       : 'background:#fff;border-color:#c0ccd8;color:transparent';
-    // If this wire was auto-matched to a real Plaid transaction, show a
-    // small 🔗 badge so Amanda knows the check wasn't a manual click.
+    // Second indicator (purely informational): a small checked-box icon that
+    // appears ONLY when this wire was auto-matched to a real Plaid txn.
+    // Makes it unmistakable that the check wasn't a manual click. Tooltip
+    // shows the matched Plaid Transaction ID. Click does nothing (it's a
+    // status indicator, not a toggle — the status checkbox on the left is
+    // the one Amanda uses to override).
     var autoMatched = done && w.plaidId;
-    var autoBadge = autoMatched
-      ? '<span title="Auto-matched to Plaid transaction ' + esc(w.plaidId) + '" ' +
-             'style="font-size:10px;color:#1a73e8;background:#e8f0fe;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:600">auto</span>'
-      : '';
+    var plaidIndicator = autoMatched
+      ? '<div title="Confirmed via Plaid transaction: ' + esc(w.plaidId) + '" ' +
+             'style="width:22px;height:22px;border-radius:5px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
+                    'display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px">' +
+          '✓P' +
+        '</div>'
+      // Keep width stable with an empty slot so columns line up across rows.
+      : '<div style="width:22px;height:22px;flex-shrink:0"></div>';
+
     html +=
-      '<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f3f7">' +
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid #f0f3f7">' +
         '<div style="font-size:12px;color:#7a8ba8;font-weight:600;width:22px;text-align:right;flex-shrink:0">' + n + '.</div>' +
         '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
                 'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
                 'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
+        plaidIndicator +
         '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
-          esc(w.fromAccount) + ' to ' + esc(w.toAccount) + autoBadge +
+          esc(w.fromAccount) + ' to ' + esc(w.toAccount) +
         '</div>' +
         '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
           _fmtMoneyWhole(w.amount) +
