@@ -1016,6 +1016,28 @@ function _propertyDebugOutput_(title, body) {
 }
 
 
+// Menu-callable — triggers the Google Calendar OAuth consent prompt by
+// calling CalendarApp WITHOUT a try/catch. This is the only reliable way
+// to force Apps Script to re-prompt for the calendar.readonly scope after
+// it's been added to appsscript.json: the normal reservation reader
+// catches auth errors so the dashboard doesn't die on them, which means
+// Apps Script never sees the uncaught error and never asks the user.
+//
+// Amanda runs this once from the Apps Script editor's Run button — it
+// shows the "Review permissions" dialog, she clicks Allow for the
+// calendar scope, and from then on CalendarApp works everywhere else.
+function grantCalendarAccess() {
+  // No try/catch on purpose — propagate so Apps Script prompts for the scope.
+  var cals = CalendarApp.getAllCalendars();
+  Logger.log('Calendar access granted. Found ' + cals.length + ' calendars.');
+  try {
+    SpreadsheetApp.getUi().alert('Calendar Access Granted',
+      'Found ' + cals.length + ' calendars available.\n\nYou can now run "Debug: Dorado This Month" and calendar reservations will load.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch(e) { /* no UI (running from editor); output above is in exec log */ }
+}
+
+
 // Menu-callable — scans BOTH TLMND_TRANSACTIONS and PLAID_TRANSACTIONS to
 // list every distinct Account value with its txn count, most recent date,
 // and a few sample transaction names. Used to figure out what substrings to
