@@ -8235,9 +8235,11 @@ function _renderMovementDetail(detail) {
     var w = sorted._wire;
     var n = i + 1;
     var done = w.status === 'Confirmed' || w.status === 'Sent';
+    // Empty checkbox gets a darker border + subtle inset shadow so it's
+    // visibly tappable on white backgrounds (iOS Safari especially).
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
-      : 'background:#fff;border-color:#c0ccd8;color:transparent';
+      : 'background:#fff;border-color:#7a8ba8;color:transparent;box-shadow:inset 0 0 0 1px #f0f3f7';
     // Second indicator (purely informational): a small checked-box icon that
     // appears ONLY when this wire was auto-matched to a real Plaid txn.
     // Makes it unmistakable that the check wasn't a manual click. Tooltip
