@@ -351,7 +351,17 @@ function updateMovementWire(wireId, patch) {
     writePatch['Marked Done At'] = new Date();
   }
   var ok = _updateMMRow_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS, wireId, writePatch);
-  return { success: ok };
+  // After any wire-status change, re-evaluate the parent movement's status
+  // so Planning → In Progress → Complete transitions happen automatically.
+  var statusChange = null;
+  if (ok && patch.status !== undefined) {
+    try {
+      var wireRow = _getMMRows_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS)
+        .find(function(w) { return String(w['ID']) === String(wireId); });
+      if (wireRow) statusChange = _recomputeMovementStatus_(wireRow['Movement ID']);
+    } catch (e) { Logger.log('updateMovementWire: status recompute failed: ' + e.message); }
+  }
+  return { success: ok, statusChange: statusChange };
 }
 
 // Load one movement + all its wires (joined with hop details) — the shape the
@@ -1123,12 +1133,67 @@ function autoCheckoffMovementWires() {
     }
   });
 
+  // 4. Auto-advance movement status based on how many wires are now done.
+  //    Planning  → In Progress    when at least one wire is Sent/Confirmed
+  //    In Progress → Complete     when every wire on the movement is Sent/Confirmed
+  //    Doesn't downgrade — a movement that got to Complete stays Complete even
+  //    if someone later toggles a wire back to Pending (that re-triggers a
+  //    reopen on the next status re-eval).
+  var affectedMoveIds = {};
+  candidateWires.forEach(function(cw) { affectedMoveIds[String(cw.move['ID'])] = true; });
+  var statusChanges = [];
+  Object.keys(affectedMoveIds).forEach(function(mid) {
+    var change = _recomputeMovementStatus_(mid);
+    if (change) statusChanges.push(change);
+  });
+
   return {
     success: true,
     scanned: candidateWires.length,
     matched: matched,
-    summary: summary
+    summary: summary,
+    statusChanges: statusChanges
   };
+}
+
+// Recompute a movement's status from its wires' current statuses. Returns
+// { movementId, oldStatus, newStatus } if the status changed, else null.
+// Safe to call anytime (after auto-match, after a manual wire toggle, from
+// a menu button).
+function _recomputeMovementStatus_(movementId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var moves = _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS);
+  var move = moves.find(function(m) { return String(m['ID']) === String(movementId); });
+  if (!move) return null;
+  var currentStatus = String(move['Status'] || 'Planning');
+  // Don't auto-touch a Cancelled movement.
+  if (currentStatus === 'Cancelled') return null;
+
+  var wires = _getMMRows_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS)
+    .filter(function(w) { return String(w['Movement ID']) === String(movementId); });
+  if (!wires.length) return null;
+  var total = wires.length;
+  var done  = wires.filter(function(w) {
+    var s = String(w['Status']||'').toLowerCase();
+    return s === 'sent' || s === 'confirmed';
+  }).length;
+  var skipped = wires.filter(function(w) {
+    return String(w['Status']||'').toLowerCase() === 'skipped';
+  }).length;
+
+  var newStatus;
+  if (done + skipped === total)         newStatus = 'Complete';
+  else if (done === 0)                   newStatus = 'Planning';
+  else                                   newStatus = 'In Progress';
+
+  if (newStatus === currentStatus) return null;
+  _updateMMRow_('MOVEMENTS', MOVEMENTS_HEADERS, movementId, {
+    'Status': newStatus,
+    'Last Updated': new Date()
+  });
+  _logAudit_('autoStatusChange', 'movement', movementId, move['Notes'] || '',
+             'Status ' + currentStatus + ' → ' + newStatus + ' (' + done + '/' + total + ' done)');
+  return { movementId: movementId, oldStatus: currentStatus, newStatus: newStatus };
 }
 
 // Pull the last 4 digits off an account label like "NF6 Tiger Capital LLC
