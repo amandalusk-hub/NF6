@@ -121,6 +121,28 @@ var PROPERTY_TXN_OVERRIDES_HEADERS = [
   'Entered At'
 ];
 
+// Recurring entries — fixed-amount monthly expenses (or revenue) that don't
+// come through Plaid. Use this for things like Dorado's $21,668.72 mortgage
+// payment where the amount is always the same and the account isn't
+// connected via Plaid. The monthly report builder auto-includes a virtual
+// transaction for every month in [Start Month, End Month] that falls within
+// the report's month.
+var PROPERTY_RECURRING_HEADERS = [
+  'ID',
+  'Property ID',
+  'Label',                    // Human-readable: 'Dorado Mortgage (Oriental)'
+  'Amount',                   // signed: + = inflow, − = outflow
+  'Category',                 // Same vocab as PROPERTY_RULES
+  'Subcategory',
+  'Day of Month',             // 1-28 (clamped to end-of-month if needed)
+  'Start Month',              // 'YYYY-MM' — first month this applies
+  'End Month',                // 'YYYY-MM' — last month, blank = indefinite
+  'Active',                   // Yes / No
+  'Notes',
+  'Date Added',
+  'Last Updated'
+];
+
 
 // ── Sheet lifecycle ────────────────────────────────────────────────────────
 
@@ -129,6 +151,7 @@ function ensurePropertiesSheets_() {
   _ensurePropertySheet_('PROPERTY_RULES', PROPERTY_RULES_HEADERS);
   _ensurePropertySheet_('PROPERTY_MANUAL', PROPERTY_MANUAL_HEADERS);
   _ensurePropertySheet_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS);
+  _ensurePropertySheet_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS);
 }
 
 function _ensurePropertySheet_(name, headers) {
@@ -752,7 +775,37 @@ function getPropertyMonthlyReport(propertyId, year, month) {
     }
   });
 
-  // 2. Manual entries for this month.
+  // 2a. Recurring entries that fall in this month (static monthly expenses
+  //     like the Dorado mortgage — amount is always the same, account isn't
+  //     in Plaid, so we materialize a virtual transaction).
+  var recurrings = _getPropertySheetRows_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS)
+    .filter(function(r) {
+      if (String(r['Property ID']) !== String(propertyId)) return false;
+      var active = String(r['Active'] || 'Yes').toLowerCase();
+      if (active === 'no' || active === 'false') return false;
+      var sm = String(r['Start Month'] || '').trim();
+      var em = String(r['End Month']   || '').trim();
+      if (sm && sm > monthKey) return false;
+      if (em && em < monthKey) return false;
+      return true;
+    })
+    .map(function(r) {
+      var day = Math.min(28, Math.max(1, Number(r['Day of Month']) || 1));
+      var d = new Date(Date.UTC(year, month - 1, day));
+      return {
+        id:          'recurring:' + r['ID'] + ':' + monthKey,
+        date:        d,
+        dateIso:     Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd'),
+        account:     '(recurring)',
+        name:        String(r['Label'] || ''),
+        amount:      Number(r['Amount']) || 0,
+        category:    String(r['Category'] || ''),
+        subcategory: String(r['Subcategory'] || ''),
+        source:      'recurring'
+      };
+    });
+
+  // 2b. Manual one-off entries for this month.
   var manuals = _getPropertySheetRows_('PROPERTY_MANUAL', PROPERTY_MANUAL_HEADERS)
     .filter(function(m) { return String(m['Property ID']) === String(propertyId) && String(m['Month']) === monthKey; })
     .map(function(m) {
@@ -768,7 +821,7 @@ function getPropertyMonthlyReport(propertyId, year, month) {
       };
     });
 
-  var lines = categorized.concat(manuals);
+  var lines = categorized.concat(recurrings).concat(manuals);
 
   // 3. Aggregate by category → subcategory. Preserves order of appearance
   //    within a category so the PDF renders line items in the same order
@@ -1012,6 +1065,56 @@ function debugListPlaidAccounts() {
   lines.push('  3. Comma-separate substrings that appear in the account names above');
   lines.push('     (e.g. "oriental,ath,9007" catches all three)');
   _propertyDebugOutput_('Plaid Accounts', lines.join('\n'));
+}
+
+
+// Menu-callable — install the Dorado mortgage as a monthly recurring entry.
+// $21,668.72 due the 1st of every month (per the Oriental mortgage statement
+// Amanda shared). Amount is fixed so no Plaid matching needed — the monthly
+// report auto-includes it for every month going forward.
+// Idempotent: skips if an existing recurring row already matches.
+function seedDoradoMortgageRecurring() {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var dorado = getProperties().find(function(p) { return /dorado/i.test(String(p['Name']||'')); });
+  if (!dorado) {
+    try { SpreadsheetApp.getUi().alert('No Dorado property found. Run "Properties → Seed Dorado" first.'); } catch(e) {}
+    return;
+  }
+  var existing = _getPropertySheetRows_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS)
+    .find(function(r) {
+      return String(r['Property ID']) === String(dorado['ID']) &&
+             /mortgage/i.test(String(r['Label']||''));
+    });
+  if (existing) {
+    try { SpreadsheetApp.getUi().alert('Dorado mortgage recurring entry already exists (' + existing['ID'] + '). No changes made.'); } catch(e) {}
+    return;
+  }
+  var id = 'rec_' + Utilities.getUuid().substring(0, 8);
+  _writePropertyRow_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS, {
+    'ID':            id,
+    'Property ID':   dorado['ID'],
+    'Label':         'Dorado Mortgage (Oriental)',
+    'Amount':        -21668.72,                // negative = outflow
+    'Category':      'Debt Service',
+    'Subcategory':   'Mortgage',
+    'Day of Month':  1,
+    'Start Month':   '2024-01',                // adjust in the sheet if needed
+    'End Month':     '',
+    'Active':        'Yes',
+    'Notes':         'Static recurring entry. Fidelity ···9007 is not in Plaid; this covers the mortgage line until we connect that account.',
+    'Date Added':    new Date(),
+    'Last Updated':  new Date()
+  });
+  _logAudit_('seedDoradoMortgage', 'property', dorado['ID'], 'Dorado',
+             'Added $21,668.72 monthly recurring (Dorado Mortgage).');
+  try {
+    SpreadsheetApp.getUi().alert('Dorado Mortgage Installed',
+      '$21,668.72 outflow added as a monthly recurring entry for Dorado.\n\n' +
+      'Day of month: 1st\nStart month: 2024-01\nEnd month: (indefinite)\n\n' +
+      'The monthly Dorado report will auto-include this as a Debt Service → Mortgage line, starting Jan 2024, every month going forward. Edit the PROPERTY_RECURRING sheet directly if you need to change the amount, date, or end it.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch(e) {}
 }
 
 

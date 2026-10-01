@@ -427,6 +427,7 @@ function onOpen() {
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
     .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
     .addItem('Properties → Debug: List Plaid Accounts (for setup)', 'debugListPlaidAccounts')
+    .addItem('Properties → Seed Dorado Mortgage ($21,668.72/mo recurring)', 'seedDoradoMortgageRecurring')
     .addSeparator()
     .addItem('All Transactions → Sync ALL Plaid Transactions', 'syncAllPlaidTransactionsMenu')
     .addItem('All Transactions → Debug: List Accounts in PLAID_TRANSACTIONS', 'debugListPlaidTransactionAccounts')

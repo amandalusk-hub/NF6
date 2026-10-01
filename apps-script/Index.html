@@ -722,9 +722,8 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Total Amount (USD)</label>
           <input id="move-amount" type="text" inputmode="decimal" placeholder="$100,000"
-                 oninput="_renderMovePreview()"
-                 onblur="_fmtMoneyInputAccounting(this); _renderMovePreview()"
-                 onfocus="this.select()"
+                 oninput="_onMoveAmountInput(this)"
+                 onblur="_fmtMoneyInputAccounting(this)"
                  style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px;text-align:right;font-variant-numeric:tabular-nums">
         </div>
       </div>
@@ -8349,6 +8348,17 @@ function _copyToClipboard(text, successMsg) {
   } else {
     _copyFallback(text, successMsg);
   }
+}
+
+// Debounced oninput handler for the amount box. On iOS Safari, firing the
+// preview re-render on EVERY keystroke while the user is actively typing in
+// a position:fixed modal caused visible freezes — the input would lock up
+// for a beat on each digit. 150ms debounce feels responsive without
+// stuttering the keyboard.
+var _moveAmtTimer = null;
+function _onMoveAmountInput(el) {
+  clearTimeout(_moveAmtTimer);
+  _moveAmtTimer = setTimeout(function() { _renderMovePreview(); }, 150);
 }
 
 // Format a money-input field in accounting style ($XXX,XXX or $XXX,XXX.XX)
