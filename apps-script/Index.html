@@ -7927,8 +7927,22 @@ function openMoveNewModal() {
         sel.innerHTML = '<option value="">— no templates found — run Tracker → Money Movement → Seed Templates from the sheet menu</option>';
         return;
       }
+      // Group by entity (strip the " - Up/Down" suffix) alphabetically, then
+      // within each entity put Down first (Amanda's more common flow) and
+      // Up second. Makes the picker much easier to scan — all Blue Panda
+      // options next to each other, same for NF PR SJ and Tiger Capital.
+      var sorted = (_mmState.templates || []).slice().sort(function(a, b) {
+        var ae = String(a['Name']||'').replace(/\s*-\s*(up|down)\s*$/i, '').trim().toLowerCase();
+        var be = String(b['Name']||'').replace(/\s*-\s*(up|down)\s*$/i, '').trim().toLowerCase();
+        if (ae !== be) return ae < be ? -1 : 1;
+        // Same entity: Down first, Up second.
+        var ad = String(a['Direction']||'').toLowerCase();
+        var bd = String(b['Direction']||'').toLowerCase();
+        if (ad === bd) return 0;
+        return ad === 'down' ? -1 : 1;
+      });
       sel.innerHTML = '<option value="">— pick a template —</option>' +
-        _mmState.templates.map(function(t) {
+        sorted.map(function(t) {
           var dir = String(t['Direction']||'').toLowerCase() === 'down' ? '↓' : '↑';
           return '<option value="' + esc(t['ID']) + '">' + dir + ' ' + esc(t['Name']) + '</option>';
         }).join('');
