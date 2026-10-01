@@ -630,7 +630,9 @@ function setPropertyTxnOverride(txnId, propertyId, category, subcategory, notes)
 // aliases here or in the event titles — keep this list broad so a naming
 // slip doesn't wreck the classification.
 var _PROPERTY_EVENT_SOURCES = [
-  { source: 'owner',  keywords: ['owner', 'mike', 'dr mike', 'dr. mike'] },
+  { source: 'owner',  keywords: ['owner', 'mike', 'dr mike', 'dr. mike',
+                                 'michael', 'dr michael', 'dr. michael',
+                                 'michael nguyen', 'nguyen'] },
   { source: 'family', keywords: ['family', 'brother', 'sister', 'parents',
                                 'mom', 'dad', 'kids', 'personal'] },
   { source: 'friend', keywords: ['friend', 'friends', 'guest of mike'] },
@@ -651,13 +653,24 @@ function _classifyEventSource_(title) {
 }
 
 // Return every event on the calendar between startDate (inclusive) and
-// endDate (exclusive), lightly cleaned up. Multi-day events are counted
-// with their FULL night span (checkout — checkin) so occupancy math is right.
+// endDate (exclusive), FILTERED to just the ones for this property.
+// Amanda's shared calendar carries events for every property (Dorado,
+// Condado, Paris, Quebrada Arriba) with the property name as the first
+// word of the event title — so a Dorado event looks like
+// "Dorado - Dr Michael Nguyen". We filter to events whose title starts
+// with the property's name prefix (first word of the PROPERTIES.Name
+// field) so a Dorado property report doesn't pull in Condado stays.
 function getPropertyReservations(propertyId, startIso, endIso) {
   var prop = getProperty(propertyId);
   if (!prop) return { error: 'Property not found: ' + propertyId, events: [] };
   var calId = String(prop['Google Calendar ID'] || '').trim();
   if (!calId) return { error: 'No Google Calendar ID set on property.', events: [] };
+
+  // Prefix = first word of the property Name, lowercased. e.g. a property
+  // named "Dorado - 1405 Plantation Vlg" gets prefix "dorado" and only
+  // events like "Dorado - ..." in the shared calendar count toward its
+  // report.
+  var prefix = String(prop['Name'] || '').trim().split(/[\s\-]+/)[0].toLowerCase();
 
   var start = startIso ? new Date(startIso) : new Date();
   var end   = endIso   ? new Date(endIso)   : new Date(start.getTime() + 60 * 86400000);
@@ -670,6 +683,15 @@ function getPropertyReservations(propertyId, startIso, endIso) {
   var events;
   try { events = cal.getEvents(start, end); }
   catch(e) { return { error: 'cal.getEvents failed: ' + e.message, events: [] }; }
+
+  // Keep only events whose title starts with (or contains near the start)
+  // the property's name prefix. Skip the rest.
+  if (prefix) {
+    events = events.filter(function(e) {
+      var t = String(e.getTitle() || '').toLowerCase().trim();
+      return t.indexOf(prefix) === 0 || t.indexOf(prefix + ' ') >= 0 || t.indexOf(prefix + '-') >= 0;
+    });
+  }
 
   var out = events.map(function(e) {
     var s = e.getStartTime();
@@ -706,31 +728,37 @@ function _computeMonthOccupancy_(events, year, month) {
   var monthStart = new Date(Date.UTC(year, month - 1, 1));
   var monthEnd   = new Date(Date.UTC(year, month, 1));   // exclusive
   var daysInMonth = new Date(year, month, 0).getDate();
+
+  // Only paying-guest events count toward occupancy, nights, and reservation
+  // count — Amanda's rule: "when it has Mike then it's not a reservation."
+  // Owner / family / friend stays are the property being used but not
+  // generating revenue, and she doesn't track them as reservations. If she
+  // ever wants to show owner usage separately, we can add an ownerNights
+  // field — but for now, owner + family + friend are completely excluded.
+  function isCounted(src) {
+    return src === 'alma' || src === 'direct' || src === 'unknown';
+  }
+
   var bookedDates = {};
-  var revenueDates = {};   // Alma / direct / unknown = revenue-generating
-                           // occupancy. Family/owner/friend = non-revenue.
   var reservations = 0;
   events.forEach(function(e) {
+    if (!isCounted(e.source)) return;   // owner / family / friend — skip
     var s = new Date(e.start);
     var f = new Date(e.end);
-    if (f <= monthStart || s >= monthEnd) return;   // no overlap
+    if (f <= monthStart || s >= monthEnd) return;
     reservations++;
     var cur = s > monthStart ? new Date(s) : new Date(monthStart);
     var stop = f < monthEnd ? new Date(f) : new Date(monthEnd);
     while (cur < stop) {
       var iso = Utilities.formatDate(cur, 'UTC', 'yyyy-MM-dd');
       bookedDates[iso] = true;
-      if (e.source === 'alma' || e.source === 'direct' || e.source === 'unknown') {
-        revenueDates[iso] = true;
-      }
       cur.setUTCDate(cur.getUTCDate() + 1);
     }
   });
   var nightsBooked = Object.keys(bookedDates).length;
-  var revenueNights = Object.keys(revenueDates).length;
   return {
     nightsBooked:  nightsBooked,
-    revenueNights: revenueNights,
+    revenueNights: nightsBooked,   // same thing now that owner is excluded
     reservations:  reservations,
     daysInMonth:   daysInMonth,
     occupancyPct:  daysInMonth > 0 ? Math.round(nightsBooked / daysInMonth * 100) : 0
