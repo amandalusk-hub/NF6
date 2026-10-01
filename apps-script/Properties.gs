@@ -1068,6 +1068,38 @@ function debugListPlaidAccounts() {
 }
 
 
+// Menu-callable — wire Dorado's PROPERTIES row to the right Plaid account
+// substrings so transactions start flowing. Based on Amanda's PLAID_TRANSACTIONS
+// debug:
+//   Oriental - MN - Dorado PH ···6179       → Dorado operating account
+//   Oriental - MN Personal - Checking ···0451 → Mike's ATH / personal (cleaner,
+//                                               exterminator, AC pass-through)
+//   Fidelity ···9007                        → not in Plaid; mortgage handled
+//                                               by the PROPERTY_RECURRING entry
+// Idempotent — safe to re-run; always sets the field to the canonical value.
+function wireDoradoPlaidAccounts() {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var dorado = getProperties().find(function(p) { return /dorado/i.test(String(p['Name']||'')); });
+  if (!dorado) {
+    try { SpreadsheetApp.getUi().alert('No Dorado property found. Run "Properties → Seed Dorado" first.'); } catch(e) {}
+    return;
+  }
+  var newVal = '6179,0451';
+  updateProperty(dorado['ID'], { plaidAccountIds: newVal });
+  try {
+    SpreadsheetApp.getUi().alert('Dorado Plaid Accounts Wired',
+      'Set Dorado "Plaid Account IDs" = ' + newVal + '\n\n' +
+      'This filters PLAID_TRANSACTIONS + TLMND_TRANSACTIONS to the Dorado-relevant rows:\n' +
+      '  • Oriental - MN - Dorado PH ···6179 (operating account)\n' +
+      '  • Oriental - MN Personal - Checking ···0451 (ATH pass-through for Lourdes/exterminator/AC)\n\n' +
+      'Fidelity 9007 (mortgage) stays handled by the PROPERTY_RECURRING entry.\n\n' +
+      'Next: "Properties → Debug: Dorado This Month" to see the live report numbers.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch(e) {}
+}
+
+
 // Menu-callable — install the Dorado mortgage as a monthly recurring entry.
 // $21,668.72 due the 1st of every month (per the Oriental mortgage statement
 // Amanda shared). Amount is fixed so no Plaid matching needed — the monthly
