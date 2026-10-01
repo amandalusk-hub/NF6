@@ -8157,33 +8157,52 @@ function _renderMovementDetail(detail) {
     html += '<div style="font-size:12px;color:#5f7791;background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:8px 12px;margin-bottom:12px">' + esc(m['Notes']) + '</div>';
   }
 
-  // Group wires by chain for readability, preserving the topo order the
-  // server returned. Same chain = same contributor's path.
-  var groupedHtml = '';
-  var lastChain = null;
-  wires.forEach(function(w) {
-    if (w.chain !== lastChain) {
-      if (lastChain !== null) groupedHtml += '';   // no extra spacer needed with border
-      groupedHtml += '<div style="font-size:11px;color:#7a8ba8;font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin:10px 0 4px">─── ' + esc(w.chain || '(no chain)') + ' ───</div>';
-      lastChain = w.chain;
-    }
+  // Sort wires with the SAME Kahn's topo logic the message preview uses so
+  // the on-screen numbered list and the Copy Message output match 1:1. The
+  // helper expects hop-shaped objects — adapt the wire fields it needs.
+  var hopsForSort = wires.map(function(w) {
+    return {
+      ID:                 w.wireId,
+      hopId:              w.wireId,
+      'From Account':     w.fromAccount,
+      'To Account':       w.toAccount,
+      'Amount % of Total':w.pctOfTotal,
+      _wire:              w   // keep ref back to the real wire
+    };
+  });
+  var orderedForDisplay = _wireExecutionOrderLocal(hopsForSort);
+
+  html += '<div style="border-top:1px solid #e8ecf1">';
+  orderedForDisplay.forEach(function(sorted, i) {
+    var w = sorted._wire;
+    var n = i + 1;
     var done = w.status === 'Confirmed' || w.status === 'Sent';
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
       : 'background:#fff;border-color:#c0ccd8;color:transparent';
-    groupedHtml += '<div style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid #f0f3f7">' +
-      '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
-              'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
-              'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">✓</button>' +
-      '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
-        esc(w.fromAccount) + ' → ' + esc(w.toAccount) +
-      '</div>' +
-      '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
-        fmtUSD(w.amount) +
-      '</div>' +
-    '</div>';
+    html +=
+      '<div style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid #f0f3f7">' +
+        '<div style="font-size:12px;color:#7a8ba8;font-weight:600;width:22px;text-align:right;flex-shrink:0">' + n + '.</div>' +
+        '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
+                'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
+                'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
+        '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
+          esc(w.fromAccount) + ' to ' + esc(w.toAccount) +
+        '</div>' +
+        '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
+          _fmtMoneyAccounting(w.amount) +
+        '</div>' +
+      '</div>';
   });
-  html += groupedHtml;
+  html += '</div>';
+
+  // Stash the numbered message text so the Copy Message button can grab it
+  // synchronously in the user's tap handler (no async server round-trip →
+  // iOS Safari clipboard permission stays alive).
+  _mmState.currentDetailMessage = orderedForDisplay.map(function(sorted, i) {
+    var w = sorted._wire;
+    return (i + 1) + '. ' + w.fromAccount + ' to ' + w.toAccount + ': ' + _fmtMoneyAccounting(w.amount);
+  }).join('\n');
 
   // Complete / Reopen action
   html += '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">';
@@ -8226,15 +8245,16 @@ function _setMovementStatus(movementId, newStatus) {
 }
 
 function _copyMoveDetailMessage() {
-  var d = _mmState.currentDetail;
-  if (!d) return;
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.error) { toast(res.error, 'error'); return; }
-      _copyToClipboard(res.message || '', 'Message copied to clipboard');
-    })
-    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
-    .formatMovementMessage(d.movement['ID']);
+  // Use the text we already generated client-side when the detail was
+  // rendered — this keeps the clipboard write inside the user's tap, which
+  // is required for navigator.clipboard.writeText to succeed on iOS Safari.
+  // Falling back to the server round-trip would lose that gesture context.
+  var text = _mmState.currentDetailMessage || '';
+  if (!text) {
+    toast('Nothing to copy yet — detail still loading', 'error');
+    return;
+  }
+  _copyToClipboard(text, 'Message copied to clipboard');
 }
 
 function _copyToClipboard(text, successMsg) {
