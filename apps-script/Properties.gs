@@ -1232,14 +1232,48 @@ function wireDoradoPlaidAccounts() {
     try { SpreadsheetApp.getUi().alert('No Dorado property found. Run "Properties → Seed Dorado" first.'); } catch(e) {}
     return;
   }
+
+  // Writing "6179,0451" via setValue causes Google Sheets to parse it as a
+  // NUMBER (comma = thousands separator) and store 61790451 — then no
+  // account substring matches. Fix: force the cell to text format first,
+  // then write. Also includes both Checking AND Savings sub-accounts that
+  // Amanda confirmed both end in 0451.
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTIES');
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iId  = hdr.indexOf('ID');
+  var iPai = hdr.indexOf('Plaid Account IDs');
+  var iUpd = hdr.indexOf('Last Updated');
+  if (iId < 0 || iPai < 0) {
+    try { SpreadsheetApp.getUi().alert('PROPERTIES sheet missing ID or Plaid Account IDs column.'); } catch(e) {}
+    return;
+  }
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
   var newVal = '6179,0451';
-  updateProperty(dorado['ID'], { plaidAccountIds: newVal });
+  var found = false;
+  for (var r = 0; r < data.length; r++) {
+    if (String(data[r][iId]) !== String(dorado['ID'])) continue;
+    var cell = sheet.getRange(r + 2, iPai + 1);
+    cell.setNumberFormat('@');   // force text — prevents comma→number parsing
+    cell.setValue(newVal);
+    if (iUpd >= 0) sheet.getRange(r + 2, iUpd + 1).setValue(new Date());
+    found = true;
+    break;
+  }
+  if (!found) {
+    try { SpreadsheetApp.getUi().alert('Dorado row not found on PROPERTIES sheet.'); } catch(e) {}
+    return;
+  }
+  _logAudit_('wireDoradoPlaid', 'property', dorado['ID'], 'Dorado',
+             'Set Plaid Account IDs = ' + newVal);
+
   try {
     SpreadsheetApp.getUi().alert('Dorado Plaid Accounts Wired',
-      'Set Dorado "Plaid Account IDs" = ' + newVal + '\n\n' +
+      'Set Dorado "Plaid Account IDs" = ' + newVal + '\n' +
+      '(cell forced to text format so Sheets doesn\'t mangle the comma)\n\n' +
       'This filters PLAID_TRANSACTIONS + TLMND_TRANSACTIONS to the Dorado-relevant rows:\n' +
       '  • Oriental - MN - Dorado PH ···6179 (operating account)\n' +
-      '  • Oriental - MN Personal - Checking ···0451 (ATH pass-through for Lourdes/exterminator/AC)\n\n' +
+      '  • Oriental - MN Personal - Checking ···0451 (ATH pass-through for Lourdes / exterminator / AC)\n' +
+      '  • Oriental - MN Personal - Savings ···0451 (same mask — captured too)\n\n' +
       'Fidelity 9007 (mortgage) stays handled by the PROPERTY_RECURRING entry.\n\n' +
       'Next: "Properties → Debug: Dorado This Month" to see the live report numbers.',
       SpreadsheetApp.getUi().ButtonSet.OK);
