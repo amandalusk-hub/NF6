@@ -8202,6 +8202,19 @@ function _renderMovementDetail(detail) {
     '</div>' +
   '</div>';
 
+  // Re-check Plaid button — syncs transactions then runs auto-match on this
+  // movement right now. Lets Amanda trigger from phone when wires have
+  // already posted but the overnight cron hasn't fired yet.
+  if (status !== 'Complete' && status !== 'Cancelled') {
+    html += '<div style="display:flex;justify-content:flex-end;margin-bottom:10px">' +
+              '<button onclick="_recheckPlaidNow(' + JSON.stringify(m['ID']) + ',this)" ' +
+                      'style="background:#f1f6ff;border:1px solid #1a73e8;color:#1a73e8;padding:6px 14px;border-radius:6px;' +
+                             'font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:rgba(26,115,232,0.2)">' +
+                '🔄 Check Plaid Now' +
+              '</button>' +
+            '</div>';
+  }
+
   if (m['Notes']) {
     html += '<div style="font-size:12px;color:#5f7791;background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:8px 12px;margin-bottom:12px">' + esc(m['Notes']) + '</div>';
   }
@@ -8249,19 +8262,18 @@ function _renderMovementDetail(detail) {
     var plaidIndicator = autoMatched
       ? '<button onclick="_showPlaidTxnDetails(' + JSON.stringify(w.plaidId) + ', event)" ' +
                 'title="Click to see matched Plaid transaction" ' +
-                'style="width:22px;height:22px;border-radius:5px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
-                       'display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px;' +
-                       'cursor:pointer;padding:0">' +
+                'style="width:30px;height:30px;border-radius:6px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
+                       'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px;' +
+                       'cursor:pointer;padding:0;-webkit-tap-highlight-color:rgba(26,115,232,0.3)">' +
           '✓P' +
         '</button>'
-      // Keep width stable with an empty slot so columns line up across rows.
-      : '<div style="width:22px;height:22px;flex-shrink:0"></div>';
+      : '<div style="width:30px;height:30px;flex-shrink:0"></div>';
 
     html +=
-      '<div style="display:flex;align-items:center;gap:8px;padding:10px 4px;border-bottom:1px solid #f0f3f7">' +
+      '<div style="display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid #f0f3f7">' +
         '<div style="font-size:12px;color:#7a8ba8;font-weight:600;width:22px;text-align:right;flex-shrink:0">' + n + '.</div>' +
         '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
-                'style="' + checkStyle + ';width:22px;height:22px;border-radius:5px;border:1.5px solid;cursor:pointer;font-size:14px;font-weight:700;line-height:1;flex-shrink:0" ' +
+                'style="' + checkStyle + ';width:30px;height:30px;border-radius:6px;border:1.5px solid;cursor:pointer;font-size:16px;font-weight:700;line-height:1;flex-shrink:0;padding:0;-webkit-tap-highlight-color:rgba(0,0,0,0.1)" ' +
                 'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
         plaidIndicator +
         '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
@@ -8438,6 +8450,40 @@ function _plaidPopoverOutsideClick(e) {
 }
 function _plaidPopoverEscape(e) {
   if (e.key === 'Escape') _closePlaidTxnPopover();
+}
+
+
+// "Check Plaid Now" button handler — syncs recent Plaid transactions then
+// runs auto-match. Works from phone since it's web-triggered, not menu-based.
+function _recheckPlaidNow(movementId, btn) {
+  var orig = btn && btn.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = 'Syncing Plaid…'; }
+  // Phase 1: fetch any new transactions (short 1-month lookback — fast).
+  google.script.run
+    .withSuccessHandler(function() {
+      if (btn) btn.textContent = 'Matching…';
+      // Phase 2: run auto-match.
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (btn) { btn.disabled = false; btn.textContent = orig || '🔄 Check Plaid Now'; }
+          var matched = (res && res.matched) || 0;
+          toast(matched > 0
+            ? matched + ' wire(s) auto-matched'
+            : 'No new matches — try again later or tap wires manually');
+          // Reload the detail to show the fresh state.
+          _openMovementDetail(movementId);
+        })
+        .withFailureHandler(function(e) {
+          if (btn) { btn.disabled = false; btn.textContent = orig || '🔄 Check Plaid Now'; }
+          toast('Match failed: ' + (e.message || e), 'error');
+        })
+        .autoCheckoffMovementWires();
+    })
+    .withFailureHandler(function(e) {
+      if (btn) { btn.disabled = false; btn.textContent = orig || '🔄 Check Plaid Now'; }
+      toast('Plaid sync failed: ' + (e.message || e), 'error');
+    })
+    .syncAllPlaidTransactions({ monthsBack: 1 });
 }
 
 
