@@ -523,6 +523,335 @@ function _todayIso_() {
 }
 
 
+// ── Plaid sync for a QB entity ────────────────────────────────────────────
+// For every Bank/Credit-Card COA account linked to a Plaid account ID, pull
+// every Plaid txn since the entity's go-live date, apply QB_RULES, and post a
+// double-entry GL row for each txn.
+//
+// Posting shape per txn:
+//   Cash INFLOW  (+amount)  →  DR <bank account>  /  CR <income/other account>
+//   Cash OUTFLOW (−amount)  →  DR <expense/other account>  /  CR <bank account>
+//
+// If no rule matches, the other leg defaults to "Ask My Accountant" (QB's own
+// convention — same account Amanda sees in QB when a bank txn hasn't been
+// categorized). Those appear in the Needs Review inbox.
+//
+// Idempotency: each GL row's Source Ref carries the Plaid Transaction ID. On
+// re-run, txns already posted are skipped. This makes sync safe to run on a
+// cron or on-demand from the UI.
+
+var NFCA_GO_LIVE = '2025-12-31';
+// Opening balance was posted AS OF 2025-12-31 23:59. Any Plaid txn posted
+// on or before 2025-12-31 is implicitly covered by the opening JE — so sync
+// starts strictly AFTER that.
+var NFCA_SYNC_FROM = '2026-01-01';
+
+// Web-callable (and menu-callable). Returns { bankAccounts, postedByAccount,
+// skipped, needsReview } for the UI.
+function syncQBEntityFromPlaid(entity) {
+  _requireEditor_();
+  ensureQBSheets_();
+  entity = String(entity || 'NF CA');
+  var now = new Date();
+  var user = _currentUserEmail_();
+
+  // 1. Find every bank/CC COA account for this entity that has a Plaid link.
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; });
+  var bankAccounts = coa.filter(function(a) {
+    var t = String(a['Type'] || '');
+    return (t === 'Bank' || t === 'Credit Card') && String(a['Plaid Account IDs'] || '').trim();
+  });
+  if (bankAccounts.length === 0) {
+    return { entity: entity, bankAccounts: 0, posted: 0, skipped: 0, needsReview: 0,
+             error: 'No bank COA accounts have a Plaid Account ID yet. Run "Wire NF CA Plaid Accounts" first.' };
+  }
+
+  // 2. Load PLAID_TRANSACTIONS once (as objects).
+  var ptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+  if (!ptSheet || ptSheet.getLastRow() < 2) {
+    return { entity: entity, bankAccounts: bankAccounts.length, posted: 0, skipped: 0, needsReview: 0,
+             error: 'PLAID_TRANSACTIONS is empty. Run "Sync ALL Plaid Transactions" first.' };
+  }
+  var ptHdr = ptSheet.getRange(1, 1, 1, ptSheet.getLastColumn()).getValues()[0];
+  var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptHdr.length).getValues();
+  var iId   = ptHdr.indexOf('Transaction ID');
+  var iDate = ptHdr.indexOf('Date');
+  var iAcct = ptHdr.indexOf('Account');
+  var iAcctId = ptHdr.indexOf('Account ID');
+  var iName = ptHdr.indexOf('Name');
+  var iAmt  = ptHdr.indexOf('Amount USD');
+  var iPending = ptHdr.indexOf('Pending');
+
+  var fromDate = new Date(NFCA_SYNC_FROM + 'T00:00:00Z');
+
+  // 3. Already-posted Plaid txn IDs for this entity, so we skip them.
+  var gl = _getQBRows_('QB_GL_ENTRIES', QB_GL_ENTRIES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Source) === 'plaid'; });
+  var alreadyPosted = {};
+  gl.forEach(function(r) {
+    var ref = String(r['Source Ref'] || '').trim();
+    if (ref) alreadyPosted[ref] = true;
+  });
+
+  // 4. Load rules for this entity, sorted by priority ascending.
+  var rules = _getQBRows_('QB_RULES', QB_RULES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Active || 'Yes').toLowerCase() === 'yes'; })
+    .sort(function(a, b) { return (Number(a.Priority) || 999) - (Number(b.Priority) || 999); });
+
+  // 5. For each bank account, find its Plaid txns and post double-entry rows.
+  var posted = 0, skipped = 0, needsReview = 0;
+  var postedByAccount = {};
+  bankAccounts.forEach(function(bank) {
+    var acctKey = bank['Account Name'];
+    var plaidIds = String(bank['Plaid Account IDs'] || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+    postedByAccount[acctKey] = { posted: 0, skipped: 0, needsReview: 0 };
+
+    for (var r = 0; r < ptData.length; r++) {
+      var row = ptData[r];
+      var txnId = String(row[iId] || '');
+      if (!txnId) continue;
+
+      // Match by Plaid Account ID (preferred) OR by last-4 in the Account string.
+      var pAcctId = String(row[iAcctId] || '');
+      var pAcctStr = String(row[iAcct] || '');
+      var matched = false;
+      for (var p = 0; p < plaidIds.length; p++) {
+        var pid = plaidIds[p];
+        if (!pid) continue;
+        if (pAcctId === pid) { matched = true; break; }
+        // last-4 fallback: pid like '2086' matches "···2086" or "(2086)" in label.
+        if (/^\d{3,4}$/.test(pid) && pAcctStr.indexOf(pid) >= 0) { matched = true; break; }
+      }
+      if (!matched) continue;
+
+      // Date filter: strictly after go-live.
+      var d = row[iDate] instanceof Date ? row[iDate] : (row[iDate] ? new Date(row[iDate]) : null);
+      if (!d || d < fromDate) continue;
+      // Skip pending — they'll re-post with a different ID when they clear.
+      if (String(row[iPending] || '').toLowerCase() === 'yes') continue;
+
+      if (alreadyPosted[txnId]) { skipped++; postedByAccount[acctKey].skipped++; continue; }
+
+      var amt = Number(row[iAmt]) || 0;
+      if (!amt) { skipped++; postedByAccount[acctKey].skipped++; continue; }
+      var name = String(row[iName] || '');
+
+      // Rule hit: returns { category: 'DR' | 'CR' | 'both', drAccount, crAccount, memo }.
+      var hit = _qbCategorizePlaidTxn_({ amount: amt, name: name, account: pAcctStr, accountId: pAcctId }, rules);
+      var otherAccount, isReview = false;
+      if (hit && hit.drAccount && hit.crAccount) {
+        // Explicit two-sided rule.
+        _postJE_(entity, d, hit.memo || name, [
+          { account: hit.drAccount, debit: Math.abs(amt), credit: 0 },
+          { account: hit.crAccount, debit: 0, credit: Math.abs(amt) }
+        ], 'plaid', txnId, user, now);
+        posted++; postedByAccount[acctKey].posted++;
+        continue;
+      }
+      // Single-sided or no rule: the bank side is determined by sign; the
+      // other side is either the rule's single account OR Ask My Accountant.
+      otherAccount = hit && (hit.drAccount || hit.crAccount) ? (hit.drAccount || hit.crAccount) : 'Ask My Accountant';
+      if (otherAccount === 'Ask My Accountant') { needsReview++; postedByAccount[acctKey].needsReview++; isReview = true; }
+
+      var lines;
+      if (amt > 0) {
+        // Cash in: DR Bank / CR Other
+        lines = [
+          { account: acctKey,      debit: amt, credit: 0 },
+          { account: otherAccount, debit: 0,   credit: amt }
+        ];
+      } else {
+        // Cash out: DR Other / CR Bank
+        lines = [
+          { account: otherAccount, debit: Math.abs(amt), credit: 0 },
+          { account: acctKey,      debit: 0,            credit: Math.abs(amt) }
+        ];
+      }
+      _postJE_(entity, d, name, lines, 'plaid', txnId, user, now);
+      posted++; postedByAccount[acctKey].posted++;
+    }
+  });
+
+  return {
+    entity: entity,
+    bankAccounts: bankAccounts.length,
+    posted: posted,
+    skipped: skipped,
+    needsReview: needsReview,
+    postedByAccount: postedByAccount
+  };
+}
+
+// Apply rules in priority order to a Plaid txn and return the first hit.
+// Rule shape: { Match Plaid Account, Match Name Contains, Match Amount,
+//               Direction, DR Account, CR Account, Memo Template }.
+function _qbCategorizePlaidTxn_(txn, rules) {
+  for (var i = 0; i < rules.length; i++) {
+    var r = rules[i];
+    var mAcct = String(r['Match Plaid Account'] || '').toLowerCase().trim();
+    var mName = String(r['Match Name Contains'] || '').toLowerCase().trim();
+    var mAmt  = String(r['Match Amount'] || '').trim();
+    var dir   = String(r['Direction'] || 'both').toLowerCase();
+
+    if (dir === 'in'  && txn.amount < 0) continue;
+    if (dir === 'out' && txn.amount > 0) continue;
+    if (mAcct && String(txn.account || '').toLowerCase().indexOf(mAcct) < 0 && String(txn.accountId || '') !== mAcct) continue;
+    if (mName && String(txn.name || '').toLowerCase().indexOf(mName) < 0) continue;
+    if (mAmt) {
+      var want = mAmt.split('|').map(function(s) { return Number(s.trim()); });
+      var hit = want.some(function(v) { return Math.abs(v - txn.amount) < 0.005; });
+      if (!hit) continue;
+    }
+    return {
+      drAccount: String(r['DR Account'] || '').trim(),
+      crAccount: String(r['CR Account'] || '').trim(),
+      memo: String(r['Memo Template'] || '').trim()
+    };
+  }
+  return null;
+}
+
+// Post a journal entry — assigns an Entry ID, writes each line, validates
+// Σ debit = Σ credit before writing (throws on imbalance). Returns the Entry
+// ID. All lines of one entry share the same date, memo, source, and source
+// ref so later queries (GL, reconciliation) can group them.
+function _postJE_(entity, date, memo, lines, source, sourceRef, user, now) {
+  var dr = 0, cr = 0;
+  lines.forEach(function(l) {
+    dr += Number(l.debit)  || 0;
+    cr += Number(l.credit) || 0;
+  });
+  if (Math.abs(dr - cr) > 0.005) {
+    throw new Error('JE out of balance: DR ' + dr.toFixed(2) + ' vs CR ' + cr.toFixed(2) + ' (' + memo + ')');
+  }
+  var entryId = 'je-' + Utilities.getUuid().substring(0, 12);
+  lines.forEach(function(l, i) {
+    _writeQBRow_('QB_GL_ENTRIES', QB_GL_ENTRIES_HEADERS, {
+      'Entry ID':         entryId,
+      'Line #':           i + 1,
+      'Date':             date,
+      'Entity':           entity,
+      'Memo':             memo || '',
+      'Account Name':     l.account,
+      'Debit':            l.debit  || '',
+      'Credit':           l.credit || '',
+      'Source':           source,
+      'Source Ref':       sourceRef || '',
+      'Line Memo':        l.memo || '',
+      'Reconciled Date':  '',
+      'Reconciliation Ref': '',
+      'Created By':       user,
+      'Created At':       now
+    });
+  });
+  return entryId;
+}
+
+
+// ── Plaid wiring helpers ──────────────────────────────────────────────────
+// Attach a Plaid Account ID (or last-4) to a COA bank/CC account so sync
+// knows which Plaid txns belong to this entity.
+
+function setQBAccountPlaidIds(entity, accountName, plaidIdsCsv) {
+  _requireEditor_();
+  ensureQBSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('QB_COA');
+  var lastCol = Math.max(sheet.getLastColumn(), QB_COA_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iEnt = hdr.indexOf('Entity');
+  var iName = hdr.indexOf('Account Name');
+  var iPid = hdr.indexOf('Plaid Account IDs');
+  var iUpd = hdr.indexOf('Last Updated');
+  if (iEnt < 0 || iName < 0 || iPid < 0) throw new Error('QB_COA headers missing');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  for (var r = 0; r < data.length; r++) {
+    if (String(data[r][iEnt]) !== String(entity)) continue;
+    if (String(data[r][iName]) !== String(accountName)) continue;
+    var cell = sheet.getRange(r + 2, iPid + 1);
+    cell.setNumberFormat('@');
+    cell.setValue(String(plaidIdsCsv || ''));
+    if (iUpd >= 0) sheet.getRange(r + 2, iUpd + 1).setValue(new Date());
+    return { success: true };
+  }
+  throw new Error('COA account not found: ' + entity + ' / ' + accountName);
+}
+
+// Menu-callable: auto-detect Chase 2086 in PLAID_TRANSACTIONS and wire it to
+// NF CA's "Chase - 2086" COA account. If multiple candidates match the mask,
+// list them and let Amanda pick.
+function wireNFCAPlaidAccounts() {
+  _requireEditor_();
+  ensureQBSheets_();
+  var ptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+  if (!ptSheet || ptSheet.getLastRow() < 2) {
+    try { SpreadsheetApp.getUi().alert('PLAID_TRANSACTIONS is empty. Run "Sync ALL Plaid Transactions" first.'); } catch(e) {}
+    return;
+  }
+  var hdr = ptSheet.getRange(1, 1, 1, ptSheet.getLastColumn()).getValues()[0];
+  var iAcct = hdr.indexOf('Account');
+  var iAcctId = hdr.indexOf('Account ID');
+  var data = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, hdr.length).getValues();
+  var distinct = {};
+  for (var r = 0; r < data.length; r++) {
+    var label = String(data[r][iAcct] || '');
+    var id = String(data[r][iAcctId] || '');
+    if (!label || !id) continue;
+    distinct[id] = distinct[id] || { label: label, id: id, count: 0 };
+    distinct[id].count++;
+  }
+  // Find Chase 2086 by mask substring. Prefer accounts with 'chase' in the label.
+  var candidates = Object.keys(distinct).map(function(k) { return distinct[k]; })
+    .filter(function(a) { return a.label.indexOf('2086') >= 0; })
+    .sort(function(a, b) {
+      var ac = /chase/i.test(a.label) ? 0 : 1;
+      var bc = /chase/i.test(b.label) ? 0 : 1;
+      if (ac !== bc) return ac - bc;
+      return b.count - a.count;
+    });
+  var ui = SpreadsheetApp.getUi();
+  if (candidates.length === 0) {
+    ui.alert('No Plaid account found with "2086" in its label.\n\nAll accounts in PLAID_TRANSACTIONS:\n' +
+             Object.keys(distinct).map(function(k) { return '  ' + distinct[k].label; }).join('\n'));
+    return;
+  }
+  if (candidates.length > 1) {
+    var msg = 'Multiple candidates for Chase 2086:\n\n' +
+              candidates.map(function(c, i) { return (i + 1) + '. ' + c.label + '  (' + c.count + ' txns)\n   ID: ' + c.id; }).join('\n\n') +
+              '\n\nUsing the first one (' + candidates[0].label + '). Edit QB_COA → Chase - 2086 → Plaid Account IDs manually if that is wrong.';
+    ui.alert('Chase 2086 — Multiple Matches', msg, ui.ButtonSet.OK);
+  }
+  var pick = candidates[0];
+  setQBAccountPlaidIds('NF CA', 'Chase - 2086', pick.id);
+  ui.alert('Wired Chase 2086', 'NF CA → Chase - 2086 is now linked to:\n' + pick.label + '\n(ID: ' + pick.id + ')\n' + pick.count + ' Plaid txns on this account.\n\nNext: run "QuickBooks → Sync NF CA from Plaid" to post them.', ui.ButtonSet.OK);
+}
+
+// Menu-callable: run the sync for NF CA + show a summary dialog.
+function syncQBNFCAFromPlaidMenu() {
+  var result = syncQBEntityFromPlaid('NF CA');
+  var lines = [
+    'NF CA Plaid Sync',
+    '',
+    'Bank accounts linked: ' + result.bankAccounts
+  ];
+  if (result.error) lines.push('', '⚠ ' + result.error);
+  else {
+    lines.push('Posted new GL entries: ' + result.posted);
+    lines.push('Needs review (→ Ask My Accountant): ' + result.needsReview);
+    lines.push('Skipped (already posted): ' + result.skipped);
+    if (result.postedByAccount) {
+      lines.push('');
+      Object.keys(result.postedByAccount).forEach(function(acct) {
+        var pb = result.postedByAccount[acct];
+        lines.push('  ' + acct + ': ' + pb.posted + ' posted · ' + pb.needsReview + ' review · ' + pb.skipped + ' skipped');
+      });
+    }
+  }
+  try { SpreadsheetApp.getUi().alert('NF CA Plaid Sync', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+  Logger.log(lines.join('\n'));
+}
+
+
 // ── Menu-callable debug ───────────────────────────────────────────────────
 
 function debugQBNFCA() {

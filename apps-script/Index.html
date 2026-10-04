@@ -727,6 +727,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <option value="NF CA">NF CA</option>
         </select>
         <input id="qb-asof-date" type="date" value="2025-12-31" onchange="loadQuickBooks()" title="As-of date (for Trial Balance / Balance Sheet)" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
+        <button class="btn btn-primary" onclick="_qbSyncPlaid()" title="Pull Plaid transactions for this entity's bank accounts and post double-entry GL rows">🔄 Sync Plaid</button>
         <button class="btn btn-secondary" onclick="loadQuickBooks()">↻ Refresh</button>
       </div>
     </div>
@@ -9484,6 +9485,20 @@ function _qbRenderTrialBalance(data) {
     html += '<div style="margin-top:10px;padding:8px 12px;background:#fce8e6;color:#c5221f;border-radius:5px;font-size:12px;font-weight:600;text-align:center">⚠ Out of balance by ' + _qbFmt(diff) + '</div>';
   }
   document.getElementById('quickbooks-content').innerHTML = html;
+}
+
+function _qbSyncPlaid() {
+  var entity = _qbState.currentEntity;
+  toast('Syncing ' + entity + ' from Plaid…');
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (result.error) { toast(result.error, 'error'); return; }
+      var msg = entity + ': ' + result.posted + ' posted · ' + result.needsReview + ' review · ' + result.skipped + ' already there';
+      toast(msg);
+      _qbRenderReport();   // refresh the current view
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .syncQBEntityFromPlaid(entity);
 }
 
 function _qbFmt(n) {

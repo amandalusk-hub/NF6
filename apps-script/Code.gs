@@ -449,6 +449,8 @@ function onOpen() {
     .addItem('Money Movement → Debug: Show Templates + Hops', 'debugMovementTemplates')
     .addSeparator()
     .addItem('QuickBooks → Seed NF CA (COA + opening JE from TB)', 'seedNFCA')
+    .addItem('QuickBooks → Wire NF CA Plaid Accounts (auto-detect Chase 2086)', 'wireNFCAPlaidAccounts')
+    .addItem('QuickBooks → Sync NF CA from Plaid (post double-entry GL)', 'syncQBNFCAFromPlaidMenu')
     .addItem('QuickBooks → Debug: Show NF CA Trial Balance', 'debugQBNFCA')
     .addSeparator()
     .addItem('Open Audit Log Sheet', 'openAuditLog')
