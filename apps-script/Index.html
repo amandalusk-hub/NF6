@@ -8403,13 +8403,13 @@ function _renderMovementDetail(detail) {
                 'style="' + checkStyle + ';width:30px;height:30px;border-radius:6px;border:1.5px solid;cursor:pointer;font-size:16px;font-weight:700;line-height:1;flex-shrink:0;padding:0;-webkit-tap-highlight-color:rgba(0,0,0,0.1)" ' +
                 'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
         plaidIndicator +
-        '<div style="flex:1;min-width:0;font-size:13px;' + (done ? 'color:#7a8ba8;text-decoration:line-through' : 'color:#0d2137') + '">' +
+        '<div style="flex:1;min-width:0;font-size:13px;color:' + (done ? '#5f7791' : '#0d2137') + '">' +
           esc(w.fromAccount) + ' to ' + esc(w.toAccount) +
           (dateLabel
-            ? '<div style="font-size:10px;color:#7a8ba8;margin-top:2px;text-decoration:none;font-weight:400">' + esc(dateLabel) + '</div>'
+            ? '<div style="font-size:10px;color:#7a8ba8;margin-top:2px;font-weight:400">' + esc(dateLabel) + '</div>'
             : '') +
         '</div>' +
-        '<div style="font-size:13px;font-weight:600;' + (done ? 'color:#7a8ba8' : 'color:#0d2137') + ';white-space:nowrap">' +
+        '<div style="font-size:13px;font-weight:600;color:' + (done ? '#5f7791' : '#0d2137') + ';white-space:nowrap">' +
           _fmtMoneyWhole(w.amount) +
         '</div>' +
       '</div>';
