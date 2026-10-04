@@ -1284,10 +1284,16 @@ function _qbExtractMerchantHint_(plaidName) {
   // Wire In/Out: "WIRE OUT TO <NAME>" or "FEDWIRE CREDIT ... FROM <NAME>"
   m = s.match(/WIRE\s+(?:IN|OUT|CREDIT|DEBIT)[\s:-]*(?:TO|FROM)?\s+([A-Z][A-Za-z0-9 .&'-]{2,40})/i);
   if (m && m[1]) return m[1].trim().replace(/\s+/g, ' ');
-  // Online transfers: unique by the destination account tail (e.g. CHK ...2001)
-  m = s.match(/online\s+transfer\s+to\s+[a-z]+\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  // Online transfers: unique by the destination account tail (e.g. CHK ...2001).
+  // Keep the bank-type prefix (CHK, SAV, etc.) in the hint so the matcher
+  // finds it as a literal substring in Plaid's actual description.
+  m = s.match(/online\s+transfer\s+to\s+([a-z]+)\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  if (m) return 'Online Transfer to ' + m[1].toUpperCase() + ' ...' + m[2];
+  m = s.match(/online\s+transfer\s+to\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
   if (m) return 'Online Transfer to ...' + m[1];
-  m = s.match(/online\s+transfer\s+from\s+[a-z]+\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  m = s.match(/online\s+transfer\s+from\s+([a-z]+)\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  if (m) return 'Online Transfer from ' + m[1].toUpperCase() + ' ...' + m[2];
+  m = s.match(/online\s+transfer\s+from\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
   if (m) return 'Online Transfer from ...' + m[1];
   // Debit card: "PURCHASE AUTH ... <MERCHANT> <CITY> <STATE>"
   m = s.match(/(?:PURCHASE|DEBIT\s+CARD)\s+(?:AUTH)?[\s:#\d-]+([A-Z][A-Za-z0-9 .&'-]{3,40})/i);
@@ -1299,21 +1305,71 @@ function _qbExtractMerchantHint_(plaidName) {
 
 // Does this Plaid txn match this rule? Mirrors _qbCategorizePlaidTxn_'s
 // filter logic but takes a single rule — exposed for the suggestion engine.
+//
+// Name matching: multi-token (word-order) so a rule like "Online Transfer
+// to ...2001" matches "Online Transfer to CHK ...2001 transaction#:..." —
+// each whitespace-separated token must appear in order with any text in
+// between (wildcard). Single-token patterns behave like a plain substring
+// contains, same as before.
 function _qbRuleMatches_(txn, rule) {
   var mAcct = String(rule['Match Plaid Account'] || '').toLowerCase().trim();
-  var mName = String(rule['Match Name Contains'] || '').toLowerCase().trim();
+  var mName = String(rule['Match Name Contains'] || '').trim();
   var mAmt  = String(rule['Match Amount'] || '').trim();
   var dir   = String(rule['Direction'] || 'both').toLowerCase();
   if (dir === 'in'  && txn.amount < 0) return false;
   if (dir === 'out' && txn.amount > 0) return false;
   if (mAcct && String(txn.account || '').toLowerCase().indexOf(mAcct) < 0 && String(txn.accountId || '') !== mAcct) return false;
-  if (mName && String(txn.name || '').toLowerCase().indexOf(mName) < 0) return false;
+  if (mName) {
+    var tokens = mName.split(/\s+/).filter(Boolean);
+    var hay = String(txn.name || '');
+    var pos = 0;
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i];
+      var found = hay.toLowerCase().indexOf(t.toLowerCase(), pos);
+      if (found < 0) return false;
+      pos = found + t.length;
+    }
+  }
   if (mAmt) {
     var want = mAmt.split('|').map(function(s) { return Number(s.trim()); });
     var hit = want.some(function(v) { return Math.abs(v - txn.amount) < 0.005; });
     if (!hit) return false;
   }
   return true;
+}
+
+// Re-apply ALL active rules for this entity to every posted-to-Ask-My-Accountant
+// txn. Useful when a rule has been updated or when the matcher logic changes
+// (and existing posts should retro-code). Returns { updated, rulesSeen }.
+function reapplyAllQBRules(entity) {
+  _requireEditor_();
+  ensureQBSheets_();
+  entity = String(entity || 'NF CA');
+  var rules = _getQBRows_('QB_RULES', QB_RULES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Active || 'Yes').toLowerCase() === 'yes'; })
+    .sort(function(a, b) { return (Number(a.Priority) || 999) - (Number(b.Priority) || 999); });
+  if (!rules.length) return { entity: entity, updated: 0, rulesSeen: 0 };
+  var feed = getQBBankingFeed(entity);
+  var updated = 0;
+  (feed.txns || []).forEach(function(t) {
+    if (!t.posted || !t.needsReview) return;   // only sweep Ask My Accountant
+    for (var i = 0; i < rules.length; i++) {
+      if (!_qbRuleMatches_(t, rules[i])) continue;
+      // Pick the right side of the rule based on txn direction.
+      var dr = String(rules[i]['DR Account'] || '').trim();
+      var cr = String(rules[i]['CR Account'] || '').trim();
+      var cat = t.amount > 0 ? (cr || dr) : (dr || cr);
+      if (!cat) continue;
+      try {
+        reclassifyQBPlaidTxn(entity, t.plaidId, cat);
+        updated++;
+      } catch (e) {
+        Logger.log('reapply skipped ' + t.plaidId + ': ' + e.message);
+      }
+      break;   // first matching rule wins
+    }
+  });
+  return { entity: entity, updated: updated, rulesSeen: rules.length };
 }
 
 // Suggest a category for a single Plaid txn by scanning rules + prior
