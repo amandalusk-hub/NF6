@@ -854,7 +854,9 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </div>
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Then categorize as</label>
-          <input id="qb-rule-category" type="text" readonly style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px;background:#f0f3f7">
+          <select id="qb-rule-category" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px;background:#fff">
+            <option value="">— pick a category —</option>
+          </select>
         </div>
       </div>
       <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#0d2137;cursor:pointer">
@@ -9828,19 +9830,42 @@ function _qbOpenRuleModal(txn, category) {
   document.getElementById('qb-rule-match-name').value = hint;
   document.getElementById('qb-rule-direction').value = txn.amount >= 0 ? 'in' : 'out';
   document.getElementById('qb-rule-match-amount').value = '';
-  document.getElementById('qb-rule-category').value = category;
+  // Rebuild the category dropdown each time, grouped by COA type, preselected
+  // to the category that was just picked on the row (user can override).
+  var sel = document.getElementById('qb-rule-category');
+  sel.innerHTML = '<option value="">— pick a category —</option>';
+  var opts = _qbState.categoryOptions && _qbState.categoryOptions.groups;
+  if (opts) {
+    var order = txn.amount >= 0
+      ? ['Income','Expense','Asset','Liability','Equity','Other']
+      : ['Expense','Income','Asset','Liability','Equity','Other'];
+    order.forEach(function(group) {
+      var acts = opts[group] || [];
+      if (!acts.length) return;
+      var og = document.createElement('optgroup');
+      og.label = group === 'Income' ? 'Income' : (group === 'Expense' ? 'Expenses' : group + 's');
+      acts.forEach(function(a) {
+        var o = document.createElement('option');
+        o.value = a.name; o.textContent = a.name;
+        if (a.name === category) o.selected = true;
+        og.appendChild(o);
+      });
+      sel.appendChild(og);
+    });
+  }
   document.getElementById('qb-rule-apply-now').checked = true;
   openModal('qb-rule-modal');
 }
 
 function _qbSaveRule() {
   var txn = _qbState.pendingRuleTxn;
-  var cat = _qbState.pendingRuleCategory;
-  if (!txn || !cat) { closeModal('qb-rule-modal'); return; }
+  if (!txn) { closeModal('qb-rule-modal'); return; }
   var matchName   = document.getElementById('qb-rule-match-name').value.trim();
   var direction   = document.getElementById('qb-rule-direction').value;
   var matchAmount = document.getElementById('qb-rule-match-amount').value.trim();
+  var cat         = document.getElementById('qb-rule-category').value.trim();
   var applyNow    = document.getElementById('qb-rule-apply-now').checked;
+  if (!cat) { toast('Pick a category for the rule', 'error'); return; }
   if (!matchName && !matchAmount) {
     toast('Pick a name match or amount match (or both)', 'error');
     return;
