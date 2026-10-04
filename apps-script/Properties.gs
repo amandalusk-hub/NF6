@@ -1049,15 +1049,36 @@ function resetDoradoRules() {
 }
 
 
+// Menu-callable: pick ANY month to debug (YYYY-MM). Useful when the current
+// month is sparse (first few days) and Amanda wants to see a full-month
+// example.
+function debugDoradoPickMonth() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Debug: Dorado for Specific Month',
+    'Enter month as YYYY-MM (e.g. 2026-09 for September 2026):',
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var raw = String(r.getResponseText() || '').trim();
+  var m = raw.match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) { ui.alert('Format must be YYYY-MM (e.g. 2026-09).'); return; }
+  var year = Number(m[1]), month = Number(m[2]);
+  if (month < 1 || month > 12) { ui.alert('Month must be 1-12.'); return; }
+  _runDoradoDebugForMonth(year, month);
+}
+
 // Menu-callable: run the categorization engine for Dorado's current month,
 // show a summary — helps Amanda confirm the rules are firing on the right
 // transactions before we build the UI.
 function debugDoradoThisMonth() {
+  var now = new Date();
+  _runDoradoDebugForMonth(now.getFullYear(), now.getMonth() + 1);
+}
+
+function _runDoradoDebugForMonth(year, month) {
   var props = getProperties();
   var dorado = props.find(function(p) { return /dorado/i.test(String(p['Name'] || '')); });
   if (!dorado) { SpreadsheetApp.getUi().alert('Dorado property not found. Run Seed Dorado first.'); return; }
-  var now = new Date();
-  var report = getPropertyMonthlyReport(dorado['ID'], now.getFullYear(), now.getMonth() + 1);
+  var report = getPropertyMonthlyReport(dorado['ID'], year, month);
   var lines = [
     'Dorado — ' + report.monthLabel,
     '',
