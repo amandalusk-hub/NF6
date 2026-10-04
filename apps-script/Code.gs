@@ -424,6 +424,7 @@ function onOpen() {
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
+    .addItem('Properties → Reset Dorado Rules (wipe + reseed with current rules)', 'resetDoradoRules')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
     .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
     .addItem('Properties → Debug: Dorado Txn Pull (which accounts match this month)', 'debugDoradoTransactionPull')

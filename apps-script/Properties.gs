@@ -401,29 +401,50 @@ function seedDoradoProperty() {
       category:'Revenue', subcategory:'Rental Income (Alma)',
       notes:'Net deposit (after 20% Alma fee). Gross up on report.' },
 
-    // Recurring HOA + club fees — identified by exact amount on Oriental.
+    // Direct guest booking: wire deposit into the Dorado operating account
+    // (6179), paid directly by the guest (bypassing Alma). Matched by
+    // "wire in" in the name, positive amount, on the 6179 account.
+    { priority: 10, matchAccount:'6179', matchName:'wire in', matchAmount:'', direction:'in',
+      category:'Revenue', subcategory:'Rental Income (Direct Guest)',
+      notes:'Direct guest wire — no Alma fee.' },
+
+    // Bank wire fee charged alongside a direct guest wire. Small amount.
+    { priority: 10, matchAccount:'6179', matchName:'service charge', matchAmount:'', direction:'out',
+      category:'Direct Cost', subcategory:'Bank Wire Fee' },
+
+    // HOA — fixed monthly amount, matches by exact amount.
     { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1254.88', direction:'out',
       category:'Operating Expense', subcategory:'HOA Dues' },
-    { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1112.22', direction:'out',
-      category:'Operating Expense', subcategory:'Dorado Club Fees' },
 
-    // Utilities — by biller name.
+    // Dorado Club Fees — only the DUES portion ($1,112.22). Mike's food
+    // charges at the club (Panela Cocina Social, etc.) sometimes bundle
+    // into the same payment making the total $1,229.22 or similar; those
+    // months the transaction stays uncategorized (Needs Review) and Amanda
+    // adds a PROPERTY_MANUAL entry for -1112.22 to pull out just the dues.
+    { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1112.22', direction:'out',
+      category:'Operating Expense', subcategory:'Dorado Club Fees',
+      notes:'Pure-dues months only. Food-included months (DBR Dorado > 1112.22) stay in Needs Review.' },
+
+    // Utilities — by biller name on Oriental.
     { priority: 30, matchAccount:'oriental', matchName:'claro', matchAmount:'', direction:'out',
       category:'Operating Expense', subcategory:'Internet' },
     { priority: 30, matchAccount:'oriental', matchName:'luma',  matchAmount:'', direction:'out',
       category:'Operating Expense', subcategory:'Utilities - Electricity' },
 
-    // ATH mobile — payee not exposed by Plaid, so we match by amount.
-    // Amount-only rules are scoped to the ATH account so a $60 payment from
-    // Oriental doesn't get mis-tagged as the exterminator.
-    { priority: 40, matchAccount:'ath', matchName:'', matchAmount:'-60.00',  direction:'out',
+    // ATH mobile — Oriental's A2A mobile payment to vendors. The ATH
+    // identifier is in the transaction NAME ("A2A PMT DEBIT|...ATH MOVIL
+    // PHONE SAN JUAN"), NOT the account label. Each vendor's amount is a
+    // standard round number, so we identify by (name = "ath movil") + amount.
+    { priority: 40, matchAccount:'0451', matchName:'ath movil', matchAmount:'-60.00',  direction:'out',
       category:'Operating Expense', subcategory:'Maintenance - Exterminator' },
-    { priority: 40, matchAccount:'ath', matchName:'', matchAmount:'-295.00', direction:'out',
+    { priority: 40, matchAccount:'0451', matchName:'ath movil', matchAmount:'-295.00', direction:'out',
       category:'Operating Expense', subcategory:'Maintenance - AC Quarterly' },
-    { priority: 40, matchAccount:'ath', matchName:'', matchAmount:'-140.00|-160.00', direction:'out',
+    { priority: 40, matchAccount:'0451', matchName:'ath movil', matchAmount:'-140.00|-160.00', direction:'out',
       category:'Direct Cost', subcategory:'Cleaning (Lourdes)' },
 
-    // Mortgage — paid out of Mike's Fidelity account ending 9007.
+    // Mortgage — paid out of Fidelity 9007 (not currently in Plaid, so this
+    // rule won't fire; the PROPERTY_RECURRING entry handles the mortgage
+    // line until Amanda connects Fidelity 9007 via Plaid).
     { priority: 50, matchAccount:'9007', matchName:'', matchAmount:'-21668.72', direction:'out',
       category:'Debt Service', subcategory:'Mortgage' }
   ];
@@ -971,6 +992,46 @@ function getPropertyUpcoming(propertyId, days) {
 
 
 // ── Menu diagnostics ───────────────────────────────────────────────────────
+
+// Menu-callable — wipe every rule attached to the Dorado property, then
+// re-run seedDoradoProperty to install the current canonical rule set.
+// Use after I update the DORADO_RULES in code so Amanda doesn't have to
+// hand-reconcile existing rows. Idempotent + safe to re-run.
+function resetDoradoRules() {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var dorado = getProperties().find(function(p) { return /dorado/i.test(String(p['Name']||'')); });
+  if (!dorado) {
+    try { SpreadsheetApp.getUi().alert('No Dorado property found. Run Seed Dorado first.'); } catch(e) {}
+    return;
+  }
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_RULES');
+  if (!sheet || sheet.getLastRow() < 2) {
+    // No rules yet — just seed.
+    seedDoradoProperty();
+    return;
+  }
+  var lastCol = Math.max(sheet.getLastColumn(), PROPERTY_RULES_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iProp = hdr.indexOf('Property ID');
+  if (iProp < 0) return;
+  var deleted = 0;
+  // Iterate bottom-up so row numbers stay valid after deletes.
+  for (var r = data.length - 1; r >= 1; r--) {
+    if (String(data[r][iProp]) === String(dorado['ID'])) {
+      sheet.deleteRow(r + 1);
+      deleted++;
+    }
+  }
+  // Re-install from the current DORADO_RULES in seedDoradoProperty.
+  var seed = seedDoradoProperty();
+  var installed = seed && seed.rulesInstalled || 0;
+  var msg = 'Deleted ' + deleted + ' old Dorado rule(s).\nInstalled ' + installed + ' current rule(s).\n\nNext: "Debug: Dorado This Month" to see the categorized report.';
+  try { SpreadsheetApp.getUi().alert('Dorado Rules Reset', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+  Logger.log(msg);
+}
+
 
 // Menu-callable: run the categorization engine for Dorado's current month,
 // show a summary — helps Amanda confirm the rules are firing on the right
