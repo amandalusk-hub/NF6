@@ -720,26 +720,35 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
   </div>
 
   <div class="tab-panel" id="tab-quickbooks">
-    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
       <h2 style="font-size:20px;color:#0d2137;margin:0">QuickBooks</h2>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select id="qb-entity-picker" onchange="loadQuickBooks()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff">
           <option value="NF CA">NF CA</option>
         </select>
-        <select id="qb-date-preset" onchange="_qbApplyDatePreset()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff">
-          <option value="all">All Time (since go-live)</option>
-          <option value="thisMonth">This Month</option>
-          <option value="lastMonth">Last Month</option>
-          <option value="thisQuarter">This Quarter</option>
-          <option value="thisYear" selected>This Year</option>
-          <option value="lastYear">Last Year</option>
-          <option value="custom">Custom</option>
-        </select>
-        <input id="qb-from-date" type="date" value="2026-01-01" onchange="_qbOnDateChange()" title="From date" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
-        <span style="color:#5f7791;font-size:12px">→</span>
-        <input id="qb-to-date"   type="date" value=""           onchange="_qbOnDateChange()" title="To date"   style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
         <button class="btn btn-primary" onclick="_qbSyncPlaid()" title="Force re-pull Plaid transactions now (normally auto-synced when Banking loads)">🔄 Sync Plaid</button>
         <button class="btn btn-secondary" onclick="loadQuickBooks()">↻ Refresh</button>
+      </div>
+    </div>
+    <!-- Date filter strip — its own row so controls don't hide on mobile. -->
+    <div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;padding:10px 12px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="font-size:11px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px">Date Range</div>
+      <select id="qb-date-preset" onchange="_qbApplyDatePreset()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff;min-width:140px">
+        <option value="all">All Time (since go-live)</option>
+        <option value="thisMonth">This Month</option>
+        <option value="lastMonth">Last Month</option>
+        <option value="thisQuarter">This Quarter</option>
+        <option value="thisYear" selected>This Year</option>
+        <option value="lastYear">Last Year</option>
+        <option value="custom">Custom</option>
+      </select>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap">
+        <label style="font-size:11px;color:#5f7791">From</label>
+        <input id="qb-from-date" type="date" value="2026-01-01" onchange="_qbOnDateChange()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:nowrap">
+        <label style="font-size:11px;color:#5f7791">To</label>
+        <input id="qb-to-date" type="date" value="" onchange="_qbOnDateChange()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
       </div>
     </div>
     <div style="display:flex;gap:4px;border-bottom:2px solid #e8ecf1;margin-bottom:14px;overflow-x:auto">
