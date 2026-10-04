@@ -1124,19 +1124,30 @@ function autoCheckoffMovementWires() {
       });
     }
 
-    // Disambiguation step 1: internal transfer dedup. If exactly 2 hits
-    // on the same date with matching absolute amount but opposite signs
-    // and one matches From account / other matches To account, they're
-    // the same wire seen from both ends. Pick the OUTGOING (negative)
-    // side as the canonical confirmation.
-    if (hits.length === 2) {
-      var h0 = hits[0], h1 = hits[1];
-      var sameDate = h0.date.getTime() === h1.date.getTime();
-      var sameAmt  = Math.abs(h0.amount - h1.amount) < 0.5;
-      var oppositeSigns = (h0.signedAmount < 0) !== (h1.signedAmount < 0);
-      var twoEnds = (h0.matchesFrom && h1.matchesTo) || (h0.matchesTo && h1.matchesFrom);
-      if (sameDate && sameAmt && oppositeSigns && twoEnds) {
-        hits = [h0.signedAmount < 0 ? h0 : h1];
+    // Disambiguation step 1: role-based matching. For a wire From A → To B,
+    // the "right" Plaid confirmation is:
+    //   • an outgoing (negative) txn on account A, AND
+    //   • an incoming (positive) txn on account B.
+    // Other candidates (e.g. an unrelated same-amount deposit also sitting
+    // on account A from a different sender) are noise and get discarded.
+    //
+    // Cases:
+    //   A. Both in Plaid: 1 outgoing on A + 1 incoming on B → pick outgoing.
+    //   B. Only from-account in Plaid: 1 outgoing on A, 0 incoming on B
+    //      (destination account not in Amanda's Plaid) → pick outgoing.
+    //   C. Only to-account in Plaid: 0 outgoing on A, 1 incoming on B
+    //      (source account not in Amanda's Plaid, e.g. siblings' banks) →
+    //      pick incoming.
+    //   D. Still ambiguous → leave for sibling name hint or Pending.
+    if (hits.length > 1) {
+      var fromOutgoing = hits.filter(function(h) { return h.matchesFrom && h.signedAmount < 0; });
+      var toIncoming   = hits.filter(function(h) { return h.matchesTo   && h.signedAmount > 0; });
+      if (fromOutgoing.length === 1 && toIncoming.length === 1) {
+        hits = [fromOutgoing[0]];
+      } else if (fromOutgoing.length === 1 && toIncoming.length === 0) {
+        hits = [fromOutgoing[0]];
+      } else if (fromOutgoing.length === 0 && toIncoming.length === 1) {
+        hits = [toIncoming[0]];
       }
     }
 
@@ -1232,6 +1243,90 @@ function _recomputeMovementStatus_(movementId) {
   _logAudit_('autoStatusChange', 'movement', movementId, move['Notes'] || '',
              'Status ' + currentStatus + ' → ' + newStatus + ' (' + done + '/' + total + ' done)');
   return { movementId: movementId, oldStatus: currentStatus, newStatus: newStatus };
+}
+
+// Web-callable: for a Pending wire, show every candidate Plaid transaction
+// that MIGHT match it (same amount tolerance, same account substring, in
+// date window). Lets Amanda see why auto-match couldn't disambiguate OR
+// manually pick which txn to link.
+function getPendingWireCandidates(wireId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var wires = _getMMRows_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS);
+  var wire = wires.find(function(w) { return String(w['ID']) === String(wireId); });
+  if (!wire) return { error: 'Wire not found' };
+  var hop = _getMMRows_('MOVEMENT_HOPS', MOVEMENT_HOPS_HEADERS)
+    .find(function(h) { return String(h['ID']) === String(wire['Hop ID']); });
+  if (!hop) return { error: 'Hop not found' };
+  var move = _getMMRows_('MOVEMENTS', MOVEMENTS_HEADERS)
+    .find(function(m) { return String(m['ID']) === String(wire['Movement ID']); });
+  if (!move) return { error: 'Movement not found' };
+
+  var fromAcct = String(hop['From Account'] || '');
+  var toAcct   = String(hop['To Account']   || '');
+  var fromKey  = _lastFourDigits_(fromAcct);
+  var toKey    = _lastFourDigits_(toAcct);
+  var expected = Math.abs(Number(wire['Amount']) || 0);
+
+  var pSheet = ss.getSheetByName('PLAID_TRANSACTIONS');
+  if (!pSheet || pSheet.getLastRow() < 2) return { candidates: [], expected: expected, wire: { from: fromAcct, to: toAcct } };
+  var hdr = pSheet.getRange(1, 1, 1, pSheet.getLastColumn()).getValues()[0];
+  var iId    = hdr.indexOf('Transaction ID');
+  var iDate  = hdr.indexOf('Date');
+  var iAcct  = hdr.indexOf('Account');
+  var iName  = hdr.indexOf('Name');
+  var iAmt   = hdr.indexOf('Amount USD');
+  var rows = pSheet.getRange(2, 1, pSheet.getLastRow() - 1, hdr.length).getValues();
+
+  var createdAt = move['Created At'] instanceof Date ? move['Created At'] : new Date(move['Created At']);
+  var dateMin = new Date(createdAt.getTime() - 7 * 86400000);     // widen date window
+  var dateMax = new Date(Date.now() + 7 * 86400000);
+  var candidates = [];
+  rows.forEach(function(r) {
+    var acct = String(r[iAcct] || '');
+    var acctLc = acct.toLowerCase();
+    var matchesAcct = (fromKey && acctLc.indexOf(fromKey) >= 0) ||
+                      (toKey   && acctLc.indexOf(toKey)   >= 0);
+    if (!matchesAcct) return;
+    var rawAmt = Number(r[iAmt]) || 0;
+    if (Math.abs(Math.abs(rawAmt) - expected) > 5.0) return;      // widen amount tolerance
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (isNaN(d.getTime()) || d < dateMin || d > dateMax) return;
+    candidates.push({
+      txnId:  String(r[iId] || ''),
+      date:   Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      account: acct,
+      name:    String(r[iName] || ''),
+      amount:  rawAmt
+    });
+  });
+  candidates.sort(function(a, b) { return a.date.localeCompare(b.date); });
+  return {
+    wire: { from: fromAcct, to: toAcct, amount: expected },
+    candidates: candidates
+  };
+}
+
+// Web-callable: manually link a Pending wire to a specific Plaid txn ID
+// (used when auto-match left it ambiguous and Amanda picks from candidates).
+function manuallyLinkWirePlaid(wireId, plaidTxnId) {
+  _requireEditor_();
+  var writePatch = {
+    'Status':       'Sent',
+    'Plaid Txn ID': String(plaidTxnId),
+    'Sent Date':    new Date(),
+    'Marked Done By': _currentUserEmail_() + ' (manual link)',
+    'Marked Done At': new Date()
+  };
+  var ok = _updateMMRow_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS, wireId, writePatch);
+  var statusChange = null;
+  if (ok) {
+    try {
+      var wire = _getMMRows_('MOVEMENT_WIRES', MOVEMENT_WIRES_HEADERS)
+        .find(function(w) { return String(w['ID']) === String(wireId); });
+      if (wire) statusChange = _recomputeMovementStatus_(wire['Movement ID']);
+    } catch (e) {}
+  }
+  return { success: ok, statusChange: statusChange };
 }
 
 // Web-callable: look up a Plaid transaction by its Transaction ID so the

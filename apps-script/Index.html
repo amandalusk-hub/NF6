@@ -8326,21 +8326,31 @@ function _renderMovementDetail(detail) {
     var checkStyle = done
       ? 'background:#1e8e3e;border-color:#1e8e3e;color:#fff'
       : 'background:#fff;border-color:#7a8ba8;color:transparent;box-shadow:inset 0 0 0 1px #f0f3f7';
-    // Second indicator: a small blue ✓P box visible only when this wire was
-    // auto-matched to a real Plaid txn. Clicking it pops the matched Plaid
-    // transaction's full details (date, amount, account, name) in an inline
-    // overlay — gives Amanda a direct view of the real transaction that
-    // confirmed the wire.
+    // Second indicator: for a MATCHED wire, blue ✓P box tap → shows the
+    // Plaid txn details. For a PENDING wire, grey "?" box tap → shows
+    // candidate Plaid txns in the same account/amount window, with "pick
+    // this one" buttons so Amanda can manually link an auto-match miss.
     var autoMatched = done && w.plaidId;
-    var plaidIndicator = autoMatched
-      ? '<button onclick="_showPlaidTxnDetails(' + JSON.stringify(w.plaidId) + ', event)" ' +
+    var plaidIndicator;
+    if (autoMatched) {
+      plaidIndicator = '<button onclick="_showPlaidTxnDetails(' + JSON.stringify(w.plaidId) + ', event)" ' +
                 'title="Click to see matched Plaid transaction" ' +
                 'style="width:30px;height:30px;border-radius:6px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
                        'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px;' +
                        'cursor:pointer;padding:0;-webkit-tap-highlight-color:rgba(26,115,232,0.3)">' +
           '✓P' +
-        '</button>'
-      : '<div style="width:30px;height:30px;flex-shrink:0"></div>';
+        '</button>';
+    } else if (!done) {
+      plaidIndicator = '<button onclick="_showWireCandidates(' + JSON.stringify(w.wireId) + ', event)" ' +
+                'title="See Plaid candidates for this wire" ' +
+                'style="width:30px;height:30px;border-radius:6px;border:1.5px solid #c0ccd8;background:#fff;color:#7a8ba8;' +
+                       'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;line-height:1;flex-shrink:0;' +
+                       'cursor:pointer;padding:0;-webkit-tap-highlight-color:rgba(0,0,0,0.1)">' +
+          '?' +
+        '</button>';
+    } else {
+      plaidIndicator = '<div style="width:30px;height:30px;flex-shrink:0"></div>';
+    }
 
     html +=
       '<div style="display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid #f0f3f7">' +
@@ -8507,6 +8517,101 @@ function _showPlaidTxnDetails(plaidId, evt) {
       if (body) body.innerHTML = '<div style="color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
     })
     .getPlaidTxnDetails(plaidId);
+}
+
+// Tap the "?" indicator on a Pending wire — fetch and show every Plaid
+// transaction in the same account/amount window as candidate matches.
+// Each candidate has a "Link this" button that manually binds the wire
+// to that Plaid txn ID (bypassing the auto-match ambiguity).
+function _showWireCandidates(wireId, evt) {
+  if (evt) { try { evt.stopPropagation(); } catch(e) {} }
+  _closePlaidTxnPopover();
+  var anchor = evt && evt.currentTarget;
+  if (!anchor) return;
+  var popover = document.createElement('div');
+  popover.id = '_plaid-txn-popover';
+  popover.style.cssText =
+    'position:absolute;z-index:10000;background:#fff;border:1px solid #c0ccd8;border-radius:8px;' +
+    'box-shadow:0 4px 20px rgba(13,33,55,.18);padding:12px 14px;max-width:460px;min-width:300px;' +
+    'font-family:inherit;font-size:12px;color:#0d2137;line-height:1.5';
+  popover.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+      '<div style="font-size:11px;font-weight:700;color:#7a8ba8;letter-spacing:.4px;text-transform:uppercase">Plaid Candidates</div>' +
+      '<button onclick="_closePlaidTxnPopover()" style="background:transparent;border:0;font-size:16px;cursor:pointer;color:#7a8ba8;padding:0;line-height:1">×</button>' +
+    '</div>' +
+    '<div id="_plaid-txn-popover-body" style="color:#5f7791">Searching…</div>';
+  document.body.appendChild(popover);
+  var rect = anchor.getBoundingClientRect();
+  var top  = rect.bottom + window.scrollY + 6;
+  var left = rect.left   + window.scrollX;
+  popover.style.top = top + 'px';
+  popover.style.left = left + 'px';
+  setTimeout(function() {
+    var pw = popover.offsetWidth;
+    if (left + pw > window.innerWidth - 10) {
+      popover.style.left = Math.max(10, window.innerWidth - pw - 10) + 'px';
+    }
+    document.addEventListener('click', _plaidPopoverOutsideClick);
+    document.addEventListener('keydown', _plaidPopoverEscape);
+  }, 0);
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      var body = document.getElementById('_plaid-txn-popover-body');
+      if (!body) return;
+      if (res.error) {
+        body.innerHTML = '<div style="color:#c5221f">' + esc(res.error) + '</div>';
+        return;
+      }
+      var html = '';
+      html += '<div style="font-size:11px;color:#0d2137;margin-bottom:8px">' +
+        '<strong>' + esc(res.wire.from) + '</strong> → <strong>' + esc(res.wire.to) + '</strong><br>' +
+        'Expected: ' + _fmtMoneyWhole(res.wire.amount || 0) +
+      '</div>';
+      if (!res.candidates || !res.candidates.length) {
+        body.innerHTML = html + '<div style="color:#7a8ba8;font-style:italic">No Plaid transactions in the window. Try syncing Plaid.</div>';
+        return;
+      }
+      html += '<div style="font-size:11px;color:#7a8ba8;margin-bottom:6px">' + res.candidates.length + ' candidate(s):</div>';
+      res.candidates.forEach(function(c) {
+        var amtColor = c.amount >= 0 ? '#1e8e3e' : '#c5221f';
+        var amtPrefix = c.amount >= 0 ? '+' : '';
+        html +=
+          '<div style="border:1px solid #e8ecf1;border-radius:5px;padding:8px 10px;margin-bottom:6px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+              '<span style="font-weight:600;color:#0d2137">' + esc(c.date) + '</span>' +
+              '<span style="color:' + amtColor + ';font-weight:700;font-size:13px">' + amtPrefix + _fmtMoneyAccounting(c.amount) + '</span>' +
+            '</div>' +
+            '<div style="color:#5f7791;font-size:11px;margin-top:2px">' + esc(c.account) + '</div>' +
+            '<div style="color:#0d2137;font-size:11px;margin-top:2px">' + esc((c.name || '').substring(0, 80)) + '</div>' +
+            '<button onclick="_manualLinkWire(' + JSON.stringify(wireId) + ', ' + JSON.stringify(c.txnId) + ')" ' +
+                    'style="background:#1a73e8;color:#fff;border:0;padding:5px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;margin-top:6px">' +
+              '✓ Link this' +
+            '</button>' +
+          '</div>';
+      });
+      body.innerHTML = html;
+    })
+    .withFailureHandler(function(e) {
+      var body = document.getElementById('_plaid-txn-popover-body');
+      if (body) body.innerHTML = '<div style="color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getPendingWireCandidates(wireId);
+}
+
+function _manualLinkWire(wireId, plaidTxnId) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      _closePlaidTxnPopover();
+      if (res && res.success) {
+        toast('Wire linked');
+        _openMovementDetail(_mmState.currentDetail && _mmState.currentDetail.movement && _mmState.currentDetail.movement['ID']);
+      } else {
+        toast('Link failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .manuallyLinkWirePlaid(wireId, plaidTxnId);
 }
 
 function _closePlaidTxnPopover() {

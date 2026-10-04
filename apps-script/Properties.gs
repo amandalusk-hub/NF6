@@ -247,14 +247,20 @@ function _updatePropertyRow_(sheetName, headers, id, patch) {
 
 // ── Web-callable CRUD ──────────────────────────────────────────────────────
 
-// Read: list every active property. Used by the Properties tab card view and
-// by the monthly report generator.
+// Read: list every property. Only rows whose Active column is EXPLICITLY
+// 'No' / false / 0 are excluded — empty or missing counts as active, so a
+// hand-added row that forgot to fill it still shows up. JSON round-trip at
+// the end so google.script.run serializes the response cleanly (same
+// workaround that fixed getMovementTemplates returning empty).
 function getProperties() {
-  var rows = _getPropertySheetRows_('PROPERTIES', PROPERTIES_HEADERS);
-  return rows.filter(function(p) {
-    var a = String(p['Active'] || '').toLowerCase();
-    return a !== 'no' && a !== 'false' && a !== '0';
-  });
+  var rows = _getPropertySheetRows_('PROPERTIES', PROPERTIES_HEADERS)
+    .filter(function(p) {
+      var raw = p['Active'];
+      if (raw === false || raw === 0) return false;
+      var a = String(raw == null ? '' : raw).toLowerCase().trim();
+      return a !== 'no' && a !== 'false' && a !== '0';
+    });
+  return JSON.parse(JSON.stringify(rows));
 }
 
 function getProperty(id) {
@@ -978,7 +984,7 @@ function getPropertyMonthlyReport(propertyId, year, month) {
   }
   var adr = occupancy.revenueNights > 0 ? (grossRentalAmount / occupancy.revenueNights) : 0;
 
-  return {
+  var result = {
     property:   prop,
     year:       year,
     month:      month,
@@ -1018,6 +1024,10 @@ function getPropertyMonthlyReport(propertyId, year, month) {
     }),
     calendarError:     res.error || null
   };
+  // JSON round-trip so google.script.run serializes everything cleanly
+  // (Date objects, nested maps, etc.) — same workaround that fixed Loans
+  // and Movement Templates returning null to the client.
+  return JSON.parse(JSON.stringify(result));
 }
 
 // Web-callable — next N days of upcoming reservations, for the Properties
