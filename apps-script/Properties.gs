@@ -121,6 +121,23 @@ var PROPERTY_TXN_OVERRIDES_HEADERS = [
   'Entered At'
 ];
 
+// Per-reservation classification overrides. Google Calendar is the source
+// of truth for who's at the property on what dates, but a plain title like
+// "Dorado - Brandon" doesn't tell us whether Brandon is a paying guest or
+// a co-worker crashing for a weekend. This sheet lets Amanda tag any event
+// as guest|friend|owner|family (only guest/direct/alma/unknown count toward
+// occupancy, nights, ADR). Keyed by calendar event ID so the tag survives
+// forever even if the event is edited later.
+var PROPERTY_RESERVATION_OVERRIDES_HEADERS = [
+  'Event ID',                 // Google Calendar event ID
+  'Property ID',
+  'Classification',           // guest | friend | owner | family | alma | direct
+  'Title Snapshot',           // Event title at the time of override (for debugging)
+  'Notes',
+  'Entered By',
+  'Entered At'
+];
+
 // Recurring entries — fixed-amount monthly expenses (or revenue) that don't
 // come through Plaid. Use this for things like Dorado's $21,668.72 mortgage
 // payment where the amount is always the same and the account isn't
@@ -151,6 +168,7 @@ function ensurePropertiesSheets_() {
   _ensurePropertySheet_('PROPERTY_RULES', PROPERTY_RULES_HEADERS);
   _ensurePropertySheet_('PROPERTY_MANUAL', PROPERTY_MANUAL_HEADERS);
   _ensurePropertySheet_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS);
+  _ensurePropertySheet_('PROPERTY_RESERVATION_OVERRIDES', PROPERTY_RESERVATION_OVERRIDES_HEADERS);
   _ensurePropertySheet_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS);
 }
 
@@ -711,6 +729,67 @@ function _classifyEventSource_(title) {
                       // the title to include a source keyword.
 }
 
+// Per-reservation overrides: map { eventId → { classification, notes } }.
+// If an event ID is present in this map, its classification wins over
+// keyword inference from the title.
+function _getPropertyReservationOverrides_(propertyId) {
+  var rows = _getPropertySheetRows_('PROPERTY_RESERVATION_OVERRIDES', PROPERTY_RESERVATION_OVERRIDES_HEADERS);
+  var map = {};
+  rows.forEach(function(r) {
+    if (String(r['Property ID']) !== String(propertyId)) return;
+    var eid = String(r['Event ID'] || '').trim();
+    if (!eid) return;
+    map[eid] = {
+      classification: String(r['Classification'] || '').toLowerCase().trim(),
+      notes:          String(r['Notes'] || '')
+    };
+  });
+  return map;
+}
+
+// Web-callable: tag a reservation as guest|friend|owner|family|alma|direct.
+// Overwrites any prior tag for the same (event, property) pair.
+function setPropertyReservationClassification(eventId, propertyId, classification, titleSnapshot, notes) {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var allowed = ['guest','friend','owner','family','alma','direct','unknown'];
+  var c = String(classification || '').toLowerCase().trim();
+  if (allowed.indexOf(c) < 0) {
+    throw new Error('Classification must be one of: ' + allowed.join(', '));
+  }
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_RESERVATION_OVERRIDES');
+  var lastCol = Math.max(sheet.getLastColumn(), PROPERTY_RESERVATION_OVERRIDES_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iEvt  = hdr.indexOf('Event ID');
+  var iProp = hdr.indexOf('Property ID');
+  if (sheet.getLastRow() >= 2) {
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+    for (var r = 0; r < data.length; r++) {
+      if (String(data[r][iEvt]) === String(eventId) && String(data[r][iProp]) === String(propertyId)) {
+        var iCls = hdr.indexOf('Classification');
+        var iTit = hdr.indexOf('Title Snapshot');
+        var iNts = hdr.indexOf('Notes');
+        var iEnt = hdr.indexOf('Entered At');
+        sheet.getRange(r + 2, iCls + 1).setValue(c);
+        if (iTit >= 0 && titleSnapshot) sheet.getRange(r + 2, iTit + 1).setValue(String(titleSnapshot));
+        if (iNts >= 0) sheet.getRange(r + 2, iNts + 1).setValue(notes || '');
+        if (iEnt >= 0) sheet.getRange(r + 2, iEnt + 1).setValue(new Date());
+        return { success: true, updated: true };
+      }
+    }
+  }
+  _writePropertyRow_('PROPERTY_RESERVATION_OVERRIDES', PROPERTY_RESERVATION_OVERRIDES_HEADERS, {
+    'Event ID':         String(eventId),
+    'Property ID':      String(propertyId),
+    'Classification':   c,
+    'Title Snapshot':   titleSnapshot || '',
+    'Notes':            notes || '',
+    'Entered By':       _currentUserEmail_(),
+    'Entered At':       new Date()
+  });
+  return { success: true, updated: false };
+}
+
 // Return every event on the calendar between startDate (inclusive) and
 // endDate (exclusive), FILTERED to just the ones for this property.
 // Amanda's shared calendar carries events for every property (Dorado,
@@ -752,6 +831,10 @@ function getPropertyReservations(propertyId, startIso, endIso) {
     });
   }
 
+  // Pull per-event classification overrides so Amanda's manual tags
+  // (Brandon = friend, etc.) win over keyword inference.
+  var resOverrides = _getPropertyReservationOverrides_(propertyId);
+
   var out = events.map(function(e) {
     var s = e.getStartTime();
     var f = e.getEndTime();
@@ -763,16 +846,24 @@ function getPropertyReservations(propertyId, startIso, endIso) {
       f = e.getAllDayEndDate();
       nights = Math.max(0, Math.round((f.getTime() - s.getTime()) / 86400000));
     }
+    var evtId  = e.getId();
+    var title  = e.getTitle();
+    var auto   = _classifyEventSource_(title);
+    var ovr    = resOverrides[evtId];
+    var source = (ovr && ovr.classification) ? ovr.classification : auto;
     return {
-      id:         e.getId(),
-      title:      e.getTitle(),
-      start:      s.toISOString(),
-      end:        f.toISOString(),
-      startIso:   Utilities.formatDate(s, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-      endIso:     Utilities.formatDate(f, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-      nights:     nights,
-      source:     _classifyEventSource_(e.getTitle()),
-      description: (e.getDescription() || '').substring(0, 500)
+      id:            evtId,
+      title:         title,
+      start:         s.toISOString(),
+      end:           f.toISOString(),
+      startIso:      Utilities.formatDate(s, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      endIso:        Utilities.formatDate(f, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      nights:        nights,
+      source:        source,
+      autoSource:    auto,                        // for UI: show "was X, now Y"
+      overridden:    !!(ovr && ovr.classification),
+      overrideNotes: (ovr && ovr.notes) || '',
+      description:   (e.getDescription() || '').substring(0, 500)
     };
   });
   return { propertyId: propertyId, events: out };
@@ -789,13 +880,14 @@ function _computeMonthOccupancy_(events, year, month) {
   var daysInMonth = new Date(year, month, 0).getDate();
 
   // Only paying-guest events count toward occupancy, nights, and reservation
-  // count — Amanda's rule: "when it has Mike then it's not a reservation."
+  // count — Amanda's rule: "when it has Mike then it's not a reservation,"
+  // and co-workers like Brandon who stay as friends don't count either.
   // Owner / family / friend stays are the property being used but not
-  // generating revenue, and she doesn't track them as reservations. If she
-  // ever wants to show owner usage separately, we can add an ownerNights
-  // field — but for now, owner + family + friend are completely excluded.
+  // generating revenue. 'unknown' still counts conservatively since a
+  // calendar entry we can't tag is more often a booking than not — Amanda
+  // can always demote one to friend via the per-reservation override.
   function isCounted(src) {
-    return src === 'alma' || src === 'direct' || src === 'unknown';
+    return src === 'guest' || src === 'alma' || src === 'direct' || src === 'unknown';
   }
 
   var bookedDates = {};
@@ -1006,7 +1098,8 @@ function getPropertyMonthlyReport(propertyId, year, month) {
     revenue: {
       grossRentalAmount:  grossRentalAmount,
       netRoomRevenue:     netRoomRevenue,
-      otherRevenue:       otherRevenue
+      otherRevenue:       otherRevenue,
+      subcategories:      buckets['Revenue'] || {}   // for UI drill-down + reclassify
     },
     directCosts: {
       almaFee: almaFee,   // will be negative
@@ -1015,6 +1108,8 @@ function getPropertyMonthlyReport(propertyId, year, month) {
     operatingExpenses: buckets['Operating Expense'] || {},
     debtService:       buckets['Debt Service']       || {},
     reimbursements:    buckets['Reimbursement']      || {},
+    passthrough:       buckets['Pass-through']       || {},
+    internalTransfer:  buckets['Internal Transfer']  || {},
     uncategorized:     buckets['Uncategorized']      || {},
     needsReview:       needsReview,
     reservations:      (res.events || []).filter(function(e) {

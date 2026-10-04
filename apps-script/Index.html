@@ -732,11 +732,11 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
   </div>
 </div>
 
-<!-- Transaction Classifier Modal (for Needs Review items) -->
+<!-- Transaction Classifier Modal (works for Needs Review AND already-categorized items) -->
 <div class="modal-overlay" id="prop-classify-modal">
   <div class="modal" style="max-width:540px">
     <div class="modal-header">
-      <div class="modal-title">Classify Transaction</div>
+      <div class="modal-title" id="prop-classify-title">Classify Transaction</div>
       <button class="modal-close" onclick="closeModal('prop-classify-modal')">x</button>
     </div>
     <div class="modal-body">
@@ -746,27 +746,53 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Category</label>
           <select id="prop-classify-category" onchange="_updateClassifySubs()" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
             <option value="">— pick —</option>
-            <option value="Revenue">Revenue</option>
+            <option value="Revenue">Revenue (rental income)</option>
             <option value="Direct Cost">Direct Cost</option>
             <option value="Operating Expense">Operating Expense</option>
             <option value="Debt Service">Debt Service</option>
+            <option value="Pass-through">Pass-through (deposit / membership — doesn't count)</option>
             <option value="Reimbursement">Reimbursement (not income)</option>
             <option value="Internal Transfer">Internal Transfer (ignore)</option>
           </select>
         </div>
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Subcategory</label>
-          <input id="prop-classify-subcategory" type="text" placeholder="e.g. Rental Income (Direct)" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+          <input id="prop-classify-subcategory" type="text" placeholder="e.g. Guest Deposit" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
         </div>
       </div>
       <div>
         <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Notes (optional)</label>
-        <input id="prop-classify-notes" type="text" placeholder="e.g. Direct guest wire from Smith" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        <input id="prop-classify-notes" type="text" placeholder="e.g. Guest deposit for Oct 2027 stay" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('prop-classify-modal')">Cancel</button>
       <button class="btn btn-primary" onclick="_savePropClassification()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reservation Classifier Modal -->
+<div class="modal-overlay" id="prop-res-classify-modal">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title">Classify Reservation</div>
+      <button class="modal-close" onclick="closeModal('prop-res-classify-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <div id="prop-res-classify-evt" style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#0d2137"></div>
+      <label style="display:block;color:#5f7791;margin-bottom:6px;font-weight:500;font-size:12px">Who was staying?</label>
+      <div id="prop-res-classify-options" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px"></div>
+      <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Notes (optional)</label>
+      <input id="prop-res-classify-notes" type="text" placeholder="e.g. Brandon from the office" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+      <div style="margin-top:10px;font-size:11px;color:#5f7791">
+        <strong>Guest/Alma/Direct</strong> count toward occupancy &amp; ADR.
+        <strong>Friend/Owner/Family</strong> are excluded.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('prop-res-classify-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="_savePropResClassification()">Save</button>
     </div>
   </div>
 </div>
@@ -8737,6 +8763,12 @@ var _propsState = {
   currentPropertyId: null,
   currentReport: null,
   currentClassifyTxnId: null,
+  currentReservations: [],
+  currentCategorized: [],
+  currentClassifyResId: null,
+  currentClassifyResTitle: '',
+  currentClassifyResChoice: null,
+  allTxnsExpanded: false,
   reportMonthOffset: 0   // 0 = last completed month, -1 = month before, etc.
 };
 
@@ -8916,18 +8948,65 @@ function _renderPropertyReport(r) {
     _propTotalLine('Net Cash Flow',    t.netCashFlow, true) +
   '</div>';
 
-  // Reservations list
+  // Reservations list — each row tappable to classify (Guest/Friend/Owner/Family)
   if (r.reservations && r.reservations.length) {
-    html += '<div style="margin-top:18px"><div style="background:#0d2137;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">Reservations This Month</div>' +
+    _propsState.currentReservations = r.reservations;   // cached for modal pre-fill
+    html += '<div style="margin-top:18px"><div style="background:#0d2137;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center">' +
+      '<span>Reservations This Month</span><span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.7;font-size:10px">tap any row to retag</span></div>' +
       '<div style="background:#fff;border:1px solid #e8ecf1;border-top:none;border-radius:0 0 6px 6px">';
-    r.reservations.forEach(function(res) {
-      var srcColor = res.source === 'owner' ? '#7a8ba8' : res.source === 'alma' ? '#1e8e3e' : '#1a73e8';
-      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #f0f3f7;font-size:12px">' +
-        '<div><span style="color:' + srcColor + ';font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.3px">[' + res.source + ']</span> ' + esc(res.title) + '</div>' +
-        '<div style="color:#5f7791">' + esc(res.startIso) + ' → ' + esc(res.endIso) + '</div>' +
+    r.reservations.forEach(function(res, i) {
+      var countsForOccupancy = res.source === 'guest' || res.source === 'alma' || res.source === 'direct' || res.source === 'unknown';
+      var srcColor = countsForOccupancy
+        ? (res.source === 'alma' ? '#1e8e3e' : res.source === 'direct' ? '#1a73e8' : res.source === 'guest' ? '#1a73e8' : '#9c6c0f')
+        : '#7a8ba8';
+      var evtIdEsc = esc(String(res.id || ''));
+      html += '<div onclick="_openResClassifyModal(' + i + ')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f0f3f7;font-size:12px;cursor:pointer;gap:8px" onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'\'">' +
+        '<div style="flex:1;min-width:0">' +
+          '<span style="color:' + srcColor + ';font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.3px;background:' + srcColor + '15;padding:2px 6px;border-radius:3px">' + esc(res.source) +
+            (res.overridden ? ' ✎' : '') +
+          '</span> <span style="color:#0d2137">' + esc(res.title) + '</span>' +
+          (countsForOccupancy ? '' : '<div style="font-size:10px;color:#9c6c0f;margin-top:2px">excluded from occupancy</div>') +
+        '</div>' +
+        '<div style="color:#5f7791;white-space:nowrap;font-size:11px">' + esc(res.startIso) + ' → ' + esc(res.endIso) + '</div>' +
       '</div>';
     });
     html += '</div></div>';
+  }
+
+  // All categorized transactions — collapsible, each with a Reclassify button.
+  // So Amanda can promote a mis-tagged Alma deposit to Pass-through, or any
+  // other correction, without having to go to the sheet.
+  var allCategorized = _collectCategorizedTxns(r);
+  if (allCategorized.length) {
+    _propsState.currentCategorized = allCategorized;   // cached for modal pre-fill
+    var expanded = _propsState.allTxnsExpanded;
+    html += '<div style="margin-top:18px">' +
+      '<div onclick="_toggleAllTxns()" style="background:#1a3a5c;color:#fff;padding:8px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;display:flex;justify-content:space-between;align-items:center">' +
+        '<span>All Transactions (' + allCategorized.length + ')</span>' +
+        '<span style="font-size:14px">' + (expanded ? '▾' : '▸') + '</span>' +
+      '</div>';
+    if (expanded) {
+      html += '<div style="background:#fff;border:1px solid #e8ecf1;border-top:none;border-radius:0 0 6px 6px;max-height:400px;overflow-y:auto">';
+      allCategorized.forEach(function(txn, i) {
+        var amtColor = txn.amount >= 0 ? '#1e8e3e' : '#c5221f';
+        var catBadgeColor = _catBadgeColor(txn.category);
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f0f3f7;font-size:12px;gap:8px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="color:#0d2137;font-weight:500">' + esc(txn.name || '(no name)') + '</div>' +
+            '<div style="margin-top:3px;font-size:10px"><span style="background:' + catBadgeColor + ';color:#fff;padding:1px 6px;border-radius:3px;font-weight:600">' + esc(txn.category) + '</span>' +
+              (txn.subcategory ? ' <span style="color:#5f7791">· ' + esc(txn.subcategory) + '</span>' : '') +
+              (txn.source === 'override' ? ' <span style="color:#9c6c0f">· manual</span>' : '') +
+            '</div>' +
+            '<div style="color:#7a8ba8;font-size:10px;margin-top:2px">' + esc(txn.date) + ' · ' + esc(txn.account) + '</div>' +
+          '</div>' +
+          '<div style="color:' + amtColor + ';font-weight:600;white-space:nowrap">' + _fmtPropAccounting(txn.amount) + '</div>' +
+          '<button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;white-space:nowrap" ' +
+                  'onclick="_openClassifyModal(\'' + esc(String(txn.id).replace(/'/g, "\\'")) + '\', true)">Retag</button>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
   }
 
   // Needs Review inbox
@@ -9007,24 +9086,46 @@ function _fmtPropAccounting(n) {
 
 
 // ─── Classify Transaction Modal ────────────────────────────────────────────
+// Opens from two places: (a) Needs Review inbox (new override) and
+// (b) "All Transactions" list for an already-categorized txn (retag). The
+// isRetag flag flips the title + pre-fills the current category/subcategory.
 
-function _openClassifyModal(txnId) {
+function _openClassifyModal(txnId, isRetag) {
+  var txn = null;
+  var preCat = '', preSub = '';
   var report = _propsState.currentReport;
-  var txn = (report && report.needsReview || []).find(function(t) { return String(t.id) === String(txnId); });
+  if (isRetag) {
+    txn = (_propsState.currentCategorized || []).find(function(t) { return String(t.id) === String(txnId); });
+    if (txn) { preCat = txn.category || ''; preSub = txn.subcategory || ''; }
+  } else {
+    txn = (report && report.needsReview || []).find(function(t) { return String(t.id) === String(txnId); });
+  }
   if (!txn) return;
   _propsState.currentClassifyTxnId = txnId;
+  document.getElementById('prop-classify-title').textContent = isRetag ? 'Retag Transaction' : 'Classify Transaction';
   var box = document.getElementById('prop-classify-txn');
   box.innerHTML =
     '<div style="font-weight:600;color:#0d2137;margin-bottom:4px">' + esc(txn.name || '(no name)') + '</div>' +
-    '<div style="color:#5f7791">' + esc(txn.dateIso) + ' · ' + esc(txn.account) + ' · <span style="font-weight:600;color:' + (txn.amount >= 0 ? '#1e8e3e' : '#c5221f') + '">' + _fmtPropAccounting(txn.amount) + '</span></div>';
-  document.getElementById('prop-classify-category').value = '';
-  document.getElementById('prop-classify-subcategory').value = '';
+    '<div style="color:#5f7791">' + esc(txn.dateIso || txn.date || '') + ' · ' + esc(txn.account || '') + ' · <span style="font-weight:600;color:' + (txn.amount >= 0 ? '#1e8e3e' : '#c5221f') + '">' + _fmtPropAccounting(txn.amount) + '</span></div>' +
+    (isRetag ? '<div style="margin-top:6px;color:#9c6c0f;font-size:11px">Currently: ' + esc(preCat) + (preSub ? ' · ' + esc(preSub) : '') + '</div>' : '');
+  document.getElementById('prop-classify-category').value = preCat;
+  document.getElementById('prop-classify-subcategory').value = preSub;
   document.getElementById('prop-classify-notes').value = '';
   openModal('prop-classify-modal');
 }
 
 function _updateClassifySubs() {
-  // Could prefill subcategory based on category — keep simple for now.
+  // Prefill subcategory with a sensible default based on category.
+  var cat = document.getElementById('prop-classify-category').value;
+  var subEl = document.getElementById('prop-classify-subcategory');
+  if (subEl.value) return;   // don't clobber what user already typed
+  var defaults = {
+    'Pass-through':  'Guest Deposit',
+    'Reimbursement': 'Guest Reimbursement',
+    'Internal Transfer': 'Internal Transfer',
+    'Revenue':       'Rental Income (Direct)'
+  };
+  if (defaults[cat]) subEl.value = defaults[cat];
 }
 
 function _savePropClassification() {
@@ -9039,10 +9140,136 @@ function _savePropClassification() {
     .withSuccessHandler(function() {
       closeModal('prop-classify-modal');
       toast('Classified');
-      _loadPropertyReport();   // refresh the detail — txn moves out of Needs Review into its category
+      _loadPropertyReport();   // refresh the detail — txn moves between buckets as needed
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .setPropertyTxnOverride(txnId, propertyId, cat, sub, notes);
+}
+
+// ─── Reservation Classify Modal ────────────────────────────────────────────
+
+var _RES_CLASSIFICATION_OPTIONS = [
+  { value: 'guest',  label: 'Paying Guest',      counts: true,  color: '#1a73e8' },
+  { value: 'alma',   label: 'Alma Booking',      counts: true,  color: '#1e8e3e' },
+  { value: 'direct', label: 'Direct Booking',    counts: true,  color: '#1a73e8' },
+  { value: 'friend', label: 'Friend / Co-worker',counts: false, color: '#7a8ba8' },
+  { value: 'owner',  label: 'Owner (Mike)',      counts: false, color: '#7a8ba8' },
+  { value: 'family', label: 'Family',            counts: false, color: '#7a8ba8' }
+];
+
+function _openResClassifyModal(resIndex) {
+  var evt = (_propsState.currentReservations || [])[resIndex];
+  if (!evt) return;
+  _propsState.currentClassifyResId = evt.id;
+  _propsState.currentClassifyResTitle = evt.title;
+  var box = document.getElementById('prop-res-classify-evt');
+  box.innerHTML =
+    '<div style="font-weight:600;color:#0d2137;margin-bottom:4px">' + esc(evt.title || '(no title)') + '</div>' +
+    '<div style="color:#5f7791">' + esc(evt.startIso) + ' → ' + esc(evt.endIso) + ' · ' + evt.nights + ' nights</div>' +
+    (evt.overridden ? '<div style="margin-top:6px;color:#9c6c0f;font-size:11px">Currently tagged: ' + esc(evt.source) + '</div>'
+                    : '<div style="margin-top:6px;color:#5f7791;font-size:11px">Auto-detected: ' + esc(evt.autoSource || evt.source) + '</div>');
+  var current = evt.source;
+  var opts = document.getElementById('prop-res-classify-options');
+  opts.innerHTML = _RES_CLASSIFICATION_OPTIONS.map(function(o) {
+    var sel = o.value === current;
+    return '<button type="button" onclick="_pickResClassification(this, \'' + o.value + '\')" ' +
+           'data-value="' + o.value + '" ' +
+           'style="padding:10px 8px;border:2px solid ' + (sel ? o.color : '#e8ecf1') + ';background:' + (sel ? o.color + '15' : '#fff') + ';border-radius:6px;cursor:pointer;text-align:left;font-size:12px">' +
+      '<div style="font-weight:600;color:' + o.color + '">' + esc(o.label) + '</div>' +
+      '<div style="font-size:10px;color:#5f7791;margin-top:2px">' + (o.counts ? '✓ Counts' : '✗ Excluded') + '</div>' +
+    '</button>';
+  }).join('');
+  document.getElementById('prop-res-classify-notes').value = evt.overrideNotes || '';
+  _propsState.currentClassifyResChoice = current;
+  openModal('prop-res-classify-modal');
+}
+
+function _pickResClassification(btn, value) {
+  _propsState.currentClassifyResChoice = value;
+  // Re-render the button row to show the new selection
+  var opts = document.getElementById('prop-res-classify-options');
+  Array.prototype.forEach.call(opts.querySelectorAll('button'), function(b) {
+    var v = b.getAttribute('data-value');
+    var o = _RES_CLASSIFICATION_OPTIONS.find(function(x) { return x.value === v; });
+    var sel = v === value;
+    b.style.borderColor = sel ? o.color : '#e8ecf1';
+    b.style.background  = sel ? (o.color + '15') : '#fff';
+  });
+}
+
+function _savePropResClassification() {
+  var eventId = _propsState.currentClassifyResId;
+  var propertyId = _propsState.currentPropertyId;
+  var classification = _propsState.currentClassifyResChoice;
+  var notes = document.getElementById('prop-res-classify-notes').value;
+  var title = _propsState.currentClassifyResTitle || '';
+  if (!eventId || !propertyId) { toast('Missing event/property', 'error'); return; }
+  if (!classification) { toast('Pick a classification', 'error'); return; }
+  google.script.run
+    .withSuccessHandler(function() {
+      closeModal('prop-res-classify-modal');
+      toast('Reservation retagged');
+      _loadPropertyReport();   // refresh — occupancy/nights/ADR recompute
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setPropertyReservationClassification(eventId, propertyId, classification, title, notes);
+}
+
+// ─── All-Transactions helpers ──────────────────────────────────────────────
+
+function _toggleAllTxns() {
+  _propsState.allTxnsExpanded = !_propsState.allTxnsExpanded;
+  _renderPropertyReport(_propsState.currentReport);
+}
+
+// Flatten every categorized txn — Revenue, costs, debt, reimbursement,
+// pass-through, internal transfer, uncategorized — into a single list, each
+// item carrying its parent category + subcategory for display.
+function _collectCategorizedTxns(r) {
+  var out = [];
+  var seen = {};
+  function push(cat, buckets) {
+    if (!buckets) return;
+    Object.keys(buckets).forEach(function(sub) {
+      (buckets[sub].transactions || []).forEach(function(t) {
+        // Skip virtual recurring/manual entries — those have category/sub
+        // set at the sheet level, not by rule, and can be edited in the sheet.
+        if (t.source === 'recurring' || t.source === 'manual') return;
+        if (seen[t.id]) return;
+        seen[t.id] = true;
+        out.push({
+          id: t.id, date: t.date, name: t.name, account: t.account,
+          amount: t.amount, source: t.source,
+          category: cat, subcategory: sub
+        });
+      });
+    });
+  }
+  push('Revenue',            r.revenue && r.revenue.subcategories);
+  push('Direct Cost',        r.directCosts && r.directCosts.subcategories);
+  push('Operating Expense',  r.operatingExpenses);
+  push('Debt Service',       r.debtService);
+  push('Reimbursement',      r.reimbursements);
+  push('Pass-through',       r.passthrough);
+  push('Internal Transfer',  r.internalTransfer);
+  push('Uncategorized',      r.uncategorized);
+  // Sort newest first for scanability
+  out.sort(function(a, b) { return (b.date || '').localeCompare(a.date || ''); });
+  return out;
+}
+
+function _catBadgeColor(cat) {
+  switch (cat) {
+    case 'Revenue':           return '#1e8e3e';
+    case 'Direct Cost':       return '#c5221f';
+    case 'Operating Expense': return '#c5221f';
+    case 'Debt Service':      return '#c5221f';
+    case 'Reimbursement':     return '#9c6c0f';
+    case 'Pass-through':      return '#9c6c0f';
+    case 'Internal Transfer': return '#7a8ba8';
+    case 'Uncategorized':     return '#f9a825';
+    default:                  return '#5f7791';
+  }
 }
 
 
