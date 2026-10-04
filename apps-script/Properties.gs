@@ -207,6 +207,21 @@ function _writePropertyRow_(sheetName, headers, obj) {
   var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   var row = hdr.map(function(h) { return obj[h] !== undefined ? obj[h] : ''; });
   sheet.appendRow(row);
+  // Google Sheets auto-converts anything that LOOKS like a date (e.g.
+  // "2024-01" for a month key) to a Date object. For known text-only fields
+  // on this schema, force the newly-written cell to text format so it stays
+  // a string. The read side still handles Dates defensively (_mkKey) but
+  // this prevents the drift for future writes.
+  var textColumns = ['Start Month', 'End Month', 'Month', 'Plaid Account IDs'];
+  var newRowNum = sheet.getLastRow();
+  textColumns.forEach(function(colName) {
+    var idx = hdr.indexOf(colName);
+    if (idx >= 0 && obj[colName] !== undefined && obj[colName] !== '') {
+      var cell = sheet.getRange(newRowNum, idx + 1);
+      cell.setNumberFormat('@');
+      cell.setValue(String(obj[colName]));
+    }
+  });
 }
 
 function _updatePropertyRow_(sheetName, headers, id, patch) {
@@ -844,13 +859,20 @@ function getPropertyMonthlyReport(propertyId, year, month) {
   // 2a. Recurring entries that fall in this month (static monthly expenses
   //     like the Dorado mortgage — amount is always the same, account isn't
   //     in Plaid, so we materialize a virtual transaction).
+  // Normalize Start/End Month cells to 'YYYY-MM' strings regardless of
+  // whether Google Sheets stored them as text or auto-converted to Date.
+  function _mkKey(v) {
+    if (!v) return '';
+    if (v instanceof Date) return Utilities.formatDate(v, 'UTC', 'yyyy-MM');
+    return String(v).trim();
+  }
   var recurrings = _getPropertySheetRows_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS)
     .filter(function(r) {
       if (String(r['Property ID']) !== String(propertyId)) return false;
       var active = String(r['Active'] || 'Yes').toLowerCase();
       if (active === 'no' || active === 'false') return false;
-      var sm = String(r['Start Month'] || '').trim();
-      var em = String(r['End Month']   || '').trim();
+      var sm = _mkKey(r['Start Month']);
+      var em = _mkKey(r['End Month']);
       if (sm && sm > monthKey) return false;
       if (em && em < monthKey) return false;
       return true;
