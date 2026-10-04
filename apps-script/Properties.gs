@@ -401,16 +401,14 @@ function seedDoradoProperty() {
       category:'Revenue', subcategory:'Rental Income (Alma)',
       notes:'Net deposit (after 20% Alma fee). Gross up on report.' },
 
-    // Direct guest booking: wire deposit into the Dorado operating account
-    // (6179), paid directly by the guest (bypassing Alma). Matched by
-    // "wire in" in the name, positive amount, on the 6179 account.
-    { priority: 10, matchAccount:'6179', matchName:'wire in', matchAmount:'', direction:'in',
-      category:'Revenue', subcategory:'Rental Income (Direct Guest)',
-      notes:'Direct guest wire — no Alma fee.' },
-
-    // Bank wire fee charged alongside a direct guest wire. Small amount.
-    { priority: 10, matchAccount:'6179', matchName:'service charge', matchAmount:'', direction:'out',
-      category:'Direct Cost', subcategory:'Bank Wire Fee' },
+    // NO auto-rule for direct guest wires. A "WIRE IN" deposit from a named
+    // guest to account 6179 could be: rental payment for a current stay,
+    // deposit for a future stay, membership fees being prepaid, spending
+    // money the guest asks us to hold, etc. Only Amanda can tell which.
+    // Those wires stay in Needs Review and she categorizes each manually
+    // via a PROPERTY_TXN_OVERRIDES entry — the paired $15 service charge
+    // stays unmatched too since its destination (Direct Cost vs
+    // Reimbursement cost) depends on what the wire itself was for.
 
     // HOA — fixed monthly amount, matches by exact amount.
     { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1254.88', direction:'out',
