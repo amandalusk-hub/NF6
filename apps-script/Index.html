@@ -9402,10 +9402,16 @@ function _qbRenderChartOfAccounts(data) {
             '<div>Account</div><div>Type</div><div>Detail Type</div><div style="text-align:right">Balance</div>' +
           '</div>';
 
+  // QB's actual section labels — not naive +s pluralization. "Liabilities"
+  // and "Equity" (singular, mass noun) are what QBO prints.
+  var sectionLabel = {
+    Asset: 'Assets', Liability: 'Liabilities', Equity: 'Equity',
+    Revenue: 'Income', Expense: 'Expenses', Other: 'Other'
+  };
   ['Asset','Liability','Equity','Revenue','Expense','Other'].forEach(function(cls) {
     var rows = groups[cls];
     if (!rows || !rows.length) return;
-    html += '<div style="background:#f0f3f7;padding:6px 14px;font-size:11px;font-weight:700;color:#0d2137;letter-spacing:.3px;text-transform:uppercase;border-top:1px solid #e8ecf1">' + cls + 's</div>';
+    html += '<div style="background:#f0f3f7;padding:6px 14px;font-size:11px;font-weight:700;color:#0d2137;letter-spacing:.3px;text-transform:uppercase;border-top:1px solid #e8ecf1">' + sectionLabel[cls] + '</div>';
     rows.forEach(function(a) {
       var isSub = a.parent && String(a.parent).trim() !== '';
       var hasBalance = Math.abs(Number(a.balance) || 0) >= 0.005;
