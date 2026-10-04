@@ -394,6 +394,24 @@ function seedDoradoProperty() {
   });
 
   var DORADO_RULES = [
+    // ── EXCLUSIONS (highest priority — evaluated first) ─────────────────
+    // Oriental auto-moves money between Mike's Savings and Checking
+    // whenever a card charge needs funds. These show up as paired entries
+    // on both accounts with the same amount — if we let them fall through
+    // to Needs Review (or worse, let them match an exact-amount rule like
+    // HOA $1,254.88), the report double-counts. Catch them FIRST and tag
+    // as Internal Transfer, which gets ignored from report totals.
+    { priority: 1, matchAccount:'oriental', matchName:'automatic transfer', matchAmount:'', direction:'any',
+      category:'Internal Transfer', subcategory:'Savings ↔ Checking',
+      notes:'Oriental auto-shuffle between Mike\'s own accounts. Ignored from totals.' },
+    // Mastercard authorizations are temporary holds that get reversed when
+    // the real purchase posts. Same story — ignore them so they don\'t
+    // appear as pending income or expense in the report.
+    { priority: 1, matchAccount:'oriental', matchName:'mc authorization', matchAmount:'', direction:'any',
+      category:'Internal Transfer', subcategory:'MC Auth (reversed by MC PURCHASE)',
+      notes:'Pending card hold — reverses when actual purchase posts.' },
+
+    // ── REVENUE ─────────────────────────────────────────────────────────
     // Rental income from Alma — arrives via Oriental Bank as a positive
     // deposit. The manager fee % on the property row is used to gross the
     // deposit up to the pre-fee rental amount on the report.
