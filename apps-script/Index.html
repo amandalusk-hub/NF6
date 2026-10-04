@@ -8332,8 +8332,14 @@ function _renderMovementDetail(detail) {
     // this one" buttons so Amanda can manually link an auto-match miss.
     var autoMatched = done && w.plaidId;
     var plaidIndicator;
+    // Use single-quoted onclick values (and esc()'d ids) so iOS Safari
+    // parses the attribute reliably — the earlier double-quoted JSON.stringify
+    // pattern was intermittently failing to fire taps on iOS.
+    var plaidIdEsc = esc(String(w.plaidId || ''));
+    var wireIdEsc  = esc(String(w.wireId));
     if (autoMatched) {
-      plaidIndicator = '<button onclick="_showPlaidTxnDetails(' + JSON.stringify(w.plaidId) + ', event)" ' +
+      plaidIndicator =
+        "<button onclick=\"_showPlaidTxnDetails('" + plaidIdEsc + "', event)\" " +
                 'title="Click to see matched Plaid transaction" ' +
                 'style="width:30px;height:30px;border-radius:6px;border:1.5px solid #1a73e8;background:#1a73e8;color:#fff;' +
                        'display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;line-height:1;flex-shrink:0;letter-spacing:-.5px;' +
@@ -8341,7 +8347,8 @@ function _renderMovementDetail(detail) {
           '✓P' +
         '</button>';
     } else if (!done) {
-      plaidIndicator = '<button onclick="_showWireCandidates(' + JSON.stringify(w.wireId) + ', event)" ' +
+      plaidIndicator =
+        "<button onclick=\"_showWireCandidates('" + wireIdEsc + "', event)\" " +
                 'title="See Plaid candidates for this wire" ' +
                 'style="width:30px;height:30px;border-radius:6px;border:1.5px solid #c0ccd8;background:#fff;color:#7a8ba8;' +
                        'display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;line-height:1;flex-shrink:0;' +
@@ -8355,7 +8362,7 @@ function _renderMovementDetail(detail) {
     html +=
       '<div style="display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid #f0f3f7">' +
         '<div style="font-size:12px;color:#7a8ba8;font-weight:600;width:22px;text-align:right;flex-shrink:0">' + n + '.</div>' +
-        '<button onclick="_toggleWire(' + JSON.stringify(w.wireId) + ',' + (done ? 'false' : 'true') + ')" ' +
+        "<button onclick=\"_toggleWire('" + wireIdEsc + "', " + (done ? 'false' : 'true') + ")\" " +
                 'style="' + checkStyle + ';width:30px;height:30px;border-radius:6px;border:1.5px solid;cursor:pointer;font-size:16px;font-weight:700;line-height:1;flex-shrink:0;padding:0;-webkit-tap-highlight-color:rgba(0,0,0,0.1)" ' +
                 'title="' + (done ? 'Mark as pending' : 'Mark as done') + '">' + (done ? '✓' : '') + '</button>' +
         plaidIndicator +
