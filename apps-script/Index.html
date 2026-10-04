@@ -726,8 +726,19 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <select id="qb-entity-picker" onchange="loadQuickBooks()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff">
           <option value="NF CA">NF CA</option>
         </select>
-        <input id="qb-asof-date" type="date" value="2025-12-31" onchange="loadQuickBooks()" title="As-of date (for Trial Balance / Balance Sheet)" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
-        <button class="btn btn-primary" onclick="_qbSyncPlaid()" title="Pull Plaid transactions for this entity's bank accounts and post double-entry GL rows">🔄 Sync Plaid</button>
+        <select id="qb-date-preset" onchange="_qbApplyDatePreset()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff">
+          <option value="all">All Time (since go-live)</option>
+          <option value="thisMonth">This Month</option>
+          <option value="lastMonth">Last Month</option>
+          <option value="thisQuarter">This Quarter</option>
+          <option value="thisYear" selected>This Year</option>
+          <option value="lastYear">Last Year</option>
+          <option value="custom">Custom</option>
+        </select>
+        <input id="qb-from-date" type="date" value="2026-01-01" onchange="_qbOnDateChange()" title="From date" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
+        <span style="color:#5f7791;font-size:12px">→</span>
+        <input id="qb-to-date"   type="date" value=""           onchange="_qbOnDateChange()" title="To date"   style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
+        <button class="btn btn-primary" onclick="_qbSyncPlaid()" title="Force re-pull Plaid transactions now (normally auto-synced when Banking loads)">🔄 Sync Plaid</button>
         <button class="btn btn-secondary" onclick="loadQuickBooks()">↻ Refresh</button>
       </div>
     </div>
@@ -9372,25 +9383,77 @@ function _catBadgeColor(cat) {
 var _qbState = {
   currentEntity: 'NF CA',
   currentReport: 'banking',
-  asOfDate: '2025-12-31',
-  categoryOptions: null,       // cached COA options for the inline picker
-  bankingFilter: 'all',        // 'all' | 'needsReview' | 'reviewed'
-  currentBanking: null,        // last-fetched feed, used by rule modal
+  fromDate: '2026-01-01',      // default: This Year (will be set on first load)
+  toDate:   '',                // '' = today
+  datePreset: 'thisYear',
+  categoryOptions: null,
+  bankingFilter: 'all',
+  currentBanking: null,
   pendingRuleTxn: null,
   pendingRuleCategory: null,
+  autoSyncedThisSession: false,
   cache: {}
 };
 
 function loadQuickBooks() {
   var entity = document.getElementById('qb-entity-picker').value || 'NF CA';
-  var asOf   = document.getElementById('qb-asof-date').value || _qbState.asOfDate;
-  if (!asOf) {
-    asOf = '2025-12-31';
-    document.getElementById('qb-asof-date').value = asOf;
+  var toInput = document.getElementById('qb-to-date');
+  if (!toInput.value) {
+    // Default To = today, YYYY-MM-DD
+    var now = new Date();
+    toInput.value = now.getFullYear() + '-' + _pad2(now.getMonth() + 1) + '-' + _pad2(now.getDate());
   }
   _qbState.currentEntity = entity;
-  _qbState.asOfDate = asOf;
+  _qbState.fromDate = document.getElementById('qb-from-date').value;
+  _qbState.toDate   = toInput.value;
   _qbRenderReport();
+}
+
+function _pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+function _qbApplyDatePreset() {
+  var preset = document.getElementById('qb-date-preset').value;
+  _qbState.datePreset = preset;
+  var now = new Date();
+  var y = now.getFullYear(), m = now.getMonth(), d = now.getDate();
+  var from = '', to = y + '-' + _pad2(m + 1) + '-' + _pad2(d);
+  switch (preset) {
+    case 'all':
+      from = '2026-01-01';   // go-live
+      break;
+    case 'thisMonth':
+      from = y + '-' + _pad2(m + 1) + '-01';
+      break;
+    case 'lastMonth':
+      var pm = m === 0 ? 12 : m, py = m === 0 ? y - 1 : y;
+      from = py + '-' + _pad2(pm) + '-01';
+      to   = py + '-' + _pad2(pm) + '-' + _pad2(new Date(py, pm, 0).getDate());
+      break;
+    case 'thisQuarter':
+      var qStart = Math.floor(m / 3) * 3;
+      from = y + '-' + _pad2(qStart + 1) + '-01';
+      break;
+    case 'thisYear':
+      from = y + '-01-01';
+      break;
+    case 'lastYear':
+      from = (y - 1) + '-01-01';
+      to   = (y - 1) + '-12-31';
+      break;
+    case 'custom':
+      // leave fields as-is for user editing
+      return;
+  }
+  document.getElementById('qb-from-date').value = from;
+  document.getElementById('qb-to-date').value   = to;
+  loadQuickBooks();
+}
+
+function _qbOnDateChange() {
+  // Any manual edit flips the preset to Custom.
+  document.getElementById('qb-date-preset').value = 'custom';
+  _qbState.datePreset = 'custom';
+  loadQuickBooks();
 }
 
 function _qbSwitchReport(reportName) {
@@ -9405,22 +9468,147 @@ function _qbRenderReport() {
   var content = document.getElementById('quickbooks-content');
   content.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading…</div>';
   var entity = _qbState.currentEntity;
-  var asOf = _qbState.asOfDate;
+  var from = _qbState.fromDate, to = _qbState.toDate;
   switch (_qbState.currentReport) {
     case 'banking': return _qbLoadBanking(entity);
     case 'chart':   return _qbLoadChartOfAccounts(entity);
-    case 'trial':   return _qbLoadTrialBalance(entity, asOf);
-    case 'balance': content.innerHTML = _qbSoonBanner('Balance Sheet'); return;
-    case 'income':  content.innerHTML = _qbSoonBanner('Income Statement'); return;
+    case 'trial':   return _qbLoadTrialBalance(entity, to);
+    case 'balance': return _qbLoadBalanceSheet(entity, to);
+    case 'income':  return _qbLoadIncomeStatement(entity, from, to);
     case 'gl':      content.innerHTML = _qbSoonBanner('General Ledger'); return;
   }
+}
+
+// ─── Balance Sheet ─────────────────────────────────────────────────────────
+
+function _qbLoadBalanceSheet(entity, asOf) {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data) { document.getElementById('quickbooks-content').innerHTML = _qbEmptyBanner(); return; }
+      _qbRenderBalanceSheet(data);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('quickbooks-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+    })
+    .getQBBalanceSheet(entity, asOf);
+}
+
+function _qbRenderBalanceSheet(d) {
+  var html = '';
+  html += '<div style="margin-bottom:12px;font-size:12px;color:#5f7791"><strong style="color:#0d2137">' + esc(d.entity) + '</strong> · Balance Sheet as of ' + esc(d.asOfDate) + '</div>';
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += _qbBsSection('Assets',       d.assets, '#0d2137');
+  html += _qbBsSectionHeader('Liabilities and Equity');
+  html += _qbBsSection('Liabilities',  d.liabilities, '#0d2137');
+  html += _qbBsSection('Equity',       d.equity,      '#0d2137');
+  // Grand total line
+  var totalLiabEquity = (d.liabilities.total || 0) + (d.equity.total || 0);
+  html += '<div style="display:grid;grid-template-columns:1fr 180px;padding:12px 14px;font-size:13px;background:#0d2137;color:#fff;font-weight:700">' +
+    '<div>Total Liabilities and Equity</div>' +
+    '<div style="text-align:right;font-variant-numeric:tabular-nums">$' + _qbFmt(totalLiabEquity) + '</div>' +
+  '</div>';
+  html += '</div>';
+  if (!d.balanced) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:#fce8e6;color:#c5221f;border-radius:5px;font-size:12px;font-weight:600;text-align:center">⚠ Assets ($' + _qbFmt(d.assets.total) + ') ≠ Liab+Equity ($' + _qbFmt(totalLiabEquity) + ')</div>';
+  } else {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:#e6f4ea;color:#1e8e3e;border-radius:5px;font-size:12px;font-weight:600;text-align:center">✓ Balance Sheet balances</div>';
+  }
+  document.getElementById('quickbooks-content').innerHTML = html;
+}
+
+function _qbBsSectionHeader(label) {
+  return '<div style="padding:8px 14px;background:#f0f3f7;border-top:1px solid #e8ecf1;font-size:12px;font-weight:700;color:#0d2137">' + esc(label) + '</div>';
+}
+
+function _qbBsSection(label, sec, color) {
+  var html = _qbBsSectionHeader(label);
+  if (!sec || !sec.ordered || !sec.ordered.length) {
+    html += '<div style="padding:8px 14px;font-size:12px;color:#9ca9b7;font-style:italic">No entries</div>';
+    return html;
+  }
+  sec.ordered.forEach(function(sub) {
+    // Sub-group header (type level, e.g. "Bank Accounts", "Fixed Assets")
+    html += '<div style="padding:6px 14px;font-size:11px;color:#5f7791;background:#fafbfc;border-top:1px solid #f0f3f7">' + esc(sub.label) + '</div>';
+    sub.accounts.forEach(function(a) {
+      html += '<div style="display:grid;grid-template-columns:1fr 180px;padding:7px 14px 7px 28px;font-size:12px;border-top:1px solid #f0f3f7">' +
+        '<div style="color:#0d2137">' + esc(a.name) + '</div>' +
+        '<div style="text-align:right;font-variant-numeric:tabular-nums;color:#0d2137">' + _qbFmtSigned(a.value) + '</div>' +
+      '</div>';
+    });
+    html += '<div style="display:grid;grid-template-columns:1fr 180px;padding:7px 14px;font-size:12px;background:#f8f9ff;border-top:1px solid #f0f3f7;font-weight:600">' +
+      '<div style="color:#0d2137">Total for ' + esc(sub.label) + '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;color:#0d2137">$' + _qbFmt(sub.total) + '</div>' +
+    '</div>';
+  });
+  html += '<div style="display:grid;grid-template-columns:1fr 180px;padding:10px 14px;font-size:13px;background:#e8ecf1;font-weight:700;border-top:2px solid #0d2137">' +
+    '<div style="color:#0d2137">Total ' + esc(label) + '</div>' +
+    '<div style="text-align:right;font-variant-numeric:tabular-nums;color:#0d2137">$' + _qbFmt(sec.total) + '</div>' +
+  '</div>';
+  return html;
+}
+
+function _qbFmtSigned(n) {
+  var num = Number(n) || 0;
+  if (num < 0) return '(' + Math.abs(num).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ')';
+  return num.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+// ─── Income Statement ──────────────────────────────────────────────────────
+
+function _qbLoadIncomeStatement(entity, from, to) {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data) { document.getElementById('quickbooks-content').innerHTML = _qbEmptyBanner(); return; }
+      _qbRenderIncomeStatement(data);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('quickbooks-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+    })
+    .getQBIncomeStatement(entity, from, to);
+}
+
+function _qbRenderIncomeStatement(d) {
+  var html = '';
+  html += '<div style="margin-bottom:12px;font-size:12px;color:#5f7791"><strong style="color:#0d2137">' + esc(d.entity) + '</strong> · Income Statement ' + esc(d.startDate) + ' → ' + esc(d.endDate) + '</div>';
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += _qbBsSection('Income',   d.income,  '#1e8e3e');
+  html += _qbBsSection('Expenses', d.expense, '#c5221f');
+  html += '<div style="display:grid;grid-template-columns:1fr 180px;padding:12px 14px;font-size:14px;background:#0d2137;color:#fff;font-weight:700;border-top:2px solid #0d2137">' +
+    '<div>Net Income</div>' +
+    '<div style="text-align:right;font-variant-numeric:tabular-nums;color:' + (d.netIncome >= 0 ? '#4ade80' : '#f87171') + '">' + _qbFmtSigned(d.netIncome) + '</div>' +
+  '</div>';
+  html += '</div>';
+  document.getElementById('quickbooks-content').innerHTML = html;
 }
 
 // ─── Banking (QBO's "For Review" tab) ───────────────────────────────────────
 
 function _qbLoadBanking(entity) {
-  // Load category options (COA) + banking feed in parallel. Categories cached
-  // across reports since they rarely change.
+  // Auto-sync Plaid once per session so TB/BS/IS pull from live data without
+  // Amanda needing to click 🔄 Sync Plaid first. Everything that doesn't
+  // match a rule posts to Ask My Accountant (QBO's own convention) so it
+  // still shows up in every report.
+  if (!_qbState.autoSyncedThisSession) {
+    _qbState.autoSyncedThisSession = true;
+    google.script.run
+      .withSuccessHandler(function(r) {
+        if (r && r.posted > 0) toast('Auto-synced ' + r.posted + ' new txn' + (r.posted === 1 ? '' : 's') + ' from Plaid');
+        _qbLoadBankingDeps(entity);
+      })
+      .withFailureHandler(function(e) {
+        // Non-fatal — just show whatever's already posted
+        console.warn('[QB] auto-sync failed:', e);
+        _qbLoadBankingDeps(entity);
+      })
+      .syncQBEntityFromPlaid(entity);
+  } else {
+    _qbLoadBankingDeps(entity);
+  }
+}
+
+function _qbLoadBankingDeps(entity) {
   var needCats = !_qbState.categoryOptions;
   if (needCats) {
     google.script.run
@@ -9801,7 +9989,8 @@ function _qbSyncPlaid() {
       if (result.error) { toast(result.error, 'error'); return; }
       var msg = entity + ': ' + result.posted + ' posted · ' + result.needsReview + ' review · ' + result.skipped + ' already there';
       toast(msg);
-      _qbRenderReport();   // refresh the current view
+      _qbState.autoSyncedThisSession = true;   // we just did it
+      _qbRenderReport();
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .syncQBEntityFromPlaid(entity);

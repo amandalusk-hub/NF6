@@ -487,6 +487,144 @@ function getQBTrialBalance(entity, asOfDate) {
   }));
 }
 
+// Balance Sheet as-of a date. Pivots the trial balance into Asset / Liability
+// / Equity sections. Computes a "Net Income" equity line = Σ(Revenue − Expense)
+// within the fiscal year ending on asOfDate (same convention QBO uses). On
+// 12/31 of the fiscal year, Net Income rolls into Retained Earnings via a
+// closing JE (not automated here — matches how QB works).
+function getQBBalanceSheet(entity, asOfDate) {
+  entity = String(entity || 'NF CA');
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; });
+  var acctByName = {};
+  coa.forEach(function(a) { acctByName[a['Account Name']] = a; });
+
+  var balances = _computeAccountBalances_(entity, null, asOfDate);
+
+  // Group accounts by Asset/Liability/Equity classification. For BS display,
+  // flip the sign on credit-normal accounts so a Liability with CR $5000
+  // shows as $5,000 (not -$5,000).
+  var sections = {
+    Asset:     { subGroups: {}, total: 0 },
+    Liability: { subGroups: {}, total: 0 },
+    Equity:    { subGroups: {}, total: 0 }
+  };
+  var netIncome = 0;
+
+  Object.keys(balances).forEach(function(acct) {
+    var bal = balances[acct];
+    var a = acctByName[acct];
+    if (!a) return;
+    var cls = _qbClassifyType_(a['Type']);
+    if (cls === 'Revenue')  { netIncome -= bal; return; }   // credit-normal: more CR = more income
+    if (cls === 'Expense')  { netIncome -= bal; return; }   // debit-normal: more DR = more expense (subtracts)
+    if (cls !== 'Asset' && cls !== 'Liability' && cls !== 'Equity') return;
+    if (!bal || Math.abs(bal) < 0.005) return;
+    var sec = sections[cls];
+    var sub = a['Type'];
+    sec.subGroups[sub] = sec.subGroups[sub] || { total: 0, accounts: [] };
+    // BS display convention: Assets show debit-positive; Liabilities and
+    // Equity show credit-positive. That means debit-balanced equity accounts
+    // (Draws, Distributions) show as NEGATIVE in the Equity section — same
+    // as how QB prints "Distributions -241,396.75".
+    var display = (cls === 'Asset') ? bal : -bal;
+    sec.subGroups[sub].accounts.push({ name: acct, value: display });
+    sec.subGroups[sub].total += display;
+    sec.total += display;
+  });
+  // Net Income: Σ (Revenue CR − Expense DR). For Revenue, bal is NEGATIVE
+  // (credit side), so -bal is a positive income number. For Expense, bal is
+  // POSITIVE (debit side); we subtract it from net income. Combined:
+  //   netIncome -= balRevenue  (-(-x) = +x)
+  //   netIncome -= balExpense  (subtracts expense)
+  // That gives netIncome = Σ revenues (as positive) − Σ expenses (as positive).
+
+  // Add Net Income as an Equity line.
+  if (Math.abs(netIncome) >= 0.005) {
+    sections.Equity.subGroups['(Net Income)'] = { total: netIncome, accounts: [{ name: 'Net Income', value: netIncome }] };
+    sections.Equity.total += netIncome;
+  }
+
+  // Sort sub-groups and accounts for display stability.
+  function sortSection(sec) {
+    var keys = Object.keys(sec.subGroups).sort();
+    sec.ordered = keys.map(function(k) {
+      sec.subGroups[k].accounts.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      return { label: k, total: sec.subGroups[k].total, accounts: sec.subGroups[k].accounts };
+    });
+  }
+  sortSection(sections.Asset);
+  sortSection(sections.Liability);
+  sortSection(sections.Equity);
+
+  return JSON.parse(JSON.stringify({
+    entity: entity,
+    asOfDate: asOfDate || _todayIso_(),
+    assets: sections.Asset,
+    liabilities: sections.Liability,
+    equity: sections.Equity,
+    netIncome: netIncome,
+    balanced: Math.abs(sections.Asset.total - (sections.Liability.total + sections.Equity.total)) < 0.01
+  }));
+}
+
+// Income Statement (P&L) for a period. Positive income values; expenses are
+// subtracted. Net Income = Σ income − Σ expense.
+function getQBIncomeStatement(entity, startIso, endIso) {
+  entity = String(entity || 'NF CA');
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; });
+  var acctByName = {};
+  coa.forEach(function(a) { acctByName[a['Account Name']] = a; });
+
+  var balances = _computeAccountBalances_(entity, startIso, endIso);
+
+  var income = { subGroups: {}, total: 0 };
+  var expense = { subGroups: {}, total: 0 };
+
+  Object.keys(balances).forEach(function(acct) {
+    var bal = balances[acct];
+    if (!bal || Math.abs(bal) < 0.005) return;
+    var a = acctByName[acct];
+    if (!a) return;
+    var cls = _qbClassifyType_(a['Type']);
+    if (cls === 'Revenue') {
+      // Credit-normal: display as positive = -bal
+      var v = -bal;
+      income.subGroups[a['Type']] = income.subGroups[a['Type']] || { total: 0, accounts: [] };
+      income.subGroups[a['Type']].accounts.push({ name: acct, value: v });
+      income.subGroups[a['Type']].total += v;
+      income.total += v;
+    } else if (cls === 'Expense') {
+      // Debit-normal: display as positive = bal
+      expense.subGroups[a['Type']] = expense.subGroups[a['Type']] || { total: 0, accounts: [] };
+      expense.subGroups[a['Type']].accounts.push({ name: acct, value: bal });
+      expense.subGroups[a['Type']].total += bal;
+      expense.total += bal;
+    }
+  });
+
+  function sortSection(sec) {
+    var keys = Object.keys(sec.subGroups).sort();
+    sec.ordered = keys.map(function(k) {
+      sec.subGroups[k].accounts.sort(function(a, b) { return a.name.localeCompare(b.name); });
+      return { label: k, total: sec.subGroups[k].total, accounts: sec.subGroups[k].accounts };
+    });
+  }
+  sortSection(income);
+  sortSection(expense);
+
+  return JSON.parse(JSON.stringify({
+    entity: entity,
+    startDate: startIso || '',
+    endDate: endIso || _todayIso_(),
+    income: income,
+    expense: expense,
+    netIncome: income.total - expense.total
+  }));
+}
+
+
 // Sum (Debit − Credit) per account from GL entries within [startIso, endIso].
 // startIso = null → from inception. endIso = null → through today.
 // Returns a map { 'Chase - 2086': 4680.14, 'Rental Income': -51096.00, ... }
