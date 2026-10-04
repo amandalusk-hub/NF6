@@ -19,6 +19,9 @@ nav{background:#0d2137;display:flex;gap:0;border-top:1px solid rgba(255,255,255,
 .tab-btn{background:none;border:none;color:rgba(255,255,255,.65);padding:12px 20px;cursor:pointer;font-size:13px;font-weight:500;border-bottom:3px solid transparent;transition:.2s;white-space:nowrap}
 .tab-btn:hover{color:#fff}
 .tab-btn.active{color:#fff;border-bottom-color:#4fc3f7}
+.qb-report-tab{background:none;border:none;color:#5f7791;padding:10px 16px;cursor:pointer;font-size:13px;font-weight:500;border-bottom:3px solid transparent;transition:.2s;white-space:nowrap;margin-bottom:-2px}
+.qb-report-tab:hover{color:#0d2137}
+.qb-report-tab.active{color:#0d2137;border-bottom-color:#1a73e8;font-weight:600}
 /* Main */
 main{padding:20px 24px;max-width:1200px;margin:0 auto}
 /* Cards */
@@ -173,6 +176,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <button class="tab-btn" data-tab="loans">Loans</button>
     <button class="tab-btn" data-tab="money">Money Movement</button>
     <button class="tab-btn" data-tab="properties">Properties</button>
+    <button class="tab-btn" data-tab="quickbooks">QuickBooks</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="balance">Balance History</button>
@@ -712,6 +716,29 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     </div>
     <div id="properties-content">
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-quickbooks">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <h2 style="font-size:20px;color:#0d2137;margin:0">QuickBooks</h2>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <select id="qb-entity-picker" onchange="loadQuickBooks()" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px;background:#fff">
+          <option value="NF CA">NF CA</option>
+        </select>
+        <input id="qb-asof-date" type="date" value="2025-12-31" onchange="loadQuickBooks()" title="As-of date (for Trial Balance / Balance Sheet)" style="padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:13px">
+        <button class="btn btn-secondary" onclick="loadQuickBooks()">↻ Refresh</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;border-bottom:2px solid #e8ecf1;margin-bottom:14px;overflow-x:auto">
+      <button class="qb-report-tab active" data-report="chart"   onclick="_qbSwitchReport('chart')">Chart of Accounts</button>
+      <button class="qb-report-tab"        data-report="trial"   onclick="_qbSwitchReport('trial')">Trial Balance</button>
+      <button class="qb-report-tab"        data-report="balance" onclick="_qbSwitchReport('balance')">Balance Sheet</button>
+      <button class="qb-report-tab"        data-report="income"  onclick="_qbSwitchReport('income')">Income Statement</button>
+      <button class="qb-report-tab"        data-report="gl"      onclick="_qbSwitchReport('gl')">General Ledger</button>
+    </div>
+    <div id="quickbooks-content">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Pick an entity above.</div>
     </div>
   </div>
 </main>
@@ -2460,6 +2487,7 @@ function switchTab(name){
   if(name==='loans')    loadLoans();
   if(name==='money')    loadMoneyMovement();
   if(name==='properties') loadProperties();
+  if(name==='quickbooks') loadQuickBooks();
 }
 
 // ─── LOANS TAB ──────────────────────────────────────────────────────────
@@ -9284,6 +9312,180 @@ function _catBadgeColor(cat) {
     case 'Uncategorized':     return '#f9a825';
     default:                  return '#5f7791';
   }
+}
+
+
+// ═══ QUICKBOOKS TAB ═════════════════════════════════════════════════════════
+// Entity picker + report tabs (Chart of Accounts | Trial Balance | BS | IS | GL).
+// Phase 1: COA + TB (both tie to QB's exports). Rest ships over subsequent commits.
+
+var _qbState = {
+  currentEntity: 'NF CA',
+  currentReport: 'chart',
+  asOfDate: '2025-12-31',
+  cache: {}   // keyed by entity+asOf+report; cleared on refresh
+};
+
+function loadQuickBooks() {
+  var entity = document.getElementById('qb-entity-picker').value || 'NF CA';
+  var asOf   = document.getElementById('qb-asof-date').value || _qbState.asOfDate;
+  if (!asOf) {
+    asOf = '2025-12-31';
+    document.getElementById('qb-asof-date').value = asOf;
+  }
+  _qbState.currentEntity = entity;
+  _qbState.asOfDate = asOf;
+  _qbRenderReport();
+}
+
+function _qbSwitchReport(reportName) {
+  _qbState.currentReport = reportName;
+  Array.prototype.forEach.call(document.querySelectorAll('.qb-report-tab'), function(b) {
+    b.classList.toggle('active', b.getAttribute('data-report') === reportName);
+  });
+  _qbRenderReport();
+}
+
+function _qbRenderReport() {
+  var content = document.getElementById('quickbooks-content');
+  content.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading…</div>';
+  var entity = _qbState.currentEntity;
+  var asOf = _qbState.asOfDate;
+  switch (_qbState.currentReport) {
+    case 'chart':   return _qbLoadChartOfAccounts(entity);
+    case 'trial':   return _qbLoadTrialBalance(entity, asOf);
+    case 'balance': content.innerHTML = _qbSoonBanner('Balance Sheet'); return;
+    case 'income':  content.innerHTML = _qbSoonBanner('Income Statement'); return;
+    case 'gl':      content.innerHTML = _qbSoonBanner('General Ledger'); return;
+  }
+}
+
+function _qbSoonBanner(name) {
+  return '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#f8f9ff;border:1px dashed #c0ccd8;border-radius:8px">' +
+    '<div style="font-size:14px;color:#0d2137;font-weight:600;margin-bottom:6px">' + esc(name) + ' — coming next</div>' +
+    '<div style="font-size:12px">Chart of Accounts + Trial Balance land first. Verify they match your QB exports, then this view ships.</div>' +
+  '</div>';
+}
+
+function _qbEmptyBanner() {
+  return '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#fff8e1;border:1px solid #f9a825;border-radius:8px">' +
+    '<div style="font-size:14px;color:#9c6c0f;font-weight:600;margin-bottom:6px">No accounts for this entity yet</div>' +
+    '<div style="font-size:12px">Run <strong>Tracker → QuickBooks → Seed NF CA</strong> from the Sheets menu to load the chart + opening balances from your QB exports.</div>' +
+  '</div>';
+}
+
+function _qbLoadChartOfAccounts(entity) {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data || !data.accounts || data.accounts.length === 0) {
+        document.getElementById('quickbooks-content').innerHTML = _qbEmptyBanner();
+        return;
+      }
+      _qbRenderChartOfAccounts(data);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('quickbooks-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+    })
+    .getQBChartOfAccounts(entity);
+}
+
+function _qbRenderChartOfAccounts(data) {
+  // Group accounts by classification for QB-style sectioning.
+  var groups = { Asset: [], Liability: [], Equity: [], Revenue: [], Expense: [], Other: [] };
+  data.accounts.forEach(function(a) { (groups[a.classification] || groups.Other).push(a); });
+
+  var html = '';
+  html += '<div style="margin-bottom:12px;font-size:12px;color:#5f7791"><strong style="color:#0d2137">' + esc(data.entity) + '</strong> · ' + data.accounts.length + ' accounts</div>';
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += '<div style="display:grid;grid-template-columns:3fr 1.4fr 1.6fr 1.3fr;background:#0d2137;color:#fff;padding:10px 14px;font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase">' +
+            '<div>Account</div><div>Type</div><div>Detail Type</div><div style="text-align:right">Balance</div>' +
+          '</div>';
+
+  ['Asset','Liability','Equity','Revenue','Expense','Other'].forEach(function(cls) {
+    var rows = groups[cls];
+    if (!rows || !rows.length) return;
+    html += '<div style="background:#f0f3f7;padding:6px 14px;font-size:11px;font-weight:700;color:#0d2137;letter-spacing:.3px;text-transform:uppercase;border-top:1px solid #e8ecf1">' + cls + 's</div>';
+    rows.forEach(function(a) {
+      var isSub = a.parent && String(a.parent).trim() !== '';
+      var hasBalance = Math.abs(Number(a.balance) || 0) >= 0.005;
+      html += '<div style="display:grid;grid-template-columns:3fr 1.4fr 1.6fr 1.3fr;padding:8px 14px;font-size:12px;border-top:1px solid #f0f3f7;align-items:center">' +
+        '<div style="color:#0d2137;' + (isSub ? 'padding-left:24px;' : '') + '">' +
+          (isSub ? '<span style="color:#9ca9b7;margin-right:4px">↳</span>' : '') +
+          esc(a.name) +
+          (a.active ? '' : ' <span style="color:#9c6c0f;font-size:10px">(inactive)</span>') +
+        '</div>' +
+        '<div style="color:#5f7791">' + esc(a.type) + '</div>' +
+        '<div style="color:#5f7791;font-size:11px">' + esc(a.detailType || '') + '</div>' +
+        '<div style="text-align:right;font-variant-numeric:tabular-nums;color:' + (hasBalance ? '#0d2137' : '#9ca9b7') + ';font-weight:' + (hasBalance ? '600' : '400') + '">' +
+          _qbFmt(a.balance) +
+        '</div>' +
+      '</div>';
+    });
+  });
+  html += '</div>';
+  document.getElementById('quickbooks-content').innerHTML = html;
+}
+
+function _qbLoadTrialBalance(entity, asOf) {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      if (!data || !data.rows) {
+        document.getElementById('quickbooks-content').innerHTML = _qbEmptyBanner();
+        return;
+      }
+      _qbRenderTrialBalance(data);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('quickbooks-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+    })
+    .getQBTrialBalance(entity, asOf);
+}
+
+function _qbRenderTrialBalance(data) {
+  var html = '';
+  html += '<div style="margin-bottom:12px;font-size:12px;color:#5f7791"><strong style="color:#0d2137">' + esc(data.entity) + '</strong> · Trial Balance as of ' + esc(data.asOfDate) + '</div>';
+  if (!data.rows.length) {
+    html += '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#fff;border:1px solid #e8ecf1;border-radius:6px">No posted entries as of this date.</div>';
+    document.getElementById('quickbooks-content').innerHTML = html;
+    return;
+  }
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += '<div style="display:grid;grid-template-columns:3fr 1.5fr 1.3fr 1.3fr;background:#0d2137;color:#fff;padding:10px 14px;font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase">' +
+            '<div>Account</div><div>Type</div><div style="text-align:right">Debit</div><div style="text-align:right">Credit</div>' +
+          '</div>';
+  data.rows.forEach(function(r) {
+    html += '<div style="display:grid;grid-template-columns:3fr 1.5fr 1.3fr 1.3fr;padding:8px 14px;font-size:12px;border-top:1px solid #f0f3f7;align-items:center">' +
+      '<div style="color:#0d2137">' + esc(r.account) + '</div>' +
+      '<div style="color:#5f7791;font-size:11px">' + esc(r.type || '') + '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;color:' + (r.debit  ? '#0d2137' : '#c0ccd8') + ';font-weight:' + (r.debit  ? '600' : '400') + '">' + (r.debit  ? _qbFmt(r.debit)  : '') + '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;color:' + (r.credit ? '#0d2137' : '#c0ccd8') + ';font-weight:' + (r.credit ? '600' : '400') + '">' + (r.credit ? _qbFmt(r.credit) : '') + '</div>' +
+    '</div>';
+  });
+  // Totals row
+  html += '<div style="display:grid;grid-template-columns:3fr 1.5fr 1.3fr 1.3fr;padding:10px 14px;font-size:13px;background:#f0f3f7;border-top:2px solid #0d2137;font-weight:700;color:#0d2137">' +
+    '<div>TOTAL</div><div></div>' +
+    '<div style="text-align:right;font-variant-numeric:tabular-nums">' + _qbFmt(data.totalDebit)  + '</div>' +
+    '<div style="text-align:right;font-variant-numeric:tabular-nums">' + _qbFmt(data.totalCredit) + '</div>' +
+  '</div>';
+  html += '</div>';
+  // Balance status
+  var diff = Math.abs(data.totalDebit - data.totalCredit);
+  if (data.balanced) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:#e6f4ea;color:#1e8e3e;border-radius:5px;font-size:12px;font-weight:600;text-align:center">✓ Trial Balance is balanced (DR = CR)</div>';
+  } else {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:#fce8e6;color:#c5221f;border-radius:5px;font-size:12px;font-weight:600;text-align:center">⚠ Out of balance by ' + _qbFmt(diff) + '</div>';
+  }
+  document.getElementById('quickbooks-content').innerHTML = html;
+}
+
+function _qbFmt(n) {
+  var num = Number(n) || 0;
+  var neg = num < 0;
+  var abs = Math.abs(num);
+  var str = abs.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return neg ? '(' + str + ')' : str;
 }
 
 
