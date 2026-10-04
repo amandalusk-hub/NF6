@@ -1066,12 +1066,17 @@ function debugDoradoPickMonth() {
   _runDoradoDebugForMonth(year, month);
 }
 
-// Menu-callable: run the categorization engine for Dorado's current month,
-// show a summary — helps Amanda confirm the rules are firing on the right
-// transactions before we build the UI.
+// Menu-callable: run the categorization engine for the month Amanda would
+// actually REPORT ON right now, which is the LAST completed month (the
+// monthly PDF goes out on the 20th covering the prior month). Current month
+// is usually too sparse to be useful mid-month.
 function debugDoradoThisMonth() {
   var now = new Date();
-  _runDoradoDebugForMonth(now.getFullYear(), now.getMonth() + 1);
+  // Last-completed month: back up one month from now, then take year + month.
+  var y = now.getFullYear();
+  var m = now.getMonth();          // 0-indexed. Previous month = this value.
+  if (m === 0) { y--; m = 12; }    // January → December of prior year
+  _runDoradoDebugForMonth(y, m);
 }
 
 function _runDoradoDebugForMonth(year, month) {

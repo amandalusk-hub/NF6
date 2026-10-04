@@ -426,7 +426,7 @@ function onOpen() {
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
     .addItem('Properties → Reset Dorado Rules (wipe + reseed with current rules)', 'resetDoradoRules')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
-    .addItem('Properties → Debug: Dorado This Month (test categorizer + calendar)', 'debugDoradoThisMonth')
+    .addItem('Properties → Debug: Dorado Last Full Month (what the report covers)', 'debugDoradoThisMonth')
     .addItem('Properties → Debug: Dorado for Specific Month (pick YYYY-MM)', 'debugDoradoPickMonth')
     .addItem('Properties → Debug: Dorado Txn Pull (which accounts match this month)', 'debugDoradoTransactionPull')
     .addItem('Properties → Grant Calendar Access (one-time auth prompt)', 'grantCalendarAccess')
