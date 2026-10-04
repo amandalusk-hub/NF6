@@ -401,6 +401,35 @@ function getMovementDetail(movementId) {
       if (a.order !== b.order) return a.order - b.order;
       return a.chain.localeCompare(b.chain);
     });
+
+  // For every wire with a Plaid match, join the Plaid txn's posted date so
+  // the UI can render it inline next to each row. Single pass across
+  // PLAID_TRANSACTIONS keeps the join O(n+k) instead of N × scan.
+  var neededIds = {};
+  wires.forEach(function(w) { if (w.plaidId) neededIds[String(w.plaidId)] = true; });
+  if (Object.keys(neededIds).length) {
+    var ptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+    if (ptSheet && ptSheet.getLastRow() >= 2) {
+      var ptHdr = ptSheet.getRange(1, 1, 1, ptSheet.getLastColumn()).getValues()[0];
+      var ptIdCol   = ptHdr.indexOf('Transaction ID');
+      var ptDateCol = ptHdr.indexOf('Date');
+      if (ptIdCol >= 0 && ptDateCol >= 0) {
+        var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptHdr.length).getValues();
+        var dateByTxnId = {};
+        for (var r = 0; r < ptData.length; r++) {
+          var id = String(ptData[r][ptIdCol]);
+          if (!neededIds[id]) continue;
+          var d = ptData[r][ptDateCol];
+          dateByTxnId[id] = d instanceof Date
+            ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+            : String(d || '');
+        }
+        wires.forEach(function(w) {
+          if (w.plaidId) w.plaidDate = dateByTxnId[String(w.plaidId)] || '';
+        });
+      }
+    }
+  }
   var done = wires.filter(function(w) { return w.status === 'Confirmed' || w.status === 'Sent'; }).length;
   return JSON.parse(JSON.stringify({
     movement: move,
