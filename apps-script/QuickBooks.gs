@@ -950,17 +950,49 @@ function getQBBankingFeed(entity) {
       memo:    r['Memo']
     });
   });
-  // Tag each txn with its post status.
+
+  // Build the per-plaid-id → bank + category map, and a history map of
+  // {merchant hint → most common category} for the suggestion engine.
+  var historyCounts = {};   // hint → { category: count }
   txns.forEach(function(t) {
     var p = postedByPlaidId[t.plaidId];
     if (!p) { t.posted = false; return; }
     t.posted = true;
     t.entryId = p.entryId;
-    // Non-bank leg = the one whose account is NOT this txn's bank account.
     var other = p.lines.find(function(l) { return l.account !== t.bankAccount; });
     t.category = other ? other.account : '';
     t.memo     = (p.lines[0] && p.lines[0].memo) || '';
     t.needsReview = t.category === 'Ask My Accountant';
+    if (!t.needsReview && t.category) {
+      var hint = _qbExtractMerchantHint_(t.name).toLowerCase();
+      if (hint) {
+        historyCounts[hint] = historyCounts[hint] || {};
+        historyCounts[hint][t.category] = (historyCounts[hint][t.category] || 0) + 1;
+      }
+    }
+  });
+  var historyMap = {};
+  Object.keys(historyCounts).forEach(function(h) {
+    var best = null, bestN = 0;
+    Object.keys(historyCounts[h]).forEach(function(cat) {
+      if (historyCounts[h][cat] > bestN) { best = cat; bestN = historyCounts[h][cat]; }
+    });
+    if (best) historyMap[h] = best;
+  });
+
+  // Load active rules once for the suggestion engine.
+  var rules = _getQBRows_('QB_RULES', QB_RULES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Active || 'Yes').toLowerCase() === 'yes'; })
+    .sort(function(a, b) { return (Number(a.Priority) || 999) - (Number(b.Priority) || 999); });
+
+  // Tag each txn with its extracted merchant hint + category suggestion.
+  // (The hint is also the default rule-matcher text in the create-rule modal.)
+  txns.forEach(function(t) {
+    t.merchantHint = _qbExtractMerchantHint_(t.name);
+    if (!t.posted || t.needsReview) {
+      var sug = _qbSuggestCategory_(t, rules, historyMap);
+      if (sug) t.suggestion = sug;
+    }
   });
 
   return JSON.parse(JSON.stringify({
@@ -1093,6 +1125,190 @@ function reclassifyQBPlaidTxn(entity, plaidTxnId, newCategoryAccount) {
   if (!updated) throw new Error('No non-bank GL leg found for Plaid txn ' + plaidTxnId);
   return { success: true, updated: updated };
 }
+
+// Extract the merchant-ish key from a Plaid txn name, used as the default
+// rule matcher (QBO's "when Description contains X" style). Handles the
+// common Chase ACH formats first; falls back to the first few significant
+// words for anything else. This is suggestion fodder — Amanda can always
+// edit the matcher before saving a rule.
+function _qbExtractMerchantHint_(plaidName) {
+  var s = String(plaidName || '').trim();
+  if (!s) return '';
+  // ACH credit/debit: "ORIG CO NAME:ELLISON MEDICAL ORIG ID:... DESC..."
+  var m = s.match(/ORIG\s+CO\s+NAME:\s*([^\s][^]*?)\s+(?:ORIG\s+ID|DESC|ENTRY|CO\s+ID|$)/i);
+  if (m && m[1]) return m[1].trim().replace(/\s+/g, ' ');
+  // Zelle / Venmo / Cash App
+  m = s.match(/(?:ZELLE|VENMO|CASH\s*APP|PAYPAL)\s+(?:TO|FROM|PAYMENT)[\s:-]+([A-Z][A-Za-z0-9 .&'-]{2,40})/i);
+  if (m && m[1]) return m[1].trim().replace(/\s+/g, ' ');
+  // Wire In/Out: "WIRE OUT TO <NAME>" or "FEDWIRE CREDIT ... FROM <NAME>"
+  m = s.match(/WIRE\s+(?:IN|OUT|CREDIT|DEBIT)[\s:-]*(?:TO|FROM)?\s+([A-Z][A-Za-z0-9 .&'-]{2,40})/i);
+  if (m && m[1]) return m[1].trim().replace(/\s+/g, ' ');
+  // Online transfers: unique by the destination account tail (e.g. CHK ...2001)
+  m = s.match(/online\s+transfer\s+to\s+[a-z]+\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  if (m) return 'Online Transfer to ...' + m[1];
+  m = s.match(/online\s+transfer\s+from\s+[a-z]+\s+(?:\.{3}|\.\.\.)?(\d{3,4})/i);
+  if (m) return 'Online Transfer from ...' + m[1];
+  // Debit card: "PURCHASE AUTH ... <MERCHANT> <CITY> <STATE>"
+  m = s.match(/(?:PURCHASE|DEBIT\s+CARD)\s+(?:AUTH)?[\s:#\d-]+([A-Z][A-Za-z0-9 .&'-]{3,40})/i);
+  if (m && m[1]) return m[1].trim().replace(/\s+/g, ' ');
+  // Default: first 3 significant words, strip long numeric runs
+  var cleaned = s.replace(/\b\d{5,}\b/g, '').replace(/\s+/g, ' ').trim();
+  return cleaned.split(/\s+/).slice(0, 4).join(' ');
+}
+
+// Does this Plaid txn match this rule? Mirrors _qbCategorizePlaidTxn_'s
+// filter logic but takes a single rule — exposed for the suggestion engine.
+function _qbRuleMatches_(txn, rule) {
+  var mAcct = String(rule['Match Plaid Account'] || '').toLowerCase().trim();
+  var mName = String(rule['Match Name Contains'] || '').toLowerCase().trim();
+  var mAmt  = String(rule['Match Amount'] || '').trim();
+  var dir   = String(rule['Direction'] || 'both').toLowerCase();
+  if (dir === 'in'  && txn.amount < 0) return false;
+  if (dir === 'out' && txn.amount > 0) return false;
+  if (mAcct && String(txn.account || '').toLowerCase().indexOf(mAcct) < 0 && String(txn.accountId || '') !== mAcct) return false;
+  if (mName && String(txn.name || '').toLowerCase().indexOf(mName) < 0) return false;
+  if (mAmt) {
+    var want = mAmt.split('|').map(function(s) { return Number(s.trim()); });
+    var hit = want.some(function(v) { return Math.abs(v - txn.amount) < 0.005; });
+    if (!hit) return false;
+  }
+  return true;
+}
+
+// Suggest a category for a single Plaid txn by scanning rules + prior
+// categorizations. Returns { category, source: 'rule'|'history', hint, ruleId }.
+function _qbSuggestCategory_(txn, rules, historyMap) {
+  // 1. Rule hit wins
+  for (var i = 0; i < rules.length; i++) {
+    if (_qbRuleMatches_(txn, rules[i])) {
+      var dr = String(rules[i]['DR Account'] || '').trim();
+      var cr = String(rules[i]['CR Account'] || '').trim();
+      // Choose the non-bank leg from the rule (if two-sided).
+      // For simplicity: inflow → the CR account is the suggestion; outflow → DR.
+      var cat = txn.amount > 0 ? cr : dr;
+      if (!cat) cat = dr || cr;
+      return { category: cat, source: 'rule', hint: rules[i]['Match Name Contains'], ruleId: rules[i].ID };
+    }
+  }
+  // 2. History: did a prior txn with the same merchant hint get categorized?
+  if (historyMap) {
+    var hint = _qbExtractMerchantHint_(txn.name).toLowerCase();
+    if (hint && historyMap[hint] && historyMap[hint] !== 'Ask My Accountant') {
+      return { category: historyMap[hint], source: 'history', hint: hint, ruleId: '' };
+    }
+  }
+  return null;
+}
+
+// Public: create a bank rule, then optionally auto-post every unposted Plaid
+// txn that matches it. Returns { ruleId, applied } where applied is the
+// number of txns that got posted as a result.
+function addQBRule(entity, matcherConfig, applyToUnposted) {
+  _requireEditor_();
+  ensureQBSheets_();
+  entity = String(entity || 'NF CA');
+  matcherConfig = matcherConfig || {};
+  var cat = String(matcherConfig.category || '').trim();
+  if (!cat) throw new Error('category is required');
+  var dir = String(matcherConfig.direction || 'both').toLowerCase();
+  var isIn = dir === 'in' || (dir === 'both' && Number(matcherConfig.sampleAmount) > 0);
+
+  // Pick DR/CR from category + inferred direction. For an INflow, bank is DR,
+  // category is CR. For an OUTflow, category is DR, bank is CR. Store both
+  // directions in the rule so the matcher doesn't have to guess at sync time.
+  // (The sync picks the right leg based on sign.) We store the category on
+  // BOTH legs so the single-sided fallback in syncQBEntityFromPlaid picks
+  // the category regardless of sign — then direction filter narrows which
+  // txns the rule applies to.
+  var drAcct, crAcct;
+  if (dir === 'in') { drAcct = ''; crAcct = cat; }
+  else if (dir === 'out') { drAcct = cat; crAcct = ''; }
+  else {
+    // 'both': store category on both sides. Sync picks the opposite side of
+    // whichever direction the actual txn is.
+    drAcct = cat; crAcct = cat;
+  }
+
+  // Priority: later rules match last → put each new rule at the back of its
+  // priority band so earlier user-created rules keep precedence by order.
+  var existingRules = _getQBRows_('QB_RULES', QB_RULES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; });
+  var nextPriority = 100 + existingRules.length;
+
+  var now = new Date();
+  var ruleId = 'qbrule-' + Utilities.getUuid().substring(0, 10);
+  _writeQBRow_('QB_RULES', QB_RULES_HEADERS, {
+    'ID':                   ruleId,
+    'Entity':               entity,
+    'Priority':             nextPriority,
+    'Match Plaid Account':  String(matcherConfig.matchPlaidAccount || ''),
+    'Match Name Contains':  String(matcherConfig.matchName || ''),
+    'Match Amount':         String(matcherConfig.matchAmount || ''),
+    'Direction':            dir,
+    'DR Account':           drAcct,
+    'CR Account':           crAcct,
+    'Memo Template':        String(matcherConfig.memoTemplate || ''),
+    'Active':               'Yes',
+    'Date Added':           now,
+    'Last Updated':         now
+  });
+
+  // Optionally sweep unposted txns and auto-post those that match this rule.
+  var applied = 0;
+  if (applyToUnposted) {
+    var feed = getQBBankingFeed(entity);
+    var rule = {
+      'Match Plaid Account': matcherConfig.matchPlaidAccount || '',
+      'Match Name Contains': matcherConfig.matchName || '',
+      'Match Amount':        matcherConfig.matchAmount || '',
+      'Direction':           dir,
+      'DR Account':          drAcct,
+      'CR Account':          crAcct
+    };
+    (feed.txns || []).forEach(function(t) {
+      if (t.posted) return;
+      if (!_qbRuleMatches_(t, rule)) return;
+      try {
+        postQBPlaidTxn(entity, t.plaidId, cat, '');
+        applied++;
+      } catch (e) {
+        Logger.log('Rule apply skipped ' + t.plaidId + ': ' + e.message);
+      }
+    });
+  }
+
+  return { success: true, ruleId: ruleId, applied: applied };
+}
+
+// Public: list all bank rules for an entity, with the Plaid-side matcher
+// summarized for the UI.
+function getQBRules(entity) {
+  entity = String(entity || 'NF CA');
+  var rules = _getQBRows_('QB_RULES', QB_RULES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; })
+    .sort(function(a, b) { return (Number(a.Priority) || 999) - (Number(b.Priority) || 999); });
+  return JSON.parse(JSON.stringify(rules));
+}
+
+// Public: delete a rule. Doesn't un-post anything already classified via it.
+function deleteQBRule(ruleId) {
+  _requireEditor_();
+  ensureQBSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('QB_RULES');
+  if (!sheet || sheet.getLastRow() < 2) return { success: false };
+  var lastCol = Math.max(sheet.getLastColumn(), QB_RULES_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iId = hdr.indexOf('ID');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  for (var r = data.length - 1; r >= 0; r--) {
+    if (String(data[r][iId]) === String(ruleId)) {
+      sheet.deleteRow(r + 2);
+      return { success: true };
+    }
+  }
+  return { success: false };
+}
+
 
 // Return a flat list of COA account options for the inline category picker,
 // grouped and sorted sensibly. Excludes bank/CC accounts by default (those

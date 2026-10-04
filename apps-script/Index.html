@@ -801,6 +801,54 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
   </div>
 </div>
 
+<!-- QuickBooks: Create Bank Rule modal -->
+<div class="modal-overlay" id="qb-rule-modal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-header">
+      <div class="modal-title">💡 Create a bank rule?</div>
+      <button class="modal-close" onclick="closeModal('qb-rule-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:#5f7791;margin-bottom:12px">
+        QuickBooks will auto-categorize every matching transaction going forward (and apply to any unposted ones right now, if you check the box).
+      </div>
+      <div id="qb-rule-txn-preview" style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#0d2137"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">When description contains</label>
+          <input id="qb-rule-match-name" type="text" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Direction</label>
+          <select id="qb-rule-direction" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+            <option value="both">Any direction</option>
+            <option value="in">Money IN only</option>
+            <option value="out">Money OUT only</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">And amount matches (optional)</label>
+          <input id="qb-rule-match-amount" type="text" placeholder="blank = any; or e.g. -1254.88" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Then categorize as</label>
+          <input id="qb-rule-category" type="text" readonly style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px;background:#f0f3f7">
+        </div>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#0d2137;cursor:pointer">
+        <input id="qb-rule-apply-now" type="checkbox" checked>
+        <span>Apply to all matching unposted transactions right now</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('qb-rule-modal')">Not now</button>
+      <button class="btn btn-primary" onclick="_qbSaveRule()">Create rule</button>
+    </div>
+  </div>
+</div>
+
 <!-- Reservation Classifier Modal -->
 <div class="modal-overlay" id="prop-res-classify-modal">
   <div class="modal" style="max-width:480px">
@@ -9327,6 +9375,9 @@ var _qbState = {
   asOfDate: '2025-12-31',
   categoryOptions: null,       // cached COA options for the inline picker
   bankingFilter: 'all',        // 'all' | 'needsReview' | 'reviewed'
+  currentBanking: null,        // last-fetched feed, used by rule modal
+  pendingRuleTxn: null,
+  pendingRuleCategory: null,
   cache: {}
 };
 
@@ -9478,10 +9529,10 @@ function _qbSetBankingFilter(key) {
 function _qbCategorySelect(txnKey, t) {
   var opts = _qbState.categoryOptions && _qbState.categoryOptions.groups;
   if (!opts) return '<em style="color:#7a8ba8;font-size:11px">loading…</em>';
-  // Default to opposite-side group for cash flow (income for +, expenses for −).
-  var html = '<select id="qb-cat-' + txnKey + '" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid #c0ccd8;border-radius:4px">';
+  // Pre-selection priority: posted category > suggestion from rule/history > nothing.
+  var preselected = t.posted && t.category ? t.category : (t.suggestion && t.suggestion.category ? t.suggestion.category : '');
+  var html = '<select id="qb-cat-' + txnKey + '" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid ' + (t.suggestion && !t.posted ? '#1a73e8' : '#c0ccd8') + ';border-radius:4px">';
   html += '<option value="">— pick category —</option>';
-  // Prefer income first for inflows, expenses first for outflows.
   var order = t.amount >= 0
     ? ['Income','Expense','Asset','Liability','Equity','Other']
     : ['Expense','Income','Asset','Liability','Equity','Other'];
@@ -9490,12 +9541,17 @@ function _qbCategorySelect(txnKey, t) {
     if (!acts.length) return;
     html += '<optgroup label="' + esc(group === 'Income' ? 'Income' : (group === 'Expense' ? 'Expenses' : group + 's')) + '">';
     acts.forEach(function(a) {
-      var sel = t.posted && t.category === a.name ? ' selected' : '';
+      var sel = a.name === preselected ? ' selected' : '';
       html += '<option value="' + esc(a.name) + '"' + sel + '>' + esc(a.name) + '</option>';
     });
     html += '</optgroup>';
   });
   html += '</select>';
+  // Suggestion hint
+  if (t.suggestion && !t.posted) {
+    var reason = t.suggestion.source === 'rule' ? 'rule' : 'learned from past';
+    html += '<div style="font-size:10px;color:#1a73e8;margin-top:3px">💡 ' + esc(reason) + ': ' + esc(t.suggestion.category) + '</div>';
+  }
   return html;
 }
 
@@ -9511,9 +9567,21 @@ function _qbAdd(plaidId, txnKey) {
   var cat = document.getElementById('qb-cat-' + txnKey).value;
   if (!cat) { toast('Pick a category first', 'error'); return; }
   var entity = _qbState.currentEntity;
+  // Grab the txn from state BEFORE the post so we can pre-fill the rule modal.
+  var txn = _qbFindTxnByPlaidId(plaidId);
   toast('Adding…');
   google.script.run
-    .withSuccessHandler(function() { toast('Added'); _qbRenderReport(); })
+    .withSuccessHandler(function() {
+      toast('Added');
+      // After a successful post, offer to create a rule for future matching
+      // txns — unless (a) the txn came from a rule already, OR (b) a similar
+      // rule already exists for this merchant hint.
+      if (txn && !_qbRuleAlreadyExistsFor(txn, cat)) {
+        _qbOpenRuleModal(txn, cat);
+      } else {
+        _qbRenderReport();
+      }
+    })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .postQBPlaidTxn(entity, plaidId, cat, '');
 }
@@ -9522,11 +9590,81 @@ function _qbReclassify(plaidId, txnKey) {
   var cat = document.getElementById('qb-cat-' + txnKey).value;
   if (!cat) { toast('Pick a category first', 'error'); return; }
   var entity = _qbState.currentEntity;
+  var txn = _qbFindTxnByPlaidId(plaidId);
   toast('Reclassifying…');
   google.script.run
-    .withSuccessHandler(function() { toast('Reclassified'); _qbRenderReport(); })
+    .withSuccessHandler(function() {
+      toast('Reclassified');
+      // Same rule-prompt logic as Add — if there's no rule for this merchant
+      // yet, offer to create one so the next matching Plaid txn auto-codes.
+      if (txn && !_qbRuleAlreadyExistsFor(txn, cat)) {
+        _qbOpenRuleModal(txn, cat);
+      } else {
+        _qbRenderReport();
+      }
+    })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .reclassifyQBPlaidTxn(entity, plaidId, cat);
+}
+
+function _qbFindTxnByPlaidId(plaidId) {
+  var feed = _qbState.currentBanking;
+  if (!feed || !feed.txns) return null;
+  return feed.txns.find(function(t) { return String(t.plaidId) === String(plaidId); });
+}
+
+function _qbRuleAlreadyExistsFor(txn, category) {
+  // If this txn already had a rule-sourced suggestion for THIS category, the
+  // user is confirming an existing rule — no need to re-prompt.
+  return txn.suggestion && txn.suggestion.source === 'rule' && txn.suggestion.category === category;
+}
+
+// ─── Create Bank Rule modal ─────────────────────────────────────────────────
+
+function _qbOpenRuleModal(txn, category) {
+  var hint = txn.merchantHint || '';
+  _qbState.pendingRuleTxn = txn;
+  _qbState.pendingRuleCategory = category;
+  document.getElementById('qb-rule-txn-preview').innerHTML =
+    '<div style="font-weight:600;color:#0d2137;margin-bottom:4px">' + esc(txn.name || '') + '</div>' +
+    '<div style="color:#5f7791">' + esc(txn.date) + ' · ' + esc(txn.bankAccount) + ' · <span style="font-weight:600;color:' + (txn.amount >= 0 ? '#1e8e3e' : '#c5221f') + '">' + _qbFmt(txn.amount) + '</span></div>';
+  document.getElementById('qb-rule-match-name').value = hint;
+  document.getElementById('qb-rule-direction').value = txn.amount >= 0 ? 'in' : 'out';
+  document.getElementById('qb-rule-match-amount').value = '';
+  document.getElementById('qb-rule-category').value = category;
+  document.getElementById('qb-rule-apply-now').checked = true;
+  openModal('qb-rule-modal');
+}
+
+function _qbSaveRule() {
+  var txn = _qbState.pendingRuleTxn;
+  var cat = _qbState.pendingRuleCategory;
+  if (!txn || !cat) { closeModal('qb-rule-modal'); return; }
+  var matchName   = document.getElementById('qb-rule-match-name').value.trim();
+  var direction   = document.getElementById('qb-rule-direction').value;
+  var matchAmount = document.getElementById('qb-rule-match-amount').value.trim();
+  var applyNow    = document.getElementById('qb-rule-apply-now').checked;
+  if (!matchName && !matchAmount) {
+    toast('Pick a name match or amount match (or both)', 'error');
+    return;
+  }
+  var entity = _qbState.currentEntity;
+  toast('Creating rule…');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      closeModal('qb-rule-modal');
+      var applied = (r && r.applied) || 0;
+      toast(applied > 0 ? ('Rule created — auto-coded ' + applied + ' matching txn' + (applied === 1 ? '' : 's')) : 'Rule created');
+      _qbRenderReport();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .addQBRule(entity, {
+      matchName:        matchName,
+      matchAmount:      matchAmount,
+      direction:        direction,
+      category:         cat,
+      sampleAmount:     txn.amount
+    }, applyNow);
 }
 
 function _qbSoonBanner(name) {
