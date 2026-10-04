@@ -172,6 +172,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <button class="tab-btn" data-tab="tlmnd">TLMND Cash Flow</button>
     <button class="tab-btn" data-tab="loans">Loans</button>
     <button class="tab-btn" data-tab="money">Money Movement</button>
+    <button class="tab-btn" data-tab="properties">Properties</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="balance">Balance History</button>
@@ -702,7 +703,73 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading movements…</div>
     </div>
   </div>
+
+  <!-- Properties -->
+  <div class="tab-panel" id="tab-properties">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h2 style="font-size:20px;color:#0d2137;margin:0">Properties</h2>
+      <button class="btn btn-secondary" onclick="loadProperties()">↻ Refresh</button>
+    </div>
+    <div id="properties-content">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>
+    </div>
+  </div>
 </main>
+
+<!-- Property Detail Modal -->
+<div class="modal-overlay" id="prop-detail-modal">
+  <div class="modal" style="max-width:920px">
+    <div class="modal-header">
+      <div class="modal-title" id="prop-detail-title">Property</div>
+      <button class="modal-close" onclick="closeModal('prop-detail-modal')">x</button>
+    </div>
+    <div class="modal-body" id="prop-detail-body">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading…</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('prop-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Transaction Classifier Modal (for Needs Review items) -->
+<div class="modal-overlay" id="prop-classify-modal">
+  <div class="modal" style="max-width:540px">
+    <div class="modal-header">
+      <div class="modal-title">Classify Transaction</div>
+      <button class="modal-close" onclick="closeModal('prop-classify-modal')">x</button>
+    </div>
+    <div class="modal-body">
+      <div id="prop-classify-txn" style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#0d2137"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Category</label>
+          <select id="prop-classify-category" onchange="_updateClassifySubs()" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+            <option value="">— pick —</option>
+            <option value="Revenue">Revenue</option>
+            <option value="Direct Cost">Direct Cost</option>
+            <option value="Operating Expense">Operating Expense</option>
+            <option value="Debt Service">Debt Service</option>
+            <option value="Reimbursement">Reimbursement (not income)</option>
+            <option value="Internal Transfer">Internal Transfer (ignore)</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Subcategory</label>
+          <input id="prop-classify-subcategory" type="text" placeholder="e.g. Rental Income (Direct)" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+        </div>
+      </div>
+      <div>
+        <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Notes (optional)</label>
+        <input id="prop-classify-notes" type="text" placeholder="e.g. Direct guest wire from Smith" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('prop-classify-modal')">Cancel</button>
+      <button class="btn btn-primary" onclick="_savePropClassification()">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- New Movement Modal -->
 <div class="modal-overlay" id="move-new-modal">
@@ -2366,6 +2433,7 @@ function switchTab(name){
   if(name==='tlmnd')    loadTLMNDCashFlow();
   if(name==='loans')    loadLoans();
   if(name==='money')    loadMoneyMovement();
+  if(name==='properties') loadProperties();
 }
 
 // ─── LOANS TAB ──────────────────────────────────────────────────────────
@@ -8545,6 +8613,326 @@ function _fmtMoneyInputAccounting(el) {
     maximumFractionDigits: 2
   });
 }
+
+// ─── PROPERTIES TAB ─────────────────────────────────────────────────────────
+// Card view of all properties → tap a card → monthly report drill-down
+// with 5 tiles + categorized P&L + reservations + Needs Review inbox.
+// Mirrors Amanda's existing Dorado Excel layout + the modern aesthetic of
+// the TLMND cash flow / Net Worth PDF.
+
+var _propsState = {
+  properties: [],
+  currentPropertyId: null,
+  currentReport: null,
+  currentClassifyTxnId: null,
+  reportMonthOffset: 0   // 0 = last completed month, -1 = month before, etc.
+};
+
+function loadProperties() {
+  var el = document.getElementById('properties-content');
+  if (el) el.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>';
+  google.script.run
+    .withSuccessHandler(function(props) {
+      _propsState.properties = props || [];
+      _renderPropertiesLanding();
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('properties-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getProperties();
+}
+
+function _renderPropertiesLanding() {
+  var props = _propsState.properties || [];
+  var el = document.getElementById('properties-content');
+  if (!props.length) {
+    el.innerHTML =
+      '<div style="background:#fff3cd;border:1px solid #ffe08a;border-radius:8px;padding:16px;color:#7a5c00;font-size:14px">' +
+        'No properties yet. Ask Amanda to run <b>Tracker → Properties → Seed Dorado</b> from the sheet menu.' +
+      '</div>';
+    return;
+  }
+
+  // Grid of property cards.
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px">';
+  props.forEach(function(p) {
+    var addr = String(p['Address'] || '');
+    var city = String(p['City'] || '');
+    var manager = String(p['Manager'] || '');
+    html +=
+      '<div class="card" role="button" tabindex="0" style="cursor:pointer;-webkit-tap-highlight-color:rgba(0,0,0,0.05)" ' +
+           'onclick="_openPropertyDetail(\'' + esc(String(p['ID'])) + '\')">' +
+        '<div style="font-size:16px;font-weight:700;color:#0d2137;margin-bottom:4px">' + esc(p['Name']) + '</div>' +
+        '<div style="font-size:12px;color:#5f7791;margin-bottom:10px">' +
+          (addr ? esc(addr) : esc(city)) +
+          (manager ? ' · managed by ' + esc(manager) : '') +
+        '</div>' +
+        '<div style="display:flex;gap:10px;font-size:11px;color:#5f7791">' +
+          '<div>📅 <span style="color:#0d2137;font-weight:600">' + (p['Google Calendar ID'] ? 'calendar linked' : 'no calendar') + '</span></div>' +
+          '<div>💳 <span style="color:#0d2137;font-weight:600">' + (p['Plaid Account IDs'] ? 'accounts linked' : 'no accounts') + '</span></div>' +
+        '</div>' +
+        '<div style="margin-top:10px;font-size:12px;color:#1a73e8;font-weight:600">View monthly report →</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+
+// ─── Property Detail Modal ────────────────────────────────────────────────
+
+function _openPropertyDetail(propertyId) {
+  _propsState.currentPropertyId = propertyId;
+  _propsState.reportMonthOffset = 0;   // reset to last completed month
+  document.getElementById('prop-detail-title').textContent = 'Property';
+  document.getElementById('prop-detail-body').innerHTML =
+    '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading report…</div>';
+  openModal('prop-detail-modal');
+  _loadPropertyReport();
+}
+
+function _loadPropertyReport() {
+  var propertyId = _propsState.currentPropertyId;
+  if (!propertyId) return;
+  // Compute year/month from offset. 0 = last completed month, -1 = month before.
+  var now = new Date();
+  var baseMonth = now.getMonth() - 1 + _propsState.reportMonthOffset;   // 0-indexed; prior month
+  var y = now.getFullYear();
+  while (baseMonth < 0) { y--; baseMonth += 12; }
+  while (baseMonth > 11) { y++; baseMonth -= 12; }
+  var m = baseMonth + 1;   // 1-indexed for server
+  document.getElementById('prop-detail-body').innerHTML =
+    '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading ' +
+    new Date(y, m - 1, 1).toLocaleDateString('en-US',{month:'long',year:'numeric'}) + ' report…</div>';
+  google.script.run
+    .withSuccessHandler(function(report) {
+      _propsState.currentReport = report;
+      _renderPropertyReport(report);
+    })
+    .withFailureHandler(function(e) {
+      document.getElementById('prop-detail-body').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getPropertyMonthlyReport(propertyId, y, m);
+}
+
+function _renderPropertyReport(r) {
+  if (!r || r.error) {
+    document.getElementById('prop-detail-body').innerHTML =
+      '<div style="padding:40px;text-align:center;color:#c5221f">' + esc((r && r.error) || 'No report data') + '</div>';
+    return;
+  }
+  var prop = r.property || {};
+  var t = r.tiles || {};
+  var op = r.operational || {};
+  var rev = r.revenue || {};
+
+  document.getElementById('prop-detail-title').innerHTML =
+    esc(prop['Name']) + ' <span style="color:#7a8ba8;font-weight:400">· ' + esc(r.monthLabel) + '</span>';
+
+  var html = '';
+
+  // Month navigator
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px">' +
+    '<button class="btn btn-secondary" onclick="_shiftReportMonth(-1)" style="padding:6px 12px;font-size:12px">← Previous</button>' +
+    '<div style="font-size:14px;font-weight:600;color:#0d2137">' + esc(r.monthLabel) + '</div>' +
+    '<button class="btn btn-secondary" onclick="_shiftReportMonth(1)" style="padding:6px 12px;font-size:12px" ' +
+            (_propsState.reportMonthOffset >= 0 ? 'disabled' : '') + '>Next →</button>' +
+  '</div>';
+
+  // 4 header tiles + Net Cash Flow banner
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px">' +
+    _propTile('RENTS COLLECTED',   t.rentsCollected,        '#1e8e3e') +
+    _propTile('TOTAL OPERATING EXP', t.totalOperatingExpense, '#c5221f') +
+    _propTile('NET OPERATING INCOME', t.netOperatingIncome,  t.netOperatingIncome >= 0 ? '#1e8e3e' : '#c5221f') +
+    _propTile('DEBT SERVICE',     t.debtService,           '#c5221f') +
+  '</div>';
+  html += '<div style="background:linear-gradient(135deg,#0d2137,#1a3a5c);color:#fff;border-radius:8px;padding:14px 20px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center">' +
+    '<div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;opacity:.8">Net Cash Flow</div>' +
+    '<div style="font-size:22px;font-weight:700;color:' + (t.netCashFlow >= 0 ? '#4ade80' : '#f87171') + '">' + _fmtPropAccounting(t.netCashFlow || 0) + '</div>' +
+  '</div>';
+
+  // Operational metrics
+  html += '<div style="background:#0d2137;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">Operational Metrics</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#e8ecf1;margin-bottom:14px">' +
+    _propMetricCell('Occupancy %', op.occupancyPct + '%') +
+    _propMetricCell('Reservations', op.reservations) +
+    _propMetricCell('Nights Booked', op.nightsBooked) +
+    _propMetricCell('Average Daily Rate', _fmtPropAccounting(op.averageDailyRate || 0)) +
+  '</div>';
+
+  // Operating Revenue
+  html += _propSection('Operating Revenue', [
+    { label: 'Total Rental Amount', amount: rev.grossRentalAmount },
+    { label: 'Net Room Revenue',    amount: rev.netRoomRevenue }
+  ]);
+
+  // Direct Costs (Alma fee + sub rules)
+  var directItems = [];
+  if (r.directCosts && r.directCosts.almaFee) {
+    directItems.push({ label: 'Alma Fees (20%)', amount: r.directCosts.almaFee });
+  }
+  if (r.directCosts && r.directCosts.subcategories) {
+    Object.keys(r.directCosts.subcategories).forEach(function(sub) {
+      directItems.push({ label: sub, amount: r.directCosts.subcategories[sub].total });
+    });
+  }
+  if (directItems.length) html += _propSection('Direct Costs', directItems);
+
+  // Operating Expenses
+  var opexItems = [];
+  Object.keys(r.operatingExpenses || {}).forEach(function(sub) {
+    opexItems.push({ label: sub, amount: r.operatingExpenses[sub].total });
+  });
+  if (opexItems.length) html += _propSection('Operating Expenses', opexItems);
+
+  // Debt Service
+  var debtItems = [];
+  Object.keys(r.debtService || {}).forEach(function(sub) {
+    debtItems.push({ label: sub, amount: r.debtService[sub].total });
+  });
+  if (debtItems.length) html += _propSection('Debt Service', debtItems);
+
+  // Grand totals block (matches Amanda's Excel bottom section)
+  html += '<div style="background:#0d2137;color:#fff;border-radius:6px;padding:10px 14px;margin-top:10px">' +
+    _propTotalLine('Rents Collected',  t.rentsCollected) +
+    _propTotalLine('Direct Costs',     (r.directCosts && r.directCosts.almaFee ? r.directCosts.almaFee : 0) + _sumBuckets(r.directCosts && r.directCosts.subcategories)) +
+    _propTotalLine('Operating Expenses', _sumBuckets(r.operatingExpenses)) +
+    _propTotalLine('Net Operating Income', t.netOperatingIncome) +
+    _propTotalLine('Debt Service',     t.debtService) +
+    _propTotalLine('Net Cash Flow',    t.netCashFlow, true) +
+  '</div>';
+
+  // Reservations list
+  if (r.reservations && r.reservations.length) {
+    html += '<div style="margin-top:18px"><div style="background:#0d2137;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">Reservations This Month</div>' +
+      '<div style="background:#fff;border:1px solid #e8ecf1;border-top:none;border-radius:0 0 6px 6px">';
+    r.reservations.forEach(function(res) {
+      var srcColor = res.source === 'owner' ? '#7a8ba8' : res.source === 'alma' ? '#1e8e3e' : '#1a73e8';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid #f0f3f7;font-size:12px">' +
+        '<div><span style="color:' + srcColor + ';font-weight:700;text-transform:uppercase;font-size:10px;letter-spacing:.3px">[' + res.source + ']</span> ' + esc(res.title) + '</div>' +
+        '<div style="color:#5f7791">' + esc(res.startIso) + ' → ' + esc(res.endIso) + '</div>' +
+      '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  // Needs Review inbox
+  if (r.needsReview && r.needsReview.length) {
+    html += '<div style="margin-top:18px"><div style="background:#f9a825;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">Needs Review (' + r.needsReview.length + ')</div>' +
+      '<div style="background:#fff;border:1px solid #e8ecf1;border-top:none;border-radius:0 0 6px 6px">';
+    r.needsReview.forEach(function(txn) {
+      var amtColor = txn.amount >= 0 ? '#1e8e3e' : '#c5221f';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f0f3f7;font-size:12px;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="color:#0d2137;font-weight:500">' + esc(txn.name || '(no name)') + '</div>' +
+          '<div style="color:#7a8ba8;font-size:11px;margin-top:2px">' + esc(txn.dateIso) + ' · ' + esc(txn.account) + '</div>' +
+        '</div>' +
+        '<div style="color:' + amtColor + ';font-weight:600;white-space:nowrap">' + _fmtPropAccounting(txn.amount) + '</div>' +
+        '<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;white-space:nowrap" ' +
+                "onclick=\"_openClassifyModal('" + esc(txn.id) + "')\">Classify</button>" +
+      '</div>';
+    });
+    html += '</div></div>';
+  }
+
+  document.getElementById('prop-detail-body').innerHTML = html;
+}
+
+function _shiftReportMonth(delta) {
+  _propsState.reportMonthOffset += delta;
+  if (_propsState.reportMonthOffset > 0) _propsState.reportMonthOffset = 0;
+  _loadPropertyReport();
+}
+
+function _propTile(label, value, color) {
+  var v = _fmtPropAccounting(value || 0);
+  return '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;padding:10px 14px;text-align:center">' +
+    '<div style="font-size:10px;color:#5f7791;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px">' + esc(label) + '</div>' +
+    '<div style="font-size:16px;font-weight:700;color:' + (color || '#0d2137') + '">' + v + '</div>' +
+  '</div>';
+}
+function _propMetricCell(label, value) {
+  return '<div style="background:#fff;padding:10px 12px;text-align:center">' +
+    '<div style="font-size:10px;color:#7a8ba8;letter-spacing:.3px;text-transform:uppercase;margin-bottom:4px">' + esc(label) + '</div>' +
+    '<div style="font-size:14px;font-weight:600;color:#0d2137">' + esc(String(value)) + '</div>' +
+  '</div>';
+}
+function _propSection(title, items) {
+  var html = '<div style="margin-top:14px">' +
+    '<div style="background:#0d2137;color:#fff;padding:6px 12px;font-size:11px;font-weight:600;letter-spacing:.5px;text-transform:uppercase">' + esc(title) + '</div>' +
+    '<div style="background:#fff;border:1px solid #e8ecf1;border-top:none">';
+  items.forEach(function(item, i) {
+    var isLast = i === items.length - 1;
+    html += '<div style="display:flex;justify-content:space-between;padding:7px 14px;' + (isLast ? '' : 'border-bottom:1px solid #f0f3f7;') + 'font-size:13px">' +
+      '<span style="color:#5f7791">' + esc(item.label) + '</span>' +
+      '<span style="color:#0d2137;font-weight:600;font-variant-numeric:tabular-nums">' + _fmtPropAccounting(item.amount || 0) + '</span>' +
+    '</div>';
+  });
+  html += '</div></div>';
+  return html;
+}
+function _propTotalLine(label, amount, bold) {
+  return '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;' + (bold ? 'font-weight:700;border-top:1px solid rgba(255,255,255,.2);padding-top:8px;margin-top:4px' : 'opacity:.9') + '">' +
+    '<span>' + esc(label) + '</span>' +
+    '<span style="font-variant-numeric:tabular-nums">' + _fmtPropAccounting(amount || 0) + '</span>' +
+  '</div>';
+}
+function _sumBuckets(buckets) {
+  if (!buckets) return 0;
+  var sum = 0;
+  Object.keys(buckets).forEach(function(k) { sum += buckets[k].total || 0; });
+  return sum;
+}
+function _fmtPropAccounting(n) {
+  var num = Number(n) || 0;
+  var neg = num < 0;
+  var abs = Math.abs(num);
+  var str = '$' + abs.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  return neg ? '(' + str + ')' : str;
+}
+
+
+// ─── Classify Transaction Modal ────────────────────────────────────────────
+
+function _openClassifyModal(txnId) {
+  var report = _propsState.currentReport;
+  var txn = (report && report.needsReview || []).find(function(t) { return String(t.id) === String(txnId); });
+  if (!txn) return;
+  _propsState.currentClassifyTxnId = txnId;
+  var box = document.getElementById('prop-classify-txn');
+  box.innerHTML =
+    '<div style="font-weight:600;color:#0d2137;margin-bottom:4px">' + esc(txn.name || '(no name)') + '</div>' +
+    '<div style="color:#5f7791">' + esc(txn.dateIso) + ' · ' + esc(txn.account) + ' · <span style="font-weight:600;color:' + (txn.amount >= 0 ? '#1e8e3e' : '#c5221f') + '">' + _fmtPropAccounting(txn.amount) + '</span></div>';
+  document.getElementById('prop-classify-category').value = '';
+  document.getElementById('prop-classify-subcategory').value = '';
+  document.getElementById('prop-classify-notes').value = '';
+  openModal('prop-classify-modal');
+}
+
+function _updateClassifySubs() {
+  // Could prefill subcategory based on category — keep simple for now.
+}
+
+function _savePropClassification() {
+  var txnId = _propsState.currentClassifyTxnId;
+  var propertyId = _propsState.currentPropertyId;
+  var cat = document.getElementById('prop-classify-category').value;
+  var sub = document.getElementById('prop-classify-subcategory').value;
+  var notes = document.getElementById('prop-classify-notes').value;
+  if (!cat) { toast('Pick a category', 'error'); return; }
+  if (!sub)  sub = cat;
+  google.script.run
+    .withSuccessHandler(function() {
+      closeModal('prop-classify-modal');
+      toast('Classified');
+      _loadPropertyReport();   // refresh the detail — txn moves out of Needs Review into its category
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setPropertyTxnOverride(txnId, propertyId, cat, sub, notes);
+}
+
 
 function _copyFallback(text, successMsg) {
   var ta = document.createElement('textarea');
