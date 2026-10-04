@@ -778,8 +778,11 @@ function syncQBEntityFromPlaid(entity) {
       // Rule hit: returns { category: 'DR' | 'CR' | 'both', drAccount, crAccount, memo }.
       var hit = _qbCategorizePlaidTxn_({ amount: amt, name: name, account: pAcctStr, accountId: pAcctId }, rules);
       var otherAccount, isReview = false;
-      if (hit && hit.drAccount && hit.crAccount) {
-        // Explicit two-sided rule.
+      // Only use the two-sided path when the rule names TWO DIFFERENT accounts.
+      // (addQBRule stores the SAME category on both legs for a direction='both'
+      // rule — in that case fall through to single-sided so the bank side gets
+      // resolved automatically from the txn sign.)
+      if (hit && hit.drAccount && hit.crAccount && hit.drAccount !== hit.crAccount) {
         _postJE_(entity, d, hit.memo || name, [
           { account: hit.drAccount, debit: Math.abs(amt), credit: 0 },
           { account: hit.crAccount, debit: 0, credit: Math.abs(amt) }
@@ -1391,7 +1394,14 @@ function addQBRule(entity, matcherConfig, applyToUnposted) {
     'Last Updated':         now
   });
 
-  // Optionally sweep unposted txns and auto-post those that match this rule.
+  // Optionally sweep every matching Plaid txn and apply the rule's category.
+  // Three cases to handle:
+  //   1. Unposted         → post a fresh JE with the category.
+  //   2. Posted + needs review (Ask My Accountant) → reclassify in place.
+  //   3. Posted to a real category → skip (don't overwrite a prior decision).
+  // Case 2 is the common one here because the Banking view auto-syncs on
+  // open — every txn ends up posted to Ask My Accountant before Amanda
+  // ever touches it.
   var applied = 0;
   if (applyToUnposted) {
     var feed = getQBBankingFeed(entity);
@@ -1404,11 +1414,16 @@ function addQBRule(entity, matcherConfig, applyToUnposted) {
       'CR Account':          crAcct
     };
     (feed.txns || []).forEach(function(t) {
-      if (t.posted) return;
       if (!_qbRuleMatches_(t, rule)) return;
       try {
-        postQBPlaidTxn(entity, t.plaidId, cat, '');
-        applied++;
+        if (!t.posted) {
+          postQBPlaidTxn(entity, t.plaidId, cat, '');
+          applied++;
+        } else if (t.needsReview) {
+          reclassifyQBPlaidTxn(entity, t.plaidId, cat);
+          applied++;
+        }
+        // Case 3: posted + already-categorized → leave it alone.
       } catch (e) {
         Logger.log('Rule apply skipped ' + t.plaidId + ': ' + e.message);
       }
