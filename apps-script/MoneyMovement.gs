@@ -1086,6 +1086,7 @@ function autoCheckoffMovementWires() {
   var summary = [];
   var now = new Date();
   var me  = _currentUserEmail_();
+  var ipName = pHdr.indexOf('Name');
 
   candidateWires.forEach(function(cw) {
     var fromAcct = String(cw.hop['From Account'] || '');
@@ -1094,7 +1095,7 @@ function autoCheckoffMovementWires() {
     var toKey    = _lastFourDigits_(toAcct);
     if (!fromKey && !toKey) return;   // no account signature to match
 
-    // Date window: created ± 2 days back → today + 1 day.
+    // Date window: created - 2 days through today + 1 day.
     var createdAt = cw.move['Created At'] instanceof Date ? cw.move['Created At'] : new Date(cw.move['Created At']);
     var dateMin = new Date(createdAt.getTime() - 2 * 86400000);
     var dateMax = new Date(now.getTime() + 86400000);
@@ -1105,15 +1106,52 @@ function autoCheckoffMovementWires() {
       if (!pTxnId || alreadyLinked[pTxnId]) continue;
       var acct = String(pData[pr][ipAcct] || '');
       var acctLc = acct.toLowerCase();
-      var matchesAcct = (fromKey && acctLc.indexOf(fromKey) >= 0) ||
-                        (toKey   && acctLc.indexOf(toKey)   >= 0);
-      if (!matchesAcct) continue;
-      var pamt = Math.abs(Number(pData[pr][ipAmt]) || 0);
+      var matchesFrom = fromKey && acctLc.indexOf(fromKey) >= 0;
+      var matchesTo   = toKey   && acctLc.indexOf(toKey)   >= 0;
+      if (!matchesFrom && !matchesTo) continue;
+      var rawAmt = Number(pData[pr][ipAmt]) || 0;
+      var pamt = Math.abs(rawAmt);
       if (Math.abs(pamt - cw.amount) > 1.0) continue;   // $1 tolerance
       var d = pData[pr][ipDate] instanceof Date ? pData[pr][ipDate] : new Date(pData[pr][ipDate]);
       if (isNaN(d.getTime())) continue;
       if (d < dateMin || d > dateMax) continue;
-      hits.push({ txnId: pTxnId, date: d, account: acct, amount: pamt });
+      hits.push({
+        txnId: pTxnId, date: d, account: acct, amount: pamt,
+        signedAmount: rawAmt,
+        name: ipName >= 0 ? String(pData[pr][ipName] || '') : '',
+        matchesFrom: matchesFrom,
+        matchesTo:   matchesTo
+      });
+    }
+
+    // Disambiguation step 1: internal transfer dedup. If exactly 2 hits
+    // on the same date with matching absolute amount but opposite signs
+    // and one matches From account / other matches To account, they're
+    // the same wire seen from both ends. Pick the OUTGOING (negative)
+    // side as the canonical confirmation.
+    if (hits.length === 2) {
+      var h0 = hits[0], h1 = hits[1];
+      var sameDate = h0.date.getTime() === h1.date.getTime();
+      var sameAmt  = Math.abs(h0.amount - h1.amount) < 0.5;
+      var oppositeSigns = (h0.signedAmount < 0) !== (h1.signedAmount < 0);
+      var twoEnds = (h0.matchesFrom && h1.matchesTo) || (h0.matchesTo && h1.matchesFrom);
+      if (sameDate && sameAmt && oppositeSigns && twoEnds) {
+        hits = [h0.signedAmount < 0 ? h0 : h1];
+      }
+    }
+
+    // Disambiguation step 2: sibling name hint. For sibling wires that
+    // are all identical amount + account (e.g. Joint Mgmt → three siblings
+    // all at $333.33 on same day), narrow by matching the sibling's first
+    // name against the real Plaid transaction's recipient name.
+    if (hits.length > 1) {
+      var nameHint = _siblingNameHint_(toAcct) || _siblingNameHint_(fromAcct);
+      if (nameHint) {
+        var narrowed = hits.filter(function(h) {
+          return h.name.toLowerCase().indexOf(nameHint) >= 0;
+        });
+        if (narrowed.length === 1) hits = narrowed;
+      }
     }
 
     if (hits.length === 1) {
@@ -1229,6 +1267,17 @@ function getPlaidTxnDetails(txnId) {
 // Plaid account label (which always ends in "···<mask>").
 function _lastFourDigits_(label) {
   var m = String(label || '').match(/(\d{4})\D*$/);
+  return m ? m[1] : '';
+}
+
+// Extract a sibling first-name token from a wire account label if present.
+// Used to disambiguate between identical sibling wires on the same day
+// (e.g. three $333.33 outflows from Joint Mgmt → each sibling). The Plaid
+// transaction description for the real wire will contain the recipient's
+// first name, so narrowing on this field flips an ambiguous "3 candidates"
+// case into "1 match".
+function _siblingNameHint_(label) {
+  var m = String(label || '').toLowerCase().match(/\b(michelle|nancy|david|michael|mike)\b/);
   return m ? m[1] : '';
 }
 
