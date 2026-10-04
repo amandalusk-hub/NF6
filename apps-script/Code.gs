@@ -433,6 +433,7 @@ function onOpen() {
     .addItem('Properties → Debug: List Plaid Accounts (for setup)', 'debugListPlaidAccounts')
     .addItem('Properties → Wire Dorado Plaid Accounts (6179 + 0451)', 'wireDoradoPlaidAccounts')
     .addItem('Properties → Seed Dorado Mortgage ($21,668.72/mo recurring)', 'seedDoradoMortgageRecurring')
+    .addItem('Properties → Seed Dorado Club Dues ($1,112.22/mo recurring)', 'seedDoradoClubDuesRecurring')
     .addSeparator()
     .addItem('All Transactions → Sync ALL Plaid Transactions', 'syncAllPlaidTransactionsMenu')
     .addItem('All Transactions → Debug: List Accounts in PLAID_TRANSACTIONS', 'debugListPlaidTransactionAccounts')

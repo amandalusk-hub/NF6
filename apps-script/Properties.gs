@@ -432,14 +432,15 @@ function seedDoradoProperty() {
     { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1254.88', direction:'out',
       category:'Operating Expense', subcategory:'HOA Dues' },
 
-    // Dorado Club Fees — only the DUES portion ($1,112.22). Mike's food
-    // charges at the club (Panela Cocina Social, etc.) sometimes bundle
-    // into the same payment making the total $1,229.22 or similar; those
-    // months the transaction stays uncategorized (Needs Review) and Amanda
-    // adds a PROPERTY_MANUAL entry for -1112.22 to pull out just the dues.
-    { priority: 20, matchAccount:'oriental', matchName:'', matchAmount:'-1112.22', direction:'out',
-      category:'Operating Expense', subcategory:'Dorado Club Fees',
-      notes:'Pure-dues months only. Food-included months (DBR Dorado > 1112.22) stay in Needs Review.' },
+    // Dorado Beach Resort statement — bundles Club Dues ($1,112.22) +
+    // Mike's food charges at the club. Payment amount varies month-to-month
+    // depending on food charges. Rule: hide the full Plaid payment from the
+    // report ("Internal Transfer" = ignored), and let the PROPERTY_RECURRING
+    // entry supply the clean $1,112.22 Dorado Club Fees every month. Food
+    // charges stay off the Dorado report entirely (Mike personal).
+    { priority: 15, matchAccount:'6179', matchName:'dbr dorado', matchAmount:'', direction:'out',
+      category:'Internal Transfer', subcategory:'DBR Dorado statement (food + dues bundled; dues covered by recurring)',
+      notes:'Hide the raw payment — PROPERTY_RECURRING adds the clean $1,112.22 dues line.' },
 
     // Utilities — by biller name on Oriental.
     { priority: 30, matchAccount:'oriental', matchName:'claro', matchAmount:'', direction:'out',
@@ -1104,12 +1105,28 @@ function _runDoradoDebugForMonth(year, month) {
     '  Gross Rental Amount:  $' + report.revenue.grossRentalAmount.toFixed(2),
     '  Net Room Revenue:     $' + report.revenue.netRoomRevenue.toFixed(2),
     '',
-    'OPERATING EXPENSES'
+    'DIRECT COSTS'
   ];
+  // Direct costs: show the Alma fee (if any) first, then the sub-rules.
+  if (report.directCosts && report.directCosts.almaFee) {
+    lines.push('  Alma Fees (20%):  $' + report.directCosts.almaFee.toFixed(2) + '  (implied)');
+  }
+  if (report.directCosts && report.directCosts.subcategories) {
+    Object.keys(report.directCosts.subcategories).forEach(function(sub) {
+      lines.push('  ' + sub + ':  $' + report.directCosts.subcategories[sub].total.toFixed(2) +
+                 '  (' + report.directCosts.subcategories[sub].transactions.length + ' txn)');
+    });
+  }
+  if (!report.directCosts || (!report.directCosts.almaFee && (!report.directCosts.subcategories || !Object.keys(report.directCosts.subcategories).length))) {
+    lines.push('  (none)');
+  }
+  lines.push('');
+  lines.push('OPERATING EXPENSES');
   Object.keys(report.operatingExpenses).forEach(function(sub) {
     lines.push('  ' + sub + ':  $' + report.operatingExpenses[sub].total.toFixed(2) +
                '  (' + report.operatingExpenses[sub].transactions.length + ' txn)');
   });
+  if (!Object.keys(report.operatingExpenses).length) lines.push('  (none)');
   lines.push('');
   lines.push('DEBT SERVICE');
   Object.keys(report.debtService).forEach(function(sub) {
@@ -1383,6 +1400,55 @@ function wireDoradoPlaidAccounts() {
 // Amanda shared). Amount is fixed so no Plaid matching needed — the monthly
 // report auto-includes it for every month going forward.
 // Idempotent: skips if an existing recurring row already matches.
+// Menu-callable — install the Dorado Beach Club dues ($1,112.22/mo) as a
+// recurring entry. The raw Plaid payment to DBR Dorado varies month-to-month
+// (dues + occasional food charges) so we don't rely on auto-match. Instead
+// this recurring entry supplies the clean dues amount every month and the
+// matching Plaid rule hides the raw payment as "Internal Transfer".
+function seedDoradoClubDuesRecurring() {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var dorado = getProperties().find(function(p) { return /dorado/i.test(String(p['Name']||'')); });
+  if (!dorado) {
+    try { SpreadsheetApp.getUi().alert('No Dorado property found. Run "Properties → Seed Dorado" first.'); } catch(e) {}
+    return;
+  }
+  var existing = _getPropertySheetRows_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS)
+    .find(function(r) {
+      return String(r['Property ID']) === String(dorado['ID']) &&
+             /dorado club|club dues/i.test(String(r['Label']||''));
+    });
+  if (existing) {
+    try { SpreadsheetApp.getUi().alert('Dorado Club Dues recurring entry already exists (' + existing['ID'] + '). No changes made.'); } catch(e) {}
+    return;
+  }
+  var id = 'rec_' + Utilities.getUuid().substring(0, 8);
+  _writePropertyRow_('PROPERTY_RECURRING', PROPERTY_RECURRING_HEADERS, {
+    'ID':            id,
+    'Property ID':   dorado['ID'],
+    'Label':         'Dorado Club Dues',
+    'Amount':        -1112.22,          // negative = outflow
+    'Category':      'Operating Expense',
+    'Subcategory':   'Dorado Club Fees',
+    'Day of Month':  25,
+    'Start Month':   '2024-01',
+    'End Month':     '',
+    'Active':        'Yes',
+    'Notes':         'Fixed monthly dues. Raw DBR Dorado Plaid payment is hidden (varies with Mike\'s food charges); this clean $1,112.22 line is the real dues expense.',
+    'Date Added':    new Date(),
+    'Last Updated':  new Date()
+  });
+  _logAudit_('seedDoradoClubDues', 'property', dorado['ID'], 'Dorado',
+             'Added $1,112.22 monthly recurring (Dorado Club Dues).');
+  try {
+    SpreadsheetApp.getUi().alert('Dorado Club Dues Installed',
+      '$1,112.22 outflow added as a monthly recurring entry for Dorado on the 25th of each month, starting 2024-01.\n\n' +
+      'The Dorado monthly report will now auto-include this as a $1,112.22 Operating Expense → Dorado Club Fees line, regardless of what Mike spent on food at the club.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch(e) {}
+}
+
+
 function seedDoradoMortgageRecurring() {
   _requireEditor_();
   ensurePropertiesSheets_();
