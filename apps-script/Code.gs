@@ -4742,6 +4742,12 @@ function dailySync_() {
   // Properties report. Default 2-month lookback keeps the daily call fast.
   try { syncAllPlaidTransactions({ monthsBack: 2 }); }
   catch(e) { Logger.log('dailySync_: syncAllPlaidTransactions failed: ' + e.message); }
+  // After PLAID_TRANSACTIONS refresh, post new Plaid txns into every QB
+  // entity's GL (via rules → category, or Ask My Accountant default). Keeps
+  // Trial Balance / Balance Sheet / Income Statement live without Amanda
+  // needing to open the Banking tab each morning.
+  try { dailySyncQBEntities_(); }
+  catch(e) { Logger.log('dailySync_: dailySyncQBEntities_ failed: ' + e.message); }
   // Push each loan's current outstanding balance to its Linked Asset row on
   // the Assets sheet. Fresh dashboard shows the right net worth without
   // needing anyone to visit the Loans tab first.

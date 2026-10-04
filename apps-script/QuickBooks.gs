@@ -967,6 +967,38 @@ function wireNFCAPlaidAccounts() {
   ui.alert('Wired Chase 2086', 'NF CA → Chase - 2086 is now linked to:\n' + pick.label + '\n(ID: ' + pick.id + ')\n' + pick.count + ' Plaid txns on this account.\n\nNext: run "QuickBooks → Sync NF CA from Plaid" to post them.', ui.ButtonSet.OK);
 }
 
+// Daily-cron entry point: iterate every QB-active entity (anything that has
+// at least one row in QB_COA), sync Plaid, then re-apply active rules.
+// Called from Code.gs dailySync_. Non-fatal — exceptions logged, not thrown.
+function dailySyncQBEntities_() {
+  ensureQBSheets_();
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS);
+  var seen = {};
+  coa.forEach(function(r) { if (r.Entity) seen[r.Entity] = true; });
+  var entities = Object.keys(seen);
+  if (!entities.length) {
+    Logger.log('dailySyncQB: no QB entities seeded yet, skipping');
+    return;
+  }
+  entities.forEach(function(entity) {
+    try {
+      var sync = syncQBEntityFromPlaid(entity);
+      Logger.log('dailySyncQB ' + entity + ' sync: ' + JSON.stringify(sync));
+    } catch (e) {
+      Logger.log('dailySyncQB ' + entity + ' sync FAILED: ' + e.message);
+    }
+    // After sync, re-sweep every Ask My Accountant txn through active rules —
+    // catches cases where a rule was added yesterday and today's new txns
+    // (or any older ones that stayed in Ask My Accountant) should now auto-code.
+    try {
+      var r = reapplyAllQBRules(entity);
+      if (r.updated) Logger.log('dailySyncQB ' + entity + ' re-applied rules: ' + r.updated);
+    } catch (e) {
+      Logger.log('dailySyncQB ' + entity + ' reapply FAILED: ' + e.message);
+    }
+  });
+}
+
 // Menu-callable: run the sync for NF CA + show a summary dialog.
 function syncQBNFCAFromPlaidMenu() {
   var result = syncQBEntityFromPlaid('NF CA');
