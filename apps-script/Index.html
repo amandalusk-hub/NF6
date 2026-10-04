@@ -732,7 +732,8 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       </div>
     </div>
     <div style="display:flex;gap:4px;border-bottom:2px solid #e8ecf1;margin-bottom:14px;overflow-x:auto">
-      <button class="qb-report-tab active" data-report="chart"   onclick="_qbSwitchReport('chart')">Chart of Accounts</button>
+      <button class="qb-report-tab active" data-report="banking" onclick="_qbSwitchReport('banking')">🏦 Banking</button>
+      <button class="qb-report-tab"        data-report="chart"   onclick="_qbSwitchReport('chart')">Chart of Accounts</button>
       <button class="qb-report-tab"        data-report="trial"   onclick="_qbSwitchReport('trial')">Trial Balance</button>
       <button class="qb-report-tab"        data-report="balance" onclick="_qbSwitchReport('balance')">Balance Sheet</button>
       <button class="qb-report-tab"        data-report="income"  onclick="_qbSwitchReport('income')">Income Statement</button>
@@ -9322,9 +9323,11 @@ function _catBadgeColor(cat) {
 
 var _qbState = {
   currentEntity: 'NF CA',
-  currentReport: 'chart',
+  currentReport: 'banking',
   asOfDate: '2025-12-31',
-  cache: {}   // keyed by entity+asOf+report; cleared on refresh
+  categoryOptions: null,       // cached COA options for the inline picker
+  bankingFilter: 'all',        // 'all' | 'needsReview' | 'reviewed'
+  cache: {}
 };
 
 function loadQuickBooks() {
@@ -9353,12 +9356,177 @@ function _qbRenderReport() {
   var entity = _qbState.currentEntity;
   var asOf = _qbState.asOfDate;
   switch (_qbState.currentReport) {
+    case 'banking': return _qbLoadBanking(entity);
     case 'chart':   return _qbLoadChartOfAccounts(entity);
     case 'trial':   return _qbLoadTrialBalance(entity, asOf);
     case 'balance': content.innerHTML = _qbSoonBanner('Balance Sheet'); return;
     case 'income':  content.innerHTML = _qbSoonBanner('Income Statement'); return;
     case 'gl':      content.innerHTML = _qbSoonBanner('General Ledger'); return;
   }
+}
+
+// ─── Banking (QBO's "For Review" tab) ───────────────────────────────────────
+
+function _qbLoadBanking(entity) {
+  // Load category options (COA) + banking feed in parallel. Categories cached
+  // across reports since they rarely change.
+  var needCats = !_qbState.categoryOptions;
+  if (needCats) {
+    google.script.run
+      .withSuccessHandler(function(opts) { _qbState.categoryOptions = opts; _qbFetchBankingFeed(entity); })
+      .withFailureHandler(function(e) {
+        document.getElementById('quickbooks-content').innerHTML =
+          '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+      })
+      .getQBCategoryOptions(entity);
+  } else {
+    _qbFetchBankingFeed(entity);
+  }
+}
+
+function _qbFetchBankingFeed(entity) {
+  google.script.run
+    .withSuccessHandler(function(data) { _qbRenderBanking(data); })
+    .withFailureHandler(function(e) {
+      document.getElementById('quickbooks-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">' + esc(e.message || String(e)) + '</div>';
+    })
+    .getQBBankingFeed(entity);
+}
+
+function _qbRenderBanking(data) {
+  if (data.needsWiring) {
+    document.getElementById('quickbooks-content').innerHTML =
+      '<div style="padding:40px;text-align:center;color:#9c6c0f;background:#fff8e1;border:1px solid #f9a825;border-radius:8px">' +
+        '<div style="font-size:14px;font-weight:600;margin-bottom:6px">No bank account linked yet</div>' +
+        '<div style="font-size:12px;margin-bottom:12px">Open the Google Sheet → Tracker → <strong>QuickBooks → Wire NF CA Plaid Accounts</strong>. This auto-detects Chase 2086 and links it. Then refresh this page.</div>' +
+      '</div>';
+    return;
+  }
+  _qbState.currentBanking = data;
+  var all = data.txns || [];
+  // Filter + counts
+  var unreviewed = all.filter(function(t) { return !t.posted || t.needsReview; });
+  var reviewed   = all.filter(function(t) { return t.posted && !t.needsReview; });
+  var filter = _qbState.bankingFilter;
+  var toShow = filter === 'needsReview' ? unreviewed
+             : filter === 'reviewed'    ? reviewed
+             : all;
+
+  var html = '';
+  // Bank-account header strip
+  html += '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap">';
+  data.bankAccounts.forEach(function(b) {
+    html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;padding:10px 14px;flex:1;min-width:180px">' +
+      '<div style="font-size:10px;color:#5f7791;letter-spacing:.3px;text-transform:uppercase">' + esc(b.type) + '</div>' +
+      '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">' + esc(b.name) + '</div>' +
+      '<div style="font-size:10px;color:#7a8ba8;margin-top:2px">Plaid ID: ' + esc(b.plaidAccountIds || '(not wired)') + '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+
+  // Filter pills
+  html += '<div style="display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap">' +
+    _qbFilterPill('all',         'All ' + all.length,              filter === 'all') +
+    _qbFilterPill('needsReview', 'For Review ' + unreviewed.length, filter === 'needsReview') +
+    _qbFilterPill('reviewed',    'Reviewed ' + reviewed.length,    filter === 'reviewed') +
+  '</div>';
+
+  if (!toShow.length) {
+    html += '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#fff;border:1px solid #e8ecf1;border-radius:6px">No transactions in this view.</div>';
+    document.getElementById('quickbooks-content').innerHTML = html;
+    return;
+  }
+
+  // Rows
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += '<div style="display:grid;grid-template-columns:90px 1fr 110px 240px 90px;background:#0d2137;color:#fff;padding:10px 14px;font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;gap:8px">' +
+    '<div>Date</div><div>Description</div><div style="text-align:right">Amount</div><div>Category</div><div></div>' +
+  '</div>';
+  toShow.forEach(function(t, i) {
+    var amtColor = t.amount >= 0 ? '#1e8e3e' : '#c5221f';
+    var statusBadge = t.posted
+      ? (t.needsReview
+          ? '<span style="background:#f9a825;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:2px;letter-spacing:.3px">NEEDS REVIEW</span>'
+          : '<span style="background:#1e8e3e;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:2px;letter-spacing:.3px">POSTED</span>')
+      : '<span style="background:#c0ccd8;color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:2px;letter-spacing:.3px">UNPOSTED</span>';
+    var txnKey = 'row-' + i;
+    html += '<div style="display:grid;grid-template-columns:90px 1fr 110px 240px 90px;padding:10px 14px;font-size:12px;border-top:1px solid #f0f3f7;align-items:center;gap:8px">' +
+      '<div style="color:#5f7791;font-size:11px">' + esc(t.date) + (t.pending ? '<div style="font-size:9px;color:#9c6c0f">pending</div>' : '') + '</div>' +
+      '<div style="color:#0d2137;min-width:0;overflow:hidden"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(t.name || t.merchant || '') + '</div>' +
+        '<div style="font-size:10px;color:#7a8ba8;margin-top:2px">' + statusBadge + ' · ' + esc(t.bankAccount) + '</div>' +
+      '</div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;color:' + amtColor + ';font-weight:600">' + _qbFmt(t.amount) + '</div>' +
+      '<div>' + _qbCategorySelect(txnKey, t) + '</div>' +
+      '<div>' + _qbActionButton(txnKey, t) + '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  html += '<div style="margin-top:10px;font-size:11px;color:#7a8ba8;text-align:center">Pick a category and tap Add. Uncategorized posts land in <strong>Ask My Accountant</strong> — same as QuickBooks.</div>';
+  document.getElementById('quickbooks-content').innerHTML = html;
+}
+
+function _qbFilterPill(key, label, active) {
+  return '<button onclick="_qbSetBankingFilter(\'' + key + '\')" class="btn ' + (active ? 'btn-primary' : 'btn-secondary') + '" style="padding:5px 12px;font-size:11px">' + esc(label) + '</button>';
+}
+
+function _qbSetBankingFilter(key) {
+  _qbState.bankingFilter = key;
+  _qbRenderBanking(_qbState.currentBanking);
+}
+
+function _qbCategorySelect(txnKey, t) {
+  var opts = _qbState.categoryOptions && _qbState.categoryOptions.groups;
+  if (!opts) return '<em style="color:#7a8ba8;font-size:11px">loading…</em>';
+  // Default to opposite-side group for cash flow (income for +, expenses for −).
+  var html = '<select id="qb-cat-' + txnKey + '" style="width:100%;padding:5px 6px;font-size:11px;border:1px solid #c0ccd8;border-radius:4px">';
+  html += '<option value="">— pick category —</option>';
+  // Prefer income first for inflows, expenses first for outflows.
+  var order = t.amount >= 0
+    ? ['Income','Expense','Asset','Liability','Equity','Other']
+    : ['Expense','Income','Asset','Liability','Equity','Other'];
+  order.forEach(function(group) {
+    var acts = opts[group] || [];
+    if (!acts.length) return;
+    html += '<optgroup label="' + esc(group === 'Income' ? 'Income' : (group === 'Expense' ? 'Expenses' : group + 's')) + '">';
+    acts.forEach(function(a) {
+      var sel = t.posted && t.category === a.name ? ' selected' : '';
+      html += '<option value="' + esc(a.name) + '"' + sel + '>' + esc(a.name) + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  html += '</select>';
+  return html;
+}
+
+function _qbActionButton(txnKey, t) {
+  var plaidIdEsc = esc(String(t.plaidId));
+  if (t.posted) {
+    return '<button class="btn btn-secondary" style="padding:4px 10px;font-size:11px;width:100%" onclick="_qbReclassify(\'' + plaidIdEsc + '\', \'' + txnKey + '\')">Change</button>';
+  }
+  return '<button class="btn btn-primary" style="padding:4px 10px;font-size:11px;width:100%" onclick="_qbAdd(\'' + plaidIdEsc + '\', \'' + txnKey + '\')">Add</button>';
+}
+
+function _qbAdd(plaidId, txnKey) {
+  var cat = document.getElementById('qb-cat-' + txnKey).value;
+  if (!cat) { toast('Pick a category first', 'error'); return; }
+  var entity = _qbState.currentEntity;
+  toast('Adding…');
+  google.script.run
+    .withSuccessHandler(function() { toast('Added'); _qbRenderReport(); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .postQBPlaidTxn(entity, plaidId, cat, '');
+}
+
+function _qbReclassify(plaidId, txnKey) {
+  var cat = document.getElementById('qb-cat-' + txnKey).value;
+  if (!cat) { toast('Pick a category first', 'error'); return; }
+  var entity = _qbState.currentEntity;
+  toast('Reclassifying…');
+  google.script.run
+    .withSuccessHandler(function() { toast('Reclassified'); _qbRenderReport(); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .reclassifyQBPlaidTxn(entity, plaidId, cat);
 }
 
 function _qbSoonBanner(name) {

@@ -852,6 +852,267 @@ function syncQBNFCAFromPlaidMenu() {
 }
 
 
+// ── Banking view (QB "For Review" style) ──────────────────────────────────
+// Returns the live Plaid feed for every bank account linked to this entity,
+// with each txn tagged as either POSTED (and to which account) or UNPOSTED.
+// This is what the Banking tab renders — Amanda classifies inline from here
+// instead of running a batch sync. (Batch sync still exists for mass-ops.)
+
+function getQBBankingFeed(entity) {
+  entity = String(entity || 'NF CA');
+  ensureQBSheets_();
+
+  // 1. Linked bank COA accounts for this entity.
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity; });
+  var bankAccounts = coa.filter(function(a) {
+    var t = String(a['Type'] || '');
+    return (t === 'Bank' || t === 'Credit Card') && String(a['Plaid Account IDs'] || '').trim();
+  });
+  if (bankAccounts.length === 0) {
+    return { entity: entity, bankAccounts: [], txns: [], needsWiring: true };
+  }
+
+  // Build a lookup { plaidAccountId or last4 → COA bank account name }.
+  var plaidIdToBank = {};
+  var last4ToBank = {};
+  bankAccounts.forEach(function(a) {
+    String(a['Plaid Account IDs']).split(',').forEach(function(idRaw) {
+      var id = idRaw.trim();
+      if (!id) return;
+      if (/^\d{3,4}$/.test(id)) last4ToBank[id] = a['Account Name'];
+      else plaidIdToBank[id] = a['Account Name'];
+    });
+  });
+
+  // 2. Load PLAID_TRANSACTIONS, filter to these accounts, sort newest-first.
+  var ptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+  if (!ptSheet || ptSheet.getLastRow() < 2) {
+    return { entity: entity, bankAccounts: bankAccounts.map(_qbBankCard_), txns: [] };
+  }
+  var ptHdr = ptSheet.getRange(1, 1, 1, ptSheet.getLastColumn()).getValues()[0];
+  var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptHdr.length).getValues();
+  var iId   = ptHdr.indexOf('Transaction ID');
+  var iDate = ptHdr.indexOf('Date');
+  var iAcct = ptHdr.indexOf('Account');
+  var iAcctId = ptHdr.indexOf('Account ID');
+  var iName = ptHdr.indexOf('Name');
+  var iMerch= ptHdr.indexOf('Merchant');
+  var iAmt  = ptHdr.indexOf('Amount USD');
+  var iPending = ptHdr.indexOf('Pending');
+  var iCategory = ptHdr.indexOf('Plaid Category');
+  var fromDate = new Date(NFCA_SYNC_FROM + 'T00:00:00Z');
+
+  var txns = [];
+  for (var r = 0; r < ptData.length; r++) {
+    var row = ptData[r];
+    var txnId = String(row[iId] || '');
+    if (!txnId) continue;
+    var pAcctId = String(row[iAcctId] || '');
+    var pAcctStr = String(row[iAcct] || '');
+    var bankName = plaidIdToBank[pAcctId];
+    if (!bankName) {
+      // last-4 fallback
+      Object.keys(last4ToBank).forEach(function(k) {
+        if (!bankName && pAcctStr.indexOf(k) >= 0) bankName = last4ToBank[k];
+      });
+    }
+    if (!bankName) continue;
+    var d = row[iDate] instanceof Date ? row[iDate] : (row[iDate] ? new Date(row[iDate]) : null);
+    if (!d || d < fromDate) continue;
+    txns.push({
+      plaidId:   txnId,
+      date:      Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      name:      String(row[iName] || ''),
+      merchant:  iMerch >= 0 ? String(row[iMerch] || '') : '',
+      amount:    Number(row[iAmt]) || 0,
+      pending:   String(row[iPending] || '').toLowerCase() === 'yes',
+      plaidCategory: iCategory >= 0 ? String(row[iCategory] || '') : '',
+      bankAccount: bankName
+    });
+  }
+  txns.sort(function(a, b) { return b.date.localeCompare(a.date); });
+
+  // 3. Already-posted GL entries for these Plaid txns (source=plaid).
+  var gl = _getQBRows_('QB_GL_ENTRIES', QB_GL_ENTRIES_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Source) === 'plaid'; });
+  // Group by Plaid txn ID (source ref). For each, record { entryId, category,
+  // bankAccount, memo } where category = the non-bank leg's account.
+  var postedByPlaidId = {};
+  gl.forEach(function(r) {
+    var ref = String(r['Source Ref'] || '');
+    if (!ref) return;
+    postedByPlaidId[ref] = postedByPlaidId[ref] || { entryId: r['Entry ID'], lines: [] };
+    postedByPlaidId[ref].lines.push({
+      account: r['Account Name'],
+      debit:   Number(r.Debit)  || 0,
+      credit:  Number(r.Credit) || 0,
+      memo:    r['Memo']
+    });
+  });
+  // Tag each txn with its post status.
+  txns.forEach(function(t) {
+    var p = postedByPlaidId[t.plaidId];
+    if (!p) { t.posted = false; return; }
+    t.posted = true;
+    t.entryId = p.entryId;
+    // Non-bank leg = the one whose account is NOT this txn's bank account.
+    var other = p.lines.find(function(l) { return l.account !== t.bankAccount; });
+    t.category = other ? other.account : '';
+    t.memo     = (p.lines[0] && p.lines[0].memo) || '';
+    t.needsReview = t.category === 'Ask My Accountant';
+  });
+
+  return JSON.parse(JSON.stringify({
+    entity: entity,
+    bankAccounts: bankAccounts.map(_qbBankCard_),
+    txns: txns
+  }));
+}
+
+function _qbBankCard_(a) {
+  return {
+    name: a['Account Name'],
+    type: a['Type'],
+    plaidAccountIds: a['Plaid Account IDs']
+  };
+}
+
+// Post ONE Plaid txn as a 2-leg JE. Idempotent via Source Ref — if already
+// posted, returns the existing entry id without duplicating.
+function postQBPlaidTxn(entity, plaidTxnId, categoryAccount, memoOverride) {
+  _requireEditor_();
+  ensureQBSheets_();
+  entity = String(entity || 'NF CA');
+  if (!plaidTxnId) throw new Error('plaidTxnId required');
+  if (!categoryAccount) throw new Error('categoryAccount required');
+
+  // Skip if already posted.
+  var existing = _getQBRows_('QB_GL_ENTRIES', QB_GL_ENTRIES_HEADERS)
+    .filter(function(r) {
+      return String(r.Entity) === entity && String(r.Source) === 'plaid' && String(r['Source Ref']) === String(plaidTxnId);
+    });
+  if (existing.length) {
+    return { success: true, alreadyPosted: true, entryId: existing[0]['Entry ID'] };
+  }
+
+  // Look up the Plaid txn.
+  var ptSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PLAID_TRANSACTIONS');
+  if (!ptSheet || ptSheet.getLastRow() < 2) throw new Error('PLAID_TRANSACTIONS is empty');
+  var ptHdr = ptSheet.getRange(1, 1, 1, ptSheet.getLastColumn()).getValues()[0];
+  var ptData = ptSheet.getRange(2, 1, ptSheet.getLastRow() - 1, ptHdr.length).getValues();
+  var iId = ptHdr.indexOf('Transaction ID');
+  var iDate = ptHdr.indexOf('Date');
+  var iAcct = ptHdr.indexOf('Account');
+  var iAcctId = ptHdr.indexOf('Account ID');
+  var iName = ptHdr.indexOf('Name');
+  var iAmt = ptHdr.indexOf('Amount USD');
+  var txn = null;
+  for (var r = 0; r < ptData.length; r++) {
+    if (String(ptData[r][iId]) === String(plaidTxnId)) {
+      txn = {
+        date:      ptData[r][iDate],
+        account:   String(ptData[r][iAcct]),
+        accountId: String(ptData[r][iAcctId]),
+        name:      String(ptData[r][iName]),
+        amount:    Number(ptData[r][iAmt]) || 0
+      };
+      break;
+    }
+  }
+  if (!txn) throw new Error('Plaid txn not found: ' + plaidTxnId);
+
+  // Resolve the bank COA account for this entity.
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(a) { return String(a.Entity) === entity; });
+  var bank = coa.find(function(a) {
+    var t = String(a['Type'] || '');
+    if (t !== 'Bank' && t !== 'Credit Card') return false;
+    var ids = String(a['Plaid Account IDs'] || '').split(',').map(function(s) { return s.trim(); });
+    if (ids.indexOf(txn.accountId) >= 0) return true;
+    // last-4 fallback
+    return ids.some(function(id) { return /^\d{3,4}$/.test(id) && txn.account.indexOf(id) >= 0; });
+  });
+  if (!bank) throw new Error('No bank COA account linked to this Plaid txn for ' + entity);
+
+  var dt = txn.date instanceof Date ? txn.date : new Date(txn.date);
+  var amt = txn.amount;
+  var lines;
+  if (amt > 0) {
+    lines = [
+      { account: bank['Account Name'], debit: amt, credit: 0 },
+      { account: categoryAccount,      debit: 0,   credit: amt }
+    ];
+  } else {
+    lines = [
+      { account: categoryAccount,      debit: Math.abs(amt), credit: 0 },
+      { account: bank['Account Name'], debit: 0,             credit: Math.abs(amt) }
+    ];
+  }
+  var entryId = _postJE_(entity, dt, memoOverride || txn.name, lines, 'plaid', plaidTxnId, _currentUserEmail_(), new Date());
+  return { success: true, entryId: entryId };
+}
+
+// Reclassify an already-posted Plaid txn to a different category. Rewrites
+// the non-bank leg of the existing JE in place (keeps the Entry ID + audit).
+function reclassifyQBPlaidTxn(entity, plaidTxnId, newCategoryAccount) {
+  _requireEditor_();
+  ensureQBSheets_();
+  entity = String(entity || 'NF CA');
+  if (!plaidTxnId || !newCategoryAccount) throw new Error('plaidTxnId and newCategoryAccount required');
+
+  // Find bank COA account to identify which leg to leave alone.
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(a) { return String(a.Entity) === entity; });
+  var bankNames = {};
+  coa.forEach(function(a) {
+    var t = String(a['Type'] || '');
+    if (t === 'Bank' || t === 'Credit Card') bankNames[a['Account Name']] = true;
+  });
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('QB_GL_ENTRIES');
+  var lastCol = Math.max(sheet.getLastColumn(), QB_GL_ENTRIES_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iEnt = hdr.indexOf('Entity');
+  var iSrc = hdr.indexOf('Source');
+  var iRef = hdr.indexOf('Source Ref');
+  var iAcc = hdr.indexOf('Account Name');
+  var iUpd = hdr.indexOf('Created At');   // repurpose as "last updated" for simplicity
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  var updated = 0;
+  for (var r = 0; r < data.length; r++) {
+    if (String(data[r][iEnt]) !== entity) continue;
+    if (String(data[r][iSrc]) !== 'plaid') continue;
+    if (String(data[r][iRef]) !== String(plaidTxnId)) continue;
+    var acct = String(data[r][iAcc]);
+    if (bankNames[acct]) continue;   // leave the bank leg alone
+    sheet.getRange(r + 2, iAcc + 1).setValue(newCategoryAccount);
+    if (iUpd >= 0) sheet.getRange(r + 2, iUpd + 1).setValue(new Date());
+    updated++;
+  }
+  if (!updated) throw new Error('No non-bank GL leg found for Plaid txn ' + plaidTxnId);
+  return { success: true, updated: updated };
+}
+
+// Return a flat list of COA account options for the inline category picker,
+// grouped and sorted sensibly. Excludes bank/CC accounts by default (those
+// are handled via Transfer, not Category — can enable later).
+function getQBCategoryOptions(entity) {
+  entity = String(entity || 'NF CA');
+  var coa = _getQBRows_('QB_COA', QB_COA_HEADERS)
+    .filter(function(r) { return String(r.Entity) === entity && String(r.Active || 'Yes').toLowerCase() === 'yes'; });
+  var groups = { Income: [], Expense: [], Equity: [], Asset: [], Liability: [], Other: [] };
+  coa.forEach(function(a) {
+    var cls = _qbClassifyType_(a['Type']);
+    (groups[cls] || groups.Other).push({ name: a['Account Name'], type: a['Type'], detailType: a['Detail Type'] });
+  });
+  Object.keys(groups).forEach(function(k) {
+    groups[k].sort(function(a, b) { return a.name.localeCompare(b.name); });
+  });
+  return JSON.parse(JSON.stringify({ entity: entity, groups: groups }));
+}
+
+
 // ── Menu-callable debug ───────────────────────────────────────────────────
 
 function debugQBNFCA() {
