@@ -495,11 +495,12 @@ function seedDoradoProperty() {
       category:'Operating Expense', subcategory:'Maintenance - Exterminator' },
     { priority: 40, matchAccount:'0451', matchName:'ath movil', matchAmount:'-295.00', direction:'out',
       category:'Operating Expense', subcategory:'Maintenance - AC Quarterly' },
-    // Lourdes cleans separately for Mike (owner) — this is a property-upkeep
-    // cost, not a direct cost of generating rental revenue (Alma handles its
-    // own guest-turnover cleaning via the 20% fee). Belongs in OpEx.
+    // Lourdes cleans separately for Mike + friends/co-workers (non-paying
+    // stays) — this is property upkeep, not a direct cost of generating
+    // rental revenue (Alma handles its own guest-turnover cleaning via the
+    // 20% fee). Belongs in OpEx.
     { priority: 40, matchAccount:'0451', matchName:'ath movil', matchAmount:'-140.00|-160.00', direction:'out',
-      category:'Operating Expense', subcategory:'Cleaning (Owner stays)' },
+      category:'Operating Expense', subcategory:'Cleaning (Owner/Friends stays)' },
 
     // Mortgage — paid out of Fidelity 9007 (not currently in Plaid, so this
     // rule won't fire; the PROPERTY_RECURRING entry handles the mortgage
