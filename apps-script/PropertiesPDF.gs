@@ -394,13 +394,16 @@ function _buildDoradoEmailHtml_(report, monthLabel, monthShort) {
   // Footer italic note — "No paid reservations for July. Brandon & Manuela
   // stayed at the property during the month."
   var footerNote = '';
-  if (!paidEvents.length && nonPaidEvents.length) {
-    var names = nonPaidEvents.map(function(e) {
-      // Strip the property prefix and dashes to get just the guest name.
-      // e.g. "Dorado - Brandon" → "Brandon"
+  function _namesFromEvents(events) {
+    var raw = events.map(function(e) {
+      // Strip the property prefix and dashes. "Dorado - Brandon" → "Brandon"
       var t = String(e.title || '').replace(/^[^-]+-\s*/, '').trim();
       return t || '(unnamed stay)';
     });
+    return _dedupeStayNames_(raw);
+  }
+  if (!paidEvents.length && nonPaidEvents.length) {
+    var names = _namesFromEvents(nonPaidEvents);
     footerNote = '<p style="margin:16px 0 0 0;font-style:italic;color:#5f6368;font-size:13px">' +
       '*No paid reservations for ' + _escH_(monthShort) + '. ' +
       _escH_(_joinWithAnd_(names)) + ' stayed at the property during the month.' +
@@ -410,10 +413,7 @@ function _buildDoradoEmailHtml_(report, monthLabel, monthShort) {
       '*No paid reservations for ' + _escH_(monthShort) + '.' +
     '</p>';
   } else if (nonPaidEvents.length) {
-    var names2 = nonPaidEvents.map(function(e) {
-      var t = String(e.title || '').replace(/^[^-]+-\s*/, '').trim();
-      return t || '(unnamed stay)';
-    });
+    var names2 = _namesFromEvents(nonPaidEvents);
     footerNote = '<p style="margin:16px 0 0 0;font-style:italic;color:#5f6368;font-size:13px">' +
       '*' + _escH_(_joinWithAnd_(names2)) + ' also stayed at the property during the month (not counted toward occupancy).' +
     '</p>';
@@ -539,6 +539,30 @@ function _joinWithAnd_(arr) {
   if (arr.length === 1) return arr[0];
   if (arr.length === 2) return arr[0] + ' & ' + arr[1];
   return arr.slice(0, -1).join(', ') + ', & ' + arr[arr.length - 1];
+}
+
+// Collapse owner variants (Mike / Dr. Mike / Dr Michael Nguyen) to one
+// canonical "Dr. Mike", then dedupe. Preserves friends with different last
+// names (e.g. "Mike Macdonald" stays separate from "Dr. Mike").
+var _OWNER_ALIAS_SET = {
+  'mike': 1, 'dr mike': 1, 'michael': 1, 'michael nguyen': 1,
+  'dr michael': 1, 'dr michael nguyen': 1,
+  'nguyen': 1, 'dr nguyen': 1
+};
+function _dedupeStayNames_(names) {
+  var seen = {};
+  var out = [];
+  (names || []).forEach(function(raw) {
+    if (!raw) return;
+    // Normalize: lowercase, strip punctuation, collapse spaces
+    var low = String(raw).toLowerCase().replace(/[.,'"]/g, '').replace(/\s+/g, ' ').trim();
+    var display = _OWNER_ALIAS_SET[low] ? 'Dr. Mike' : raw;
+    var key = display.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push(display);
+  });
+  return out;
 }
 
 // Menu-callable: send a TEST PDF to the current user's email.
