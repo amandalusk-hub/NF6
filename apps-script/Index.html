@@ -177,6 +177,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <button class="tab-btn" data-tab="money">Money Movement</button>
     <button class="tab-btn" data-tab="properties">Properties</button>
     <button class="tab-btn" data-tab="quickbooks">QuickBooks</button>
+    <button class="tab-btn" data-tab="compliance">Compliance</button>
     <button class="tab-btn" data-tab="assets">Assets</button>
     <button class="tab-btn" data-tab="liabilities">Liabilities</button>
     <button class="tab-btn" data-tab="balance">Balance History</button>
@@ -716,6 +717,135 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     </div>
     <div id="properties-content">
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="tab-compliance">
+    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <h2 style="font-size:20px;color:#0d2137;margin:0">Compliance Calendar</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="_compOpenNew()" style="padding:6px 12px;font-size:12px">+ Add Item</button>
+        <button class="btn btn-secondary" onclick="_compOpenPeople()" style="padding:6px 12px;font-size:12px">👥 People</button>
+        <button class="btn btn-secondary" onclick="loadCompliance()">↻ Refresh</button>
+      </div>
+    </div>
+    <!-- Filter + status strip -->
+    <div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;padding:10px 12px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="font-size:11px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px">Filter</div>
+      <select id="comp-filter-urgency" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
+        <option value="all">All items</option>
+        <option value="overdue">Overdue</option>
+        <option value="active">Active (not done/cancelled)</option>
+        <option value="due60">Due in 60 days</option>
+        <option value="due30">Due in 30 days</option>
+        <option value="due7">Due in 7 days</option>
+      </select>
+      <select id="comp-filter-entity" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
+        <option value="">All entities</option>
+      </select>
+      <select id="comp-filter-type" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
+        <option value="">All types</option>
+      </select>
+      <select id="comp-filter-person" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
+        <option value="">All responsible</option>
+      </select>
+      <input id="comp-filter-search" placeholder="Search obligations…" oninput="_compRender()" style="flex:1;min-width:160px;padding:5px 10px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px">
+    </div>
+    <div id="compliance-content">
+      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>
+    </div>
+  </div>
+
+  <!-- Compliance item modal -->
+  <div class="modal-overlay" id="comp-item-modal">
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <div class="modal-title" id="comp-item-title">Compliance Item</div>
+        <button class="modal-close" onclick="closeModal('comp-item-modal')">x</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Obligation *</label>
+            <textarea id="comp-f-obligation" rows="2" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical"></textarea></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Status</label>
+            <select id="comp-f-status" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
+              <option>Not Started</option><option>In Progress</option><option selected>Up to Date</option><option>Done</option><option>Cancelled</option>
+            </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Item Type</label>
+            <input id="comp-f-type" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Category</label>
+            <input id="comp-f-category" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Location</label>
+            <input id="comp-f-location" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Entity</label>
+            <input id="comp-f-entity" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Person Responsible</label>
+            <input id="comp-f-responsible" type="text" placeholder="Amanda/Brandon" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Frequency</label>
+            <select id="comp-f-frequency" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
+              <option value="">—</option><option>Monthly</option><option>Quarterly</option><option>bi-yearly</option><option selected>Yearly</option><option>One-time</option><option>Other</option>
+            </select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Last Done</label>
+            <input id="comp-f-lastdone" type="date" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Next Due Date *</label>
+            <input id="comp-f-nextdue" type="date" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Cost (USD)</label>
+            <input id="comp-f-cost" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+        </div>
+        <div style="margin-bottom:12px"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Description / SOP</label>
+          <textarea id="comp-f-description" rows="2" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical"></textarea></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Website</label>
+            <input id="comp-f-website" type="url" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Link to Docs</label>
+            <input id="comp-f-link" type="url" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Payment Method</label>
+            <input id="comp-f-paymethod" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Account Number</label>
+            <input id="comp-f-acctnum" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Point of Contact</label>
+            <input id="comp-f-contact" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+        </div>
+        <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Notes</label>
+          <textarea id="comp-f-notes" rows="2" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical"></textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="comp-f-delete" onclick="_compDelete()" style="margin-right:auto;color:#c5221f;display:none">Delete</button>
+        <button class="btn btn-secondary" onclick="closeModal('comp-item-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="_compSave()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- People modal -->
+  <div class="modal-overlay" id="comp-people-modal">
+    <div class="modal" style="max-width:600px">
+      <div class="modal-header">
+        <div class="modal-title">People & Email Addresses</div>
+        <button class="modal-close" onclick="closeModal('comp-people-modal')">x</button>
+      </div>
+      <div class="modal-body">
+        <div style="font-size:12px;color:#5f6368;margin-bottom:10px">These are the names referenced on compliance items (e.g. "Amanda/Brandon" splits into Amanda + Brandon). Fill in each person's email so daily reminders can be sent.</div>
+        <div style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:4px;padding:10px 12px;margin-bottom:10px">
+          <div style="font-size:11px;color:#5f6368;font-weight:600;margin-bottom:4px">CC on all reminders</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input id="comp-cc-list" type="text" placeholder="amanda@example.com, brandon@example.com" style="flex:1;padding:6px 10px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px">
+            <button class="btn btn-secondary" onclick="_compSaveCc()" style="padding:5px 10px;font-size:11px">Save CC</button>
+          </div>
+        </div>
+        <div id="comp-people-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('comp-people-modal')">Close</button>
+      </div>
     </div>
   </div>
 
@@ -2561,6 +2691,7 @@ function switchTab(name){
   if(name==='money')    loadMoneyMovement();
   if(name==='properties') loadProperties();
   if(name==='quickbooks') loadQuickBooks();
+  if(name==='compliance') loadCompliance();
 }
 
 // ─── LOANS TAB ──────────────────────────────────────────────────────────
@@ -10119,6 +10250,274 @@ function _qbFmt(n) {
   var abs = Math.abs(num);
   var str = abs.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
   return neg ? '(' + str + ')' : str;
+}
+
+
+// ═══ COMPLIANCE TAB ═════════════════════════════════════════════════════════
+
+var _compState = {
+  items: [],
+  loading: false,
+  editingId: null,
+  people: []
+};
+
+function loadCompliance() {
+  _compState.loading = true;
+  document.getElementById('compliance-content').innerHTML =
+    '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>';
+  google.script.run
+    .withSuccessHandler(function(data) {
+      _compState.loading = false;
+      _compState.items = (data && data.items) || [];
+      _compPopulateFilters();
+      _compRender();
+    })
+    .withFailureHandler(function(e) {
+      _compState.loading = false;
+      document.getElementById('compliance-content').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getComplianceItems();
+}
+
+function _compPopulateFilters() {
+  function uniqSort(arr) {
+    var seen = {}; var out = [];
+    arr.forEach(function(v) { if (v && !seen[v]) { seen[v] = true; out.push(v); } });
+    return out.sort();
+  }
+  function fill(id, values) {
+    var sel = document.getElementById(id);
+    var current = sel.value;
+    var first = sel.options[0].outerHTML;
+    sel.innerHTML = first + values.map(function(v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('');
+    sel.value = current;
+  }
+  fill('comp-filter-entity', uniqSort(_compState.items.map(function(i) { return i.Entity; })));
+  fill('comp-filter-type', uniqSort(_compState.items.map(function(i) { return i['Item Type']; })));
+  fill('comp-filter-person', uniqSort(_compState.items.map(function(i) { return i['Person Responsible']; })));
+}
+
+function _compRender() {
+  var items = _compState.items.slice();
+  var urg = document.getElementById('comp-filter-urgency').value;
+  var ent = document.getElementById('comp-filter-entity').value;
+  var typ = document.getElementById('comp-filter-type').value;
+  var per = document.getElementById('comp-filter-person').value;
+  var search = (document.getElementById('comp-filter-search').value || '').toLowerCase().trim();
+
+  if (urg === 'overdue') items = items.filter(function(i) { return i._urgency && i._urgency.bucket === 'overdue'; });
+  else if (urg === 'active') items = items.filter(function(i) { return i._urgency && i._urgency.isActive; });
+  else if (urg === 'due60') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 60; });
+  else if (urg === 'due30') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 30; });
+  else if (urg === 'due7')  items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 7; });
+  if (ent) items = items.filter(function(i) { return i.Entity === ent; });
+  if (typ) items = items.filter(function(i) { return i['Item Type'] === typ; });
+  if (per) items = items.filter(function(i) { return i['Person Responsible'] === per; });
+  if (search) items = items.filter(function(i) {
+    return (i.Obligation || '').toLowerCase().indexOf(search) >= 0
+        || (i.Category || '').toLowerCase().indexOf(search) >= 0
+        || (i.Notes || '').toLowerCase().indexOf(search) >= 0;
+  });
+
+  // Sort: overdue most-overdue first, then by days-away ascending
+  items.sort(function(a, b) {
+    var ad = (a._urgency && a._urgency.daysAway);
+    var bd = (b._urgency && b._urgency.daysAway);
+    if (ad == null && bd == null) return 0;
+    if (ad == null) return 1;
+    if (bd == null) return -1;
+    return ad - bd;
+  });
+
+  var container = document.getElementById('compliance-content');
+  if (!items.length) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#fff;border:1px solid #e8ecf1;border-radius:6px">No items match these filters.</div>';
+    return;
+  }
+  var html = '<div style="font-size:12px;color:#5f6368;margin-bottom:8px">' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' · ' + _compState.items.length + ' total</div>';
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
+  html += '<div style="display:grid;grid-template-columns:110px 1fr 140px 160px 110px 110px;background:#0d2137;color:#fff;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;gap:8px">' +
+    '<div>Status</div><div>Obligation</div><div>Entity</div><div>Responsible</div><div>Next Due</div><div></div>' +
+  '</div>';
+  items.forEach(function(it) {
+    var u = it._urgency || {};
+    html += '<div style="display:grid;grid-template-columns:110px 1fr 140px 160px 110px 110px;padding:10px 12px;border-top:1px solid #f0f3f7;font-size:12px;align-items:center;gap:8px">' +
+      '<div>' + _compBadge(u) + '</div>' +
+      '<div style="min-width:0">' +
+        '<div onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="color:#0d2137;cursor:pointer;line-height:1.3;font-weight:500">' + esc((it.Obligation || '(no obligation)').replace(/\n/g,' · ').substring(0, 120)) + '</div>' +
+        '<div style="color:#7a8ba8;font-size:10px;margin-top:3px">' + esc(it['Item Type'] || '') + (it.Category ? ' · ' + esc(it.Category) : '') + (it.Location ? ' · ' + esc(it.Location) : '') + '</div>' +
+      '</div>' +
+      '<div style="color:#5f6368;font-size:11px">' + esc(it.Entity || '') + '</div>' +
+      '<div style="color:#5f6368;font-size:11px">' + esc(it['Person Responsible'] || '') + '</div>' +
+      '<div style="color:#0d2137;font-size:11px;font-variant-numeric:tabular-nums">' + esc(it['Next Due Date'] || '—') + '</div>' +
+      '<div style="display:flex;gap:4px;justify-content:flex-end">' +
+        '<button class="btn btn-secondary" onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="padding:4px 8px;font-size:10px">Edit</button>' +
+        '<button class="btn btn-primary"   onclick="_compMarkDone(\'' + esc(it.ID) + '\')" style="padding:4px 8px;font-size:10px">✓ Done</button>' +
+      '</div>' +
+    '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function _compBadge(u) {
+  if (!u || !u.bucket) return '<span style="color:#9ca9b7;font-size:10px">—</span>';
+  var bg, fg, label;
+  var d = u.daysAway;
+  if (u.bucket === 'overdue')  { bg = '#c5221f'; fg = '#fff'; label = Math.abs(d) + 'd late'; }
+  else if (u.bucket === 'critical') { bg = '#ea8600'; fg = '#fff'; label = (d === 0 ? 'TODAY' : d + 'd'); }
+  else if (u.bucket === 'due-soon') { bg = '#f9ab00'; fg = '#0d2137'; label = d + 'd'; }
+  else if (u.bucket === 'ok')       { bg = '#1e8e3e'; fg = '#fff'; label = d + 'd'; }
+  else if (u.bucket === 'done')     { bg = '#5f6368'; fg = '#fff'; label = 'Done'; }
+  else if (u.bucket === 'cancelled'){ bg = '#9ca9b7'; fg = '#fff'; label = 'Cancelled'; }
+  else                              { bg = '#c0ccd8'; fg = '#fff'; label = 'No date'; }
+  return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';padding:3px 8px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap">' + label + '</span>';
+}
+
+function _compOpenNew() {
+  _compState.editingId = null;
+  document.getElementById('comp-item-title').textContent = 'New Compliance Item';
+  document.getElementById('comp-f-delete').style.display = 'none';
+  ['obligation','type','category','location','entity','responsible','lastdone','nextdue','cost','description','website','link','paymethod','acctnum','contact','notes'].forEach(function(k) {
+    var el = document.getElementById('comp-f-' + k); if (el) el.value = '';
+  });
+  document.getElementById('comp-f-status').value = 'Up to Date';
+  document.getElementById('comp-f-frequency').value = 'Yearly';
+  openModal('comp-item-modal');
+}
+
+function _compOpenEdit(id) {
+  var it = _compState.items.find(function(i) { return String(i.ID) === String(id); });
+  if (!it) return;
+  _compState.editingId = id;
+  document.getElementById('comp-item-title').textContent = 'Edit — ' + (it.ID || '');
+  document.getElementById('comp-f-delete').style.display = '';
+  document.getElementById('comp-f-obligation').value = it.Obligation || '';
+  document.getElementById('comp-f-status').value = it.Status || 'Up to Date';
+  document.getElementById('comp-f-type').value = it['Item Type'] || '';
+  document.getElementById('comp-f-category').value = it.Category || '';
+  document.getElementById('comp-f-location').value = it.Location || '';
+  document.getElementById('comp-f-entity').value = it.Entity || '';
+  document.getElementById('comp-f-responsible').value = it['Person Responsible'] || '';
+  document.getElementById('comp-f-frequency').value = it.Frequency || '';
+  document.getElementById('comp-f-lastdone').value = it['Last Done'] || '';
+  document.getElementById('comp-f-nextdue').value = it['Next Due Date'] || '';
+  document.getElementById('comp-f-cost').value = it.Cost || '';
+  document.getElementById('comp-f-description').value = it.Description || '';
+  document.getElementById('comp-f-website').value = it.Website || '';
+  document.getElementById('comp-f-link').value = it['Link to Docs'] || '';
+  document.getElementById('comp-f-paymethod').value = it['Payment Method'] || '';
+  document.getElementById('comp-f-acctnum').value = it['Account Number'] || '';
+  document.getElementById('comp-f-contact').value = it['Point of Contact'] || '';
+  document.getElementById('comp-f-notes').value = it.Notes || '';
+  openModal('comp-item-modal');
+}
+
+function _compSave() {
+  var data = {
+    'Obligation':         document.getElementById('comp-f-obligation').value,
+    'Status':             document.getElementById('comp-f-status').value,
+    'Item Type':          document.getElementById('comp-f-type').value,
+    'Category':           document.getElementById('comp-f-category').value,
+    'Location':           document.getElementById('comp-f-location').value,
+    'Entity':             document.getElementById('comp-f-entity').value,
+    'Person Responsible': document.getElementById('comp-f-responsible').value,
+    'Frequency':          document.getElementById('comp-f-frequency').value,
+    'Last Done':          document.getElementById('comp-f-lastdone').value,
+    'Next Due Date':      document.getElementById('comp-f-nextdue').value,
+    'Cost':               document.getElementById('comp-f-cost').value,
+    'Description':        document.getElementById('comp-f-description').value,
+    'Website':            document.getElementById('comp-f-website').value,
+    'Link to Docs':       document.getElementById('comp-f-link').value,
+    'Payment Method':     document.getElementById('comp-f-paymethod').value,
+    'Account Number':     document.getElementById('comp-f-acctnum').value,
+    'Point of Contact':   document.getElementById('comp-f-contact').value,
+    'Notes':              document.getElementById('comp-f-notes').value
+  };
+  if (!data.Obligation.trim()) { toast('Obligation required', 'error'); return; }
+  if (_compState.editingId) data.ID = _compState.editingId;
+  google.script.run
+    .withSuccessHandler(function() { closeModal('comp-item-modal'); toast('Saved'); loadCompliance(); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .upsertComplianceItem(data);
+}
+
+function _compDelete() {
+  var id = _compState.editingId;
+  if (!id) return;
+  if (!confirm('Delete this compliance item permanently?')) return;
+  google.script.run
+    .withSuccessHandler(function() { closeModal('comp-item-modal'); toast('Deleted'); loadCompliance(); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .deleteComplianceItem(id);
+}
+
+function _compMarkDone(id) {
+  if (!confirm('Mark this item done today and advance next due date by frequency?')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      toast(r.nextDue ? ('✓ Done — next due ' + r.nextDue) : '✓ Done');
+      loadCompliance();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .markComplianceItemDone(id);
+}
+
+function _compOpenPeople() {
+  google.script.run
+    .withSuccessHandler(function(ppl) {
+      _compState.people = ppl || [];
+      google.script.run
+        .withSuccessHandler(function(cc) {
+          document.getElementById('comp-cc-list').value = cc || '';
+          _compRenderPeople();
+          openModal('comp-people-modal');
+        })
+        .withFailureHandler(function() {
+          document.getElementById('comp-cc-list').value = '';
+          _compRenderPeople();
+          openModal('comp-people-modal');
+        })
+        .getComplianceCcList();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .getCompliancePeople();
+}
+
+function _compRenderPeople() {
+  var container = document.getElementById('comp-people-list');
+  if (!_compState.people.length) { container.innerHTML = '<div style="padding:12px;color:#7a8ba8;font-size:12px">No people on file yet. Add compliance items first — people are auto-added when you reference them in "Person Responsible".</div>'; return; }
+  container.innerHTML =
+    '<table style="width:100%;border-collapse:collapse"><thead><tr>' +
+      '<th style="padding:6px 8px;text-align:left;font-size:10px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #d0dae5">Name</th>' +
+      '<th style="padding:6px 8px;text-align:left;font-size:10px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #d0dae5">Email</th>' +
+      '<th style="padding:6px 8px;font-size:10px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #d0dae5">—</th>' +
+    '</tr></thead><tbody>' +
+    _compState.people.map(function(p, i) {
+      return '<tr>' +
+        '<td style="padding:6px 8px;font-size:12px;color:#0d2137;border-bottom:1px solid #f0f3f7">' + esc(p.Name || '') + '</td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid #f0f3f7"><input id="comp-ppl-email-' + i + '" type="email" value="' + esc(p.Email || '') + '" style="width:100%;padding:5px 8px;border:1px solid #c0ccd8;border-radius:3px;font-size:12px"></td>' +
+        '<td style="padding:6px 8px;border-bottom:1px solid #f0f3f7;text-align:right"><button class="btn btn-secondary" onclick="_compSavePerson(\'' + esc(p.Name) + '\', ' + i + ')" style="padding:4px 8px;font-size:10px">Save</button></td>' +
+      '</tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function _compSavePerson(name, idx) {
+  var email = document.getElementById('comp-ppl-email-' + idx).value.trim();
+  google.script.run
+    .withSuccessHandler(function() { toast('Saved ' + name); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .upsertCompliancePerson(name, email, true);
+}
+
+function _compSaveCc() {
+  var val = document.getElementById('comp-cc-list').value.trim();
+  google.script.run
+    .withSuccessHandler(function() { toast('CC list saved'); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setComplianceCcList(val);
 }
 
 
