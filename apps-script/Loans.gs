@@ -480,6 +480,113 @@ function seedWaskarHistoricalPayments() {
 // dates matching the observed Plaid pattern (payments arrive ~2–7 days
 // after the 1st). Amanda can edit dates later from the Loans tab by
 // removing + re-adding a payment if she has the exact bank statement date.
+// One-shot fix: find the current active Solaris loan, generate its schedule,
+// and populate the Principal + Interest columns on its backfilled manual
+// entries (Jan/Feb/Mar 2026) using the exact per-row split from the
+// amortization schedule. Also reports any orphaned backfill rows that
+// belong to a stale (deleted / re-seeded) Solaris loan ID so Amanda can
+// delete them manually.
+//
+// Why this exists: seedSolarisMissingPayments writes Amount but leaves
+// Principal + Interest blank. In theory the composite-math pro-rata should
+// cover that, but it's not reaching those rows (likely because the active
+// loan ID shifted and the manual entries now point to a stale ID). This
+// function is idempotent — safe to re-run; already-populated rows are
+// skipped, nothing is deleted.
+function fixSolarisBackfillPrincipal() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var solaris = loans.filter(function(l){ return /solaris/i.test(String(l.Name||'')); })[0];
+  if (!solaris) { ui.alert('No active Solaris loan found. Run "Loans → Init Solaris Loan" first.'); return; }
+  var activeId = String(solaris.ID || '');
+  var schedule = _generateAmortizationSchedule_(solaris);
+  if (!schedule || !schedule.length) { ui.alert('Schedule generation failed for Solaris.'); return; }
+  var monthToRow = {};
+  schedule.forEach(function(r) {
+    var ym = String(r.dueDate).substring(0, 7);
+    if (monthToRow[ym] == null) monthToRow[ym] = r;
+  });
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOAN_MANUAL_PAYMENTS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('LOAN_MANUAL_PAYMENTS sheet is empty.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iLoan = hdr.indexOf('Loan ID');
+  var iDate = hdr.indexOf('Date');
+  var iAmount = hdr.indexOf('Amount');
+  var iPrincipal = hdr.indexOf('Principal');
+  var iInterest = hdr.indexOf('Interest');
+  var iType = hdr.indexOf('Type');
+  var iNotes = hdr.indexOf('Notes');
+  var iIdCol = hdr.indexOf('ID');
+  if (iLoan < 0 || iDate < 0 || iPrincipal < 0 || iInterest < 0) {
+    ui.alert('LOAN_MANUAL_PAYMENTS sheet is missing required columns.'); return;
+  }
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+
+  var fixed = 0;
+  var alreadyOk = 0;
+  var orphans = [];       // {id, loanId, date, amount, notes}
+  var noMatchingRow = 0;
+
+  for (var r = 0; r < rows.length; r++) {
+    var row = rows[r];
+    var notes = iNotes >= 0 ? String(row[iNotes] || '') : '';
+    // Only touch Solaris backfill-looking rows.
+    var looksBackfill = /backfilled|pre-plaid/i.test(notes) || /2026-0[123]/.test(String(row[iDate]));
+    var rowLoanId = String(row[iLoan] || '');
+
+    // Case 1: belongs to the ACTIVE Solaris loan AND principal is blank.
+    if (rowLoanId === activeId) {
+      var curPrincipal = row[iPrincipal];
+      if (curPrincipal !== '' && curPrincipal != null) { alreadyOk++; continue; }
+      // Figure out which schedule row by month.
+      var d = row[iDate] instanceof Date ? row[iDate] : new Date(row[iDate]);
+      if (isNaN(d.getTime())) continue;
+      var ym = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
+      var sr = monthToRow[ym];
+      if (!sr) { noMatchingRow++; continue; }
+      sheet.getRange(r + 2, iPrincipal + 1).setValue(sr.principal);
+      sheet.getRange(r + 2, iInterest + 1).setValue(sr.interest);
+      if (iType >= 0 && !String(row[iType] || '').trim()) {
+        sheet.getRange(r + 2, iType + 1).setValue('received');
+      }
+      fixed++;
+      continue;
+    }
+
+    // Case 2: looks like a Solaris backfill but belongs to a DIFFERENT (stale)
+    // loan ID. Collect for a cleanup report.
+    if (looksBackfill) {
+      // Match loosely — amount ~$16,655.63 and date in Jan-Mar 2026
+      var amt = Number(row[iAmount] || 0);
+      if (Math.abs(amt - 16655.63) < 1) {
+        orphans.push({
+          id:     iIdCol >= 0 ? String(row[iIdCol] || '') : '(no id)',
+          loanId: rowLoanId,
+          date:   String(row[iDate] || ''),
+          amount: amt,
+          notes:  notes
+        });
+      }
+    }
+  }
+
+  var msg = 'Fixed ' + fixed + ' Solaris backfill rows with explicit principal/interest.\n' +
+            (alreadyOk ? '(' + alreadyOk + ' already had principal set — left alone.)\n' : '') +
+            (noMatchingRow ? '(' + noMatchingRow + ' had dates that don\'t map to a schedule row.)\n' : '') +
+            '\nActive Solaris Loan ID: ' + activeId + '\n';
+  if (orphans.length) {
+    msg += '\n⚠ Found ' + orphans.length + ' orphaned backfill rows pointing to stale loan ID(s):\n';
+    orphans.forEach(function(o) {
+      msg += '  ' + o.id + '  Loan ID: ' + o.loanId + '  Date: ' + o.date + '  $' + o.amount.toFixed(2) + '\n';
+    });
+    msg += '\nSafe to delete those rows from LOAN_MANUAL_PAYMENTS — they belong to a Solaris loan that no longer exists.';
+  }
+  ui.alert('Fix Solaris Backfill', msg, ui.ButtonSet.OK);
+  Logger.log(msg);
+}
+
 function seedSolarisMissingPayments() {
   _requireEditor_();
   var ui = SpreadsheetApp.getUi();

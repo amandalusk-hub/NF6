@@ -416,6 +416,7 @@ function onOpen() {
     .addItem('Loans → Init Texas Loan (Amegy, Payable)', 'seedTexasLoan')
     .addItem('Loans → Backfill MacDonald historical (Jun 2024–Sep 2026)', 'backfillMacDonaldHistorical')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
+    .addItem('Loans → Fix Solaris backfill Principal/Interest + report orphans', 'fixSolarisBackfillPrincipal')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Send Test Alert Email (to me + Brandon)', 'sendTestLoanAlertEmail')
