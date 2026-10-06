@@ -736,18 +736,34 @@ function _classifyEventSource_(title) {
 // Per-reservation overrides: map { eventId → { classification, notes } }.
 // If an event ID is present in this map, its classification wins over
 // keyword inference from the title.
+//
+// Reads the sheet directly (not via _getPropertySheetRows_) because that
+// generic helper filters by `o.ID` as the primary key, and this schema uses
+// `Event ID` instead — so going through the generic reader returned empty
+// every time and NO override was ever applied. That's the Mike Macdonald bug.
 function _getPropertyReservationOverrides_(propertyId) {
-  var rows = _getPropertySheetRows_('PROPERTY_RESERVATION_OVERRIDES', PROPERTY_RESERVATION_OVERRIDES_HEADERS);
+  ensurePropertiesSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_RESERVATION_OVERRIDES');
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  var lastCol = Math.max(sheet.getLastColumn(), PROPERTY_RESERVATION_OVERRIDES_HEADERS.length);
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), lastCol).getValues();
+  var hdr = data[0];
+  var iEvt   = hdr.indexOf('Event ID');
+  var iProp  = hdr.indexOf('Property ID');
+  var iClass = hdr.indexOf('Classification');
+  var iNotes = hdr.indexOf('Notes');
+  if (iEvt < 0 || iProp < 0 || iClass < 0) return {};
   var map = {};
-  rows.forEach(function(r) {
-    if (String(r['Property ID']) !== String(propertyId)) return;
-    var eid = String(r['Event ID'] || '').trim();
-    if (!eid) return;
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    if (String(row[iProp]) !== String(propertyId)) continue;
+    var eid = String(row[iEvt] || '').trim();
+    if (!eid) continue;
     map[eid] = {
-      classification: String(r['Classification'] || '').toLowerCase().trim(),
-      notes:          String(r['Notes'] || '')
+      classification: String(row[iClass] || '').toLowerCase().trim(),
+      notes:          iNotes >= 0 ? String(row[iNotes] || '') : ''
     };
-  });
+  }
   return map;
 }
 
