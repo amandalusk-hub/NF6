@@ -1627,23 +1627,22 @@ function _syncLinkedAssetRow_(assetId, loanBalance, loanName) {
   var iId    = headers.indexOf('ID');
   var iLocal = headers.indexOf('Local Value');
   var iUsd   = headers.indexOf('USD Value');
-  var iShare = headers.indexOf('My Share %');
   var iMine  = headers.indexOf('My Share USD');
   var iUpd   = headers.indexOf('Last Updated');
   if (iId < 0 || iMine < 0) return null;
   for (var r = 1; r < data.length; r++) {
     if (String(data[r][iId]) !== String(assetId)) continue;
-    var sharePct = iShare >= 0 ? (Number(data[r][iShare]) || 100) : 100;
-    var newLocal = loanBalance;
-    var newMine  = loanBalance * sharePct / 100;
-    var oldMine  = iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0;
-    if (Math.abs(newMine - oldMine) < 1) return { updated: false, oldValue: oldMine, newValue: newMine, kind: 'asset' };
-    if (iLocal >= 0) sheet.getRange(r + 1, iLocal + 1).setValue(newLocal);
-    if (iUsd   >= 0) sheet.getRange(r + 1, iUsd + 1).setValue(newLocal);
-    if (iMine  >= 0) sheet.getRange(r + 1, iMine + 1).setValue(newMine);
+    // My Share % is INFORMATIONAL only on this schema — the loan balance IS
+    // already the share-adjusted amount. Write the loan balance to every
+    // value column 1:1 without multiplying by share%.
+    var oldMine = iMine >= 0 ? (Number(data[r][iMine]) || 0) : 0;
+    if (Math.abs(loanBalance - oldMine) < 1) return { updated: false, oldValue: oldMine, newValue: loanBalance, kind: 'asset' };
+    if (iLocal >= 0) sheet.getRange(r + 1, iLocal + 1).setValue(loanBalance);
+    if (iUsd   >= 0) sheet.getRange(r + 1, iUsd + 1).setValue(loanBalance);
+    if (iMine  >= 0) sheet.getRange(r + 1, iMine + 1).setValue(loanBalance);
     if (iUpd   >= 0) sheet.getRange(r + 1, iUpd + 1).setValue(new Date());
-    _logAudit_('syncLoanBalance', 'asset', assetId, loanName, 'Synced from loan: ' + newMine.toFixed(2));
-    return { updated: true, oldValue: oldMine, newValue: newMine, kind: 'asset' };
+    _logAudit_('syncLoanBalance', 'asset', assetId, loanName, 'Synced from loan: ' + loanBalance.toFixed(2));
+    return { updated: true, oldValue: oldMine, newValue: loanBalance, kind: 'asset' };
   }
   return null;
 }
