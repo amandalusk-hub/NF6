@@ -729,27 +729,28 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <button class="btn btn-secondary" onclick="loadCompliance()">↻ Refresh</button>
       </div>
     </div>
-    <!-- Filter + status strip -->
-    <div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;padding:10px 12px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <div style="font-size:11px;color:#5f7791;font-weight:600;text-transform:uppercase;letter-spacing:.3px">Filter</div>
-      <select id="comp-filter-urgency" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
-        <option value="all">All items</option>
-        <option value="overdue">Overdue</option>
-        <option value="active">Active (not done/cancelled)</option>
-        <option value="due60">Due in 60 days</option>
-        <option value="due30">Due in 30 days</option>
-        <option value="due7">Due in 7 days</option>
-      </select>
-      <select id="comp-filter-entity" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
-        <option value="">All entities</option>
-      </select>
-      <select id="comp-filter-type" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
-        <option value="">All types</option>
-      </select>
-      <select id="comp-filter-person" onchange="_compRender()" style="padding:5px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;background:#fff">
-        <option value="">All responsible</option>
-      </select>
-      <input id="comp-filter-search" placeholder="Search obligations…" oninput="_compRender()" style="flex:1;min-width:160px;padding:5px 10px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px">
+    <!-- Filters — airy and modern -->
+    <div style="margin-bottom:16px">
+      <input id="comp-filter-search" placeholder="🔍  Search obligations, categories, notes…" oninput="_compRender()" style="width:100%;padding:11px 14px;border:1px solid #d0dae5;border-radius:8px;font-size:14px;background:#fff;margin-bottom:10px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <select id="comp-filter-urgency" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
+          <option value="all">All items</option>
+          <option value="overdue">Overdue only</option>
+          <option value="active">Active</option>
+          <option value="due60">Due in 60 days</option>
+          <option value="due30">Due in 30 days</option>
+          <option value="due7">Due in 7 days</option>
+        </select>
+        <select id="comp-filter-entity" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
+          <option value="">All entities</option>
+        </select>
+        <select id="comp-filter-type" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
+          <option value="">All types</option>
+        </select>
+        <select id="comp-filter-person" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
+          <option value="">All people</option>
+        </select>
+      </div>
     </div>
     <div id="compliance-content">
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>
@@ -10300,13 +10301,14 @@ function _compPopulateFilters() {
 }
 
 function _compRender() {
-  var items = _compState.items.slice();
+  var all = _compState.items.slice();
   var urg = document.getElementById('comp-filter-urgency').value;
   var ent = document.getElementById('comp-filter-entity').value;
   var typ = document.getElementById('comp-filter-type').value;
   var per = document.getElementById('comp-filter-person').value;
   var search = (document.getElementById('comp-filter-search').value || '').toLowerCase().trim();
 
+  var items = all.slice();
   if (urg === 'overdue') items = items.filter(function(i) { return i._urgency && i._urgency.bucket === 'overdue'; });
   else if (urg === 'active') items = items.filter(function(i) { return i._urgency && i._urgency.isActive; });
   else if (urg === 'due60') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 60; });
@@ -10321,59 +10323,148 @@ function _compRender() {
         || (i.Notes || '').toLowerCase().indexOf(search) >= 0;
   });
 
-  // Sort: overdue most-overdue first, then by days-away ascending
-  items.sort(function(a, b) {
-    var ad = (a._urgency && a._urgency.daysAway);
-    var bd = (b._urgency && b._urgency.daysAway);
-    if (ad == null && bd == null) return 0;
-    if (ad == null) return 1;
-    if (bd == null) return -1;
-    return ad - bd;
+  // Group by urgency bucket for section rendering.
+  var buckets = { overdue: [], critical: [], 'due-soon': [], ok: [], done: [], cancelled: [], 'no-date': [] };
+  items.forEach(function(it) {
+    var b = (it._urgency && it._urgency.bucket) || 'no-date';
+    (buckets[b] || buckets['no-date']).push(it);
+  });
+  function sortByDays(arr) {
+    arr.sort(function(a, b) {
+      var ad = (a._urgency && a._urgency.daysAway);
+      var bd = (b._urgency && b._urgency.daysAway);
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return ad - bd;
+    });
+  }
+  Object.keys(buckets).forEach(function(k) { sortByDays(buckets[k]); });
+
+  // Stat tiles use UNFILTERED counts so Amanda sees the true totals.
+  var statOverdue = 0, statCritical = 0, statDueSoon = 0, statActive = 0;
+  all.forEach(function(i) {
+    var u = i._urgency; if (!u) return;
+    if (u.isActive) statActive++;
+    if (u.bucket === 'overdue')  statOverdue++;
+    if (u.bucket === 'critical') statCritical++;
+    if (u.bucket === 'due-soon') statDueSoon++;
   });
 
   var container = document.getElementById('compliance-content');
+  var html = '';
+  // Stat tiles
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px">' +
+    _compTile('OVERDUE',       statOverdue,  '#c5221f', 'overdue') +
+    _compTile('DUE IN ≤7 DAYS', statCritical, '#ea8600', 'due7') +
+    _compTile('DUE IN ≤30 DAYS',statDueSoon,  '#f9ab00', 'due30') +
+    _compTile('ACTIVE',         statActive,   '#1e8e3e', 'active') +
+  '</div>';
+
   if (!items.length) {
-    container.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8;background:#fff;border:1px solid #e8ecf1;border-radius:6px">No items match these filters.</div>';
+    html += '<div style="padding:60px 40px;text-align:center;background:#fff;border:1px dashed #d0dae5;border-radius:10px">' +
+      '<div style="font-size:36px;margin-bottom:8px">✨</div>' +
+      '<div style="font-size:15px;color:#0d2137;font-weight:600;margin-bottom:4px">Nothing to show</div>' +
+      '<div style="font-size:12px;color:#7a8ba8">No items match the current filters.</div>' +
+    '</div>';
+    container.innerHTML = html;
     return;
   }
-  var html = '<div style="font-size:12px;color:#5f6368;margin-bottom:8px">' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' · ' + _compState.items.length + ' total</div>';
-  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:6px;overflow:hidden">';
-  html += '<div style="display:grid;grid-template-columns:110px 1fr 140px 160px 110px 110px;background:#0d2137;color:#fff;padding:9px 12px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;gap:8px">' +
-    '<div>Status</div><div>Obligation</div><div>Entity</div><div>Responsible</div><div>Next Due</div><div></div>' +
-  '</div>';
-  items.forEach(function(it) {
-    var u = it._urgency || {};
-    html += '<div style="display:grid;grid-template-columns:110px 1fr 140px 160px 110px 110px;padding:10px 12px;border-top:1px solid #f0f3f7;font-size:12px;align-items:center;gap:8px">' +
-      '<div>' + _compBadge(u) + '</div>' +
-      '<div style="min-width:0">' +
-        '<div onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="color:#0d2137;cursor:pointer;line-height:1.3;font-weight:500">' + esc((it.Obligation || '(no obligation)').replace(/\n/g,' · ').substring(0, 120)) + '</div>' +
-        '<div style="color:#7a8ba8;font-size:10px;margin-top:3px">' + esc(it['Item Type'] || '') + (it.Category ? ' · ' + esc(it.Category) : '') + (it.Location ? ' · ' + esc(it.Location) : '') + '</div>' +
+
+  // Section renderers
+  function section(label, color, bucket, descr) {
+    var rows = buckets[bucket];
+    if (!rows || !rows.length) return '';
+    var h = '<div style="margin-bottom:22px">' +
+      '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid ' + color + '">' +
+        '<div style="width:10px;height:10px;background:' + color + ';border-radius:50%"></div>' +
+        '<div style="font-size:13px;font-weight:700;color:#0d2137;letter-spacing:.2px">' + esc(label) + '</div>' +
+        '<div style="font-size:11px;color:#7a8ba8;font-weight:500">· ' + rows.length + ' item' + (rows.length === 1 ? '' : 's') + '</div>' +
+        (descr ? '<div style="font-size:11px;color:#9ca9b7;margin-left:auto;font-style:italic">' + esc(descr) + '</div>' : '') +
       '</div>' +
-      '<div style="color:#5f6368;font-size:11px">' + esc(it.Entity || '') + '</div>' +
-      '<div style="color:#5f6368;font-size:11px">' + esc(it['Person Responsible'] || '') + '</div>' +
-      '<div style="color:#0d2137;font-size:11px;font-variant-numeric:tabular-nums">' + esc(it['Next Due Date'] || '—') + '</div>' +
-      '<div style="display:flex;gap:4px;justify-content:flex-end">' +
-        '<button class="btn btn-secondary" onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="padding:4px 8px;font-size:10px">Edit</button>' +
-        '<button class="btn btn-primary"   onclick="_compMarkDone(\'' + esc(it.ID) + '\')" style="padding:4px 8px;font-size:10px">✓ Done</button>' +
-      '</div>' +
-    '</div>';
-  });
-  html += '</div>';
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:10px">';
+    rows.forEach(function(it) { h += _compCard(it, color); });
+    h += '</div></div>';
+    return h;
+  }
+  html += section('Overdue', '#c5221f', 'overdue', 'past due date');
+  html += section('Due in ≤7 days', '#ea8600', 'critical', 'needs attention this week');
+  html += section('Due in 8–30 days', '#f9ab00', 'due-soon');
+  html += section('Up to date', '#1e8e3e', 'ok');
+  if (buckets.done.length) html += section('Completed', '#5f6368', 'done');
+  if (buckets['no-date'].length) html += section('No due date', '#9ca9b7', 'no-date');
+  if (buckets.cancelled.length) html += section('Cancelled', '#9ca9b7', 'cancelled');
+
   container.innerHTML = html;
 }
 
-function _compBadge(u) {
-  if (!u || !u.bucket) return '<span style="color:#9ca9b7;font-size:10px">—</span>';
+function _compTile(label, value, color, filter) {
+  return '<div onclick="_compJumpToFilter(\'' + filter + '\')" style="background:#fff;border:1px solid #e8ecf1;border-left:4px solid ' + color + ';border-radius:8px;padding:14px 16px;cursor:pointer;transition:.15s;position:relative" onmouseover="this.style.transform=\'translateY(-1px)\';this.style.boxShadow=\'0 4px 12px rgba(13,33,55,.08)\'" onmouseout="this.style.transform=\'\';this.style.boxShadow=\'\'">' +
+    '<div style="font-size:10px;color:#5f6368;font-weight:700;letter-spacing:.6px;margin-bottom:6px">' + esc(label) + '</div>' +
+    '<div style="font-size:28px;font-weight:800;color:' + color + ';line-height:1;font-variant-numeric:tabular-nums">' + value + '</div>' +
+  '</div>';
+}
+
+function _compJumpToFilter(f) {
+  document.getElementById('comp-filter-urgency').value = f;
+  _compRender();
+}
+
+function _compCard(it, accentColor) {
+  var u = it._urgency || {};
+  var idEsc = esc(it.ID);
+  var dueTxt = _compDueDisplay(u);
+  var obligation = (it.Obligation || '(no obligation set)').replace(/\n/g, ' · ');
+  var shortObligation = esc(obligation.length > 110 ? obligation.substring(0, 110) + '…' : obligation);
+  var meta = [it['Item Type'], it.Category, it.Entity, it.Location].filter(Boolean).map(esc).join(' · ');
+  var hasLink = !!(it['Link to Docs'] && String(it['Link to Docs']).match(/^https?:/));
+
+  return '<div onclick="_compOpenEdit(\'' + idEsc + '\')" style="background:#fff;border:1px solid #e8ecf1;border-radius:8px;padding:14px;cursor:pointer;transition:.15s;display:flex;flex-direction:column;gap:8px;position:relative" ' +
+         'onmouseover="this.style.borderColor=\'' + accentColor + '\';this.style.boxShadow=\'0 4px 12px rgba(13,33,55,.08)\'" ' +
+         'onmouseout="this.style.borderColor=\'#e8ecf1\';this.style.boxShadow=\'\'">' +
+    // Top row: urgency chip + due date
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' +
+      _compUrgencyChip(u) +
+      '<div style="font-size:11px;color:#5f6368;font-variant-numeric:tabular-nums">' + esc(dueTxt) + '</div>' +
+    '</div>' +
+    // Obligation
+    '<div style="font-size:13px;color:#0d2137;font-weight:600;line-height:1.35">' + shortObligation + '</div>' +
+    // Meta (type · category · entity · location)
+    (meta ? '<div style="font-size:11px;color:#7a8ba8;line-height:1.4">' + meta + '</div>' : '') +
+    // Footer: Person + actions
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;padding-top:8px;border-top:1px solid #f0f3f7">' +
+      '<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#5f6368">' +
+        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="opacity:.6"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/></svg>' +
+        esc(it['Person Responsible'] || '(unassigned)') +
+      '</div>' +
+      '<div style="display:flex;gap:4px" onclick="event.stopPropagation()">' +
+        (hasLink ? '<a href="' + esc(it['Link to Docs']) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:4px 8px;font-size:10px;text-decoration:none;color:#1a73e8" title="Open docs">↗</a>' : '') +
+        '<button class="btn btn-primary" onclick="_compMarkDone(\'' + idEsc + '\')" style="padding:4px 10px;font-size:10px">✓ Done</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function _compDueDisplay(u) {
+  if (!u || !u.dueIso) return 'No due date';
+  if (u.bucket === 'overdue') return Math.abs(u.daysAway) + ' days overdue · ' + u.dueIso;
+  if (u.daysAway === 0) return 'Due today · ' + u.dueIso;
+  if (u.daysAway === 1) return 'Due tomorrow · ' + u.dueIso;
+  return 'In ' + u.daysAway + ' days · ' + u.dueIso;
+}
+
+function _compUrgencyChip(u) {
+  if (!u || !u.bucket) return '<span style="font-size:10px;color:#9ca9b7">—</span>';
   var bg, fg, label;
   var d = u.daysAway;
-  if (u.bucket === 'overdue')  { bg = '#c5221f'; fg = '#fff'; label = Math.abs(d) + 'd late'; }
-  else if (u.bucket === 'critical') { bg = '#ea8600'; fg = '#fff'; label = (d === 0 ? 'TODAY' : d + 'd'); }
-  else if (u.bucket === 'due-soon') { bg = '#f9ab00'; fg = '#0d2137'; label = d + 'd'; }
-  else if (u.bucket === 'ok')       { bg = '#1e8e3e'; fg = '#fff'; label = d + 'd'; }
-  else if (u.bucket === 'done')     { bg = '#5f6368'; fg = '#fff'; label = 'Done'; }
-  else if (u.bucket === 'cancelled'){ bg = '#9ca9b7'; fg = '#fff'; label = 'Cancelled'; }
-  else                              { bg = '#c0ccd8'; fg = '#fff'; label = 'No date'; }
-  return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';padding:3px 8px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap">' + label + '</span>';
+  if (u.bucket === 'overdue')       { bg = '#fce8e6'; fg = '#c5221f'; label = 'OVERDUE'; }
+  else if (u.bucket === 'critical') { bg = '#fef7e0'; fg = '#9c6c0f'; label = (d === 0 ? 'DUE TODAY' : 'DUE IN ' + d + 'd'); }
+  else if (u.bucket === 'due-soon') { bg = '#fef9e7'; fg = '#9c6c0f'; label = 'DUE IN ' + d + 'd'; }
+  else if (u.bucket === 'ok')       { bg = '#e6f4ea'; fg = '#1e8e3e'; label = 'ON TRACK'; }
+  else if (u.bucket === 'done')     { bg = '#f0f3f7'; fg = '#5f6368'; label = 'DONE'; }
+  else if (u.bucket === 'cancelled'){ bg = '#f0f3f7'; fg = '#9ca9b7'; label = 'CANCELLED'; }
+  else                              { bg = '#f0f3f7'; fg = '#9ca9b7'; label = 'NO DATE'; }
+  return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';padding:3px 8px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.4px">' + label + '</span>';
 }
 
 function _compOpenNew() {
