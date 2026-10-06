@@ -9010,7 +9010,7 @@ function _renderPropertyReport(r) {
     '<div style="font-size:14px;font-weight:600;color:#0d2137;flex:1;text-align:center">' + esc(r.monthLabel) + '</div>' +
     '<button class="btn btn-secondary" onclick="_shiftReportMonth(1)" style="padding:6px 12px;font-size:12px" ' +
             (_propsState.reportMonthOffset >= 0 ? 'disabled' : '') + '>Next →</button>' +
-  '</div>' +
+  '</div>';
   // Recipient manager + Send PDF buttons. Amanda runs this manually after all
   // txns are classified (so numbers are right). The 20th-of-month cron still
   // exists as a safety net.
