@@ -8968,6 +8968,18 @@ function _loadPropertyReport() {
     .withSuccessHandler(function(report) {
       _propsState.currentReport = report;
       _renderPropertyReport(report);
+      // Fetch the current PDF recipient async; populate the input on arrival.
+      // Keep it as a separate call so the main report render isn't blocked.
+      if (!_propsState.pdfRecipient) {
+        google.script.run
+          .withSuccessHandler(function(email) {
+            _propsState.pdfRecipient = email || '';
+            var inp = document.getElementById('prop-pdf-recipient');
+            if (inp && !inp.value) inp.value = _propsState.pdfRecipient;
+          })
+          .withFailureHandler(function() { /* ignore — input stays blank */ })
+          .getDoradoPdfRecipient();
+      }
     })
     .withFailureHandler(function(e) {
       document.getElementById('prop-detail-body').innerHTML =
@@ -8999,11 +9011,19 @@ function _renderPropertyReport(r) {
     '<button class="btn btn-secondary" onclick="_shiftReportMonth(1)" style="padding:6px 12px;font-size:12px" ' +
             (_propsState.reportMonthOffset >= 0 ? 'disabled' : '') + '>Next →</button>' +
   '</div>' +
-  // Send PDF button — Amanda runs this manually after all txns are classified
-  // (so the numbers are right). Trigger-fire on the 20th still exists as a
-  // safety net, but she usually wants to send it herself.
+  // Recipient manager + Send PDF buttons. Amanda runs this manually after all
+  // txns are classified (so numbers are right). The 20th-of-month cron still
+  // exists as a safety net.
+  html += '<div style="background:#f8f9ff;border:1px solid #d4dde8;border-radius:6px;padding:10px 12px;margin-bottom:14px">' +
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">' +
+      '<label style="font-size:11px;color:#5f7791;font-weight:600;letter-spacing:.3px;text-transform:uppercase;white-space:nowrap">Email to</label>' +
+      '<input id="prop-pdf-recipient" type="text" placeholder="mike@example.com, you@example.com" value="' + esc(_propsState.pdfRecipient || '') + '" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid #c0ccd8;border-radius:5px;font-size:12px">' +
+      '<button class="btn btn-secondary" onclick="_savePdfRecipient()" style="padding:5px 10px;font-size:11px">Save</button>' +
+    '</div>' +
+    '<div style="font-size:10px;color:#7a8ba8">Comma-separate multiple addresses. Also used by the 20th-of-month cron.</div>' +
+  '</div>' +
   '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">' +
-    '<button class="btn btn-primary" onclick="_sendDoradoPdf()" style="padding:8px 14px;font-size:12px;flex:1" title="Email the PDF report for this month to Mike (recipient configured in Sheets menu)">📧 Send Monthly PDF to Mike</button>' +
+    '<button class="btn btn-primary" onclick="_sendDoradoPdf()" style="padding:8px 14px;font-size:12px;flex:1" title="Email the PDF report for this month to the address(es) above">📧 Send Monthly PDF</button>' +
     '<button class="btn btn-secondary" onclick="_previewDoradoPdf()" style="padding:8px 14px;font-size:12px" title="Email a TEST copy to yourself first">Test to me</button>' +
   '</div>';
 
@@ -9151,6 +9171,17 @@ function _renderPropertyReport(r) {
   }
 
   document.getElementById('prop-detail-body').innerHTML = html;
+}
+
+function _savePdfRecipient() {
+  var val = (document.getElementById('prop-pdf-recipient').value || '').trim();
+  google.script.run
+    .withSuccessHandler(function(r) {
+      _propsState.pdfRecipient = val;
+      toast(val ? 'Saved: ' + val : 'Recipient cleared');
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setDoradoPdfRecipientFromUi(val);
 }
 
 function _sendDoradoPdf() {

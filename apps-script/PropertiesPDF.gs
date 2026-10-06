@@ -599,6 +599,29 @@ function installDoradoMonthlyPdfTrigger() {
            '(Set / change via Tracker → Set Dorado PDF Recipient.)');
 }
 
+// Web-callable: read the current recipient(s) for the Properties UI input.
+function getDoradoPdfRecipient() {
+  return PropertiesService.getScriptProperties().getProperty(_DORADO_PDF_RECIPIENT_KEY) || '';
+}
+
+// Web-callable (from the Properties tab input): set the recipient(s).
+// Accepts comma-separated multiple addresses. Validates each; rejects the
+// whole save if any are malformed.
+function setDoradoPdfRecipientFromUi(csv) {
+  _requireEditor_();
+  var val = String(csv == null ? '' : csv).trim();
+  if (!val) {
+    PropertiesService.getScriptProperties().deleteProperty(_DORADO_PDF_RECIPIENT_KEY);
+    return { success: true, cleared: true };
+  }
+  var parts = val.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+  var bad = parts.filter(function(e) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
+  if (bad.length) throw new Error('Invalid email(s): ' + bad.join(', '));
+  var normalized = parts.join(', ');
+  PropertiesService.getScriptProperties().setProperty(_DORADO_PDF_RECIPIENT_KEY, normalized);
+  return { success: true, recipient: normalized };
+}
+
 // Menu-callable: set the email recipient for the monthly send.
 function setDoradoPdfRecipient() {
   var ui = SpreadsheetApp.getUi();
