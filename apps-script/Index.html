@@ -8992,12 +8992,19 @@ function _renderPropertyReport(r) {
 
   var html = '';
 
-  // Month navigator
-  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px">' +
+  // Month navigator + Send PDF action
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:8px;flex-wrap:wrap">' +
     '<button class="btn btn-secondary" onclick="_shiftReportMonth(-1)" style="padding:6px 12px;font-size:12px">← Previous</button>' +
-    '<div style="font-size:14px;font-weight:600;color:#0d2137">' + esc(r.monthLabel) + '</div>' +
+    '<div style="font-size:14px;font-weight:600;color:#0d2137;flex:1;text-align:center">' + esc(r.monthLabel) + '</div>' +
     '<button class="btn btn-secondary" onclick="_shiftReportMonth(1)" style="padding:6px 12px;font-size:12px" ' +
             (_propsState.reportMonthOffset >= 0 ? 'disabled' : '') + '>Next →</button>' +
+  '</div>' +
+  // Send PDF button — Amanda runs this manually after all txns are classified
+  // (so the numbers are right). Trigger-fire on the 20th still exists as a
+  // safety net, but she usually wants to send it herself.
+  '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">' +
+    '<button class="btn btn-primary" onclick="_sendDoradoPdf()" style="padding:8px 14px;font-size:12px;flex:1" title="Email the PDF report for this month to Mike (recipient configured in Sheets menu)">📧 Send Monthly PDF to Mike</button>' +
+    '<button class="btn btn-secondary" onclick="_previewDoradoPdf()" style="padding:8px 14px;font-size:12px" title="Email a TEST copy to yourself first">Test to me</button>' +
   '</div>';
 
   // 4 header tiles + Net Cash Flow banner
@@ -9144,6 +9151,37 @@ function _renderPropertyReport(r) {
   }
 
   document.getElementById('prop-detail-body').innerHTML = html;
+}
+
+function _sendDoradoPdf() {
+  var propertyId = _propsState.currentPropertyId;
+  var year = _propsState.currentReport && _propsState.currentReport.year;
+  var month = _propsState.currentReport && _propsState.currentReport.month;
+  if (!propertyId || !year || !month) { toast('Load a property report first', 'error'); return; }
+  if (!confirm('Send the ' + (_propsState.currentReport.monthLabel || 'current') + ' Dorado PDF to Mike?\n\nMake sure every transaction is classified first — anything still in "Needs Review" won\'t show in the P&L.')) return;
+  toast('Sending…');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) toast('Sent to ' + (r.recipient || 'Mike') + ' ✓');
+      else toast((r && r.error) || 'Send failed. Set a recipient first: Sheets → Tracker → Properties → Set Dorado PDF Recipient', 'error');
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .sendDoradoPdfForMonth(propertyId, year, month, false);
+}
+
+function _previewDoradoPdf() {
+  var propertyId = _propsState.currentPropertyId;
+  var year = _propsState.currentReport && _propsState.currentReport.year;
+  var month = _propsState.currentReport && _propsState.currentReport.month;
+  if (!propertyId || !year || !month) { toast('Load a property report first', 'error'); return; }
+  toast('Sending test to you…');
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) toast('Test sent to you ✓');
+      else toast((r && r.error) || 'Send failed', 'error');
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .sendDoradoPdfForMonth(propertyId, year, month, true);
 }
 
 function _shiftReportMonth(delta) {
