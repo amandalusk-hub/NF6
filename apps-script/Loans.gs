@@ -536,16 +536,22 @@ function fixSolarisBackfillPrincipal() {
     var looksBackfill = /backfilled|pre-plaid/i.test(notes) || /2026-0[123]/.test(String(row[iDate]));
     var rowLoanId = String(row[iLoan] || '');
 
-    // Case 1: belongs to the ACTIVE Solaris loan AND principal is blank.
+    // Case 1: belongs to the ACTIVE Solaris loan. Force-overwrite the P/I
+    // columns from the schedule's expected split for that month. We don't
+    // skip "already-set" rows because the common failure mode here is the
+    // columns having a wrong value (e.g. 0) that the generic composite math
+    // then credits as 0 principal — which is exactly the bug we're fixing.
     if (rowLoanId === activeId) {
-      var curPrincipal = row[iPrincipal];
-      if (curPrincipal !== '' && curPrincipal != null) { alreadyOk++; continue; }
-      // Figure out which schedule row by month.
       var d = row[iDate] instanceof Date ? row[iDate] : new Date(row[iDate]);
       if (isNaN(d.getTime())) continue;
       var ym = Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM');
       var sr = monthToRow[ym];
       if (!sr) { noMatchingRow++; continue; }
+      var curPrincipal = Number(row[iPrincipal]);
+      var curInterest  = Number(row[iInterest]);
+      var pMatches = row[iPrincipal] !== '' && row[iPrincipal] != null && !isNaN(curPrincipal) && Math.abs(curPrincipal - sr.principal) < 0.01;
+      var iMatches = row[iInterest]  !== '' && row[iInterest]  != null && !isNaN(curInterest)  && Math.abs(curInterest  - sr.interest)  < 0.01;
+      if (pMatches && iMatches) { alreadyOk++; continue; }
       sheet.getRange(r + 2, iPrincipal + 1).setValue(sr.principal);
       sheet.getRange(r + 2, iInterest + 1).setValue(sr.interest);
       if (iType >= 0 && !String(row[iType] || '').trim()) {
