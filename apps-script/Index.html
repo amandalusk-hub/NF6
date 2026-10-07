@@ -5159,14 +5159,18 @@ function renderDashboard(){
   document.getElementById('m-liabilities').textContent  = fmtUSD(liabUSD);
   document.getElementById('m-cash').textContent         = fmtUSD(cashUSD);
   document.getElementById('m-count').textContent        = assets.length;
-  renderDonut();
-  try{renderLiabDonut();}catch(e){console.warn('liabDonut:',e);}
+  renderDonut(assets);
+  try{renderLiabDonut(liabs);}catch(e){console.warn('liabDonut:',e);}
   renderMNWList();
 }
 
-function renderDonut(){
+function renderDonut(filteredAssets){
+  // Use the already-archived-filtered list from renderDashboard so the slice
+  // percentages match the Total Assets / Net Worth cards. Fall back to the
+  // raw state only if called directly without a param.
+  const src = filteredAssets || state.assets || [];
   const totByCat={};
-  state.assets.forEach(a=>{
+  src.forEach(a=>{
     const c=a.Category||'Other';
     totByCat[c]=(totByCat[c]||0)+num(a['My Share USD']);
   });
@@ -5216,8 +5220,10 @@ const LIAB_COLORS={
 };
 function liabColor(t,i){return LIAB_COLORS[t]||['#1B4F8A','#2E6DA4','#4A8DC0','#6AADD4','#0D3B6E','#154360','#2471A3','#8FC4E0'][i%8];}
 
-function renderLiabDonut(){
-  const liabs=state.liabilities||[];
+function renderLiabDonut(filteredLiabs){
+  // Mirror renderDonut's filtered-list pattern so the donut's percentages
+  // match the Total Liabilities headline when "Show archived" is off.
+  const liabs = filteredLiabs || state.liabilities || [];
   const totByType={};
   liabs.forEach(l=>{const t=l.Type||'Other';totByType[t]=(totByType[t]||0)+num(l['USD Value']);});
   const total=Object.values(totByType).reduce((s,v)=>s+v,0);

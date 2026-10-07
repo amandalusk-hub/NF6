@@ -1301,7 +1301,56 @@ function checkLoanPaymentAlerts() {
     });
   });
 
-  var totalAlerts = receivableAlerts.length + payableAlerts.length;
+  // Also scan ASSETS for Promissory Notes / Loans Receivable rows whose
+  // Details.loanDue is past grace. These are receivables that live only on
+  // the ASSETS sheet (not seeded as a LOANS row), e.g. the Dominican
+  // Republic loan — visible on the dashboard with "Overdue 75d" but
+  // invisible to this alerter until now.
+  var assetAlerts = [];
+  try {
+    var assetsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('ASSETS');
+    if (assetsSheet && assetsSheet.getLastRow() >= 2) {
+      var aHdr = assetsSheet.getRange(1, 1, 1, assetsSheet.getLastColumn()).getValues()[0];
+      var aIdCat = aHdr.indexOf('Category');
+      var aIdName = aHdr.indexOf('Name');
+      var aIdEnt = aHdr.indexOf('Entity');
+      var aIdDet = aHdr.indexOf('Details');
+      var aIdArch = aHdr.indexOf('Archived');
+      var aIdLinked = aHdr.indexOf('Linked Asset ID');   // some loans already alert via LOANS
+      // Build set of asset IDs already covered by a LOANS-sheet-driven alert
+      var coveredAssetIds = {};
+      (statuses || []).forEach(function(s) {
+        var lid = String((s.loan||{})['Linked Asset ID'] || '').trim();
+        if (lid) coveredAssetIds[lid] = true;
+      });
+      var aData = assetsSheet.getRange(2, 1, assetsSheet.getLastRow() - 1, aHdr.length).getValues();
+      for (var ar = 0; ar < aData.length; ar++) {
+        var row = aData[ar];
+        var cat = String(row[aIdCat] || '').toLowerCase();
+        if (cat.indexOf('loan') < 0 && cat.indexOf('promissory') < 0) continue;
+        var arch = aIdArch >= 0 ? String(row[aIdArch] || '').toLowerCase() : '';
+        if (arch === 'yes' || arch === 'true') continue;
+        if (coveredAssetIds[String(row[0])]) continue;   // already alerted via LOANS
+        var detRaw = aIdDet >= 0 ? row[aIdDet] : '';
+        if (!detRaw) continue;
+        var det; try { det = JSON.parse(detRaw); } catch(e) { continue; }
+        var dueStr = det && det.loanDue;
+        if (!dueStr) continue;
+        var dueDate = new Date(String(dueStr) + (String(dueStr).length === 10 ? 'T00:00:00' : ''));
+        if (isNaN(dueDate.getTime())) continue;
+        var dp = Math.floor((todayMs - dueDate.getTime()) / 86400000);
+        if (dp < _LOAN_ALERT_GRACE_DAYS) continue;
+        assetAlerts.push({
+          loanName: String(row[aIdName] || '(unnamed asset loan)'),
+          entity:   aIdEnt >= 0 ? String(row[aIdEnt] || '') : '',
+          due:      String(dueStr).substring(0, 10),
+          daysPast: dp
+        });
+      }
+    }
+  } catch (e) { Logger.log('checkLoanPaymentAlerts: asset-scan failed: ' + e.message); }
+
+  var totalAlerts = receivableAlerts.length + payableAlerts.length + assetAlerts.length;
   if (!totalAlerts) { Logger.log('checkLoanPaymentAlerts: no overdue payments (grace=' + _LOAN_ALERT_GRACE_DAYS + ' days).'); return; }
 
   var body = 'Loan payment alerts — ' + totalAlerts + ' payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n';
@@ -1335,6 +1384,15 @@ function checkLoanPaymentAlerts() {
         }
       }
       body += '\n';
+    });
+  }
+
+  if (assetAlerts.length) {
+    body += '📥 ASSET-BASED LOANS (promissory notes / receivables past due)\n';
+    body += '───────────────────────────────────────────────────\n';
+    assetAlerts.forEach(function(a) {
+      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
+      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n\n';
     });
   }
 

@@ -897,6 +897,7 @@ function fetchExchangeRates() { _requireEditor_();
 
 function getFxRate_(currency) {
   if (!currency || currency === 'USD') return 1;
+  // Fresh cache (<4h) wins first.
   try {
     var cached = PropertiesService.getScriptProperties().getProperty('FX_CACHE');
     if (cached) {
@@ -905,8 +906,25 @@ function getFxRate_(currency) {
       if (ageHrs < 4 && obj.rates[currency]) return obj.rates[currency];
     }
   } catch(e) {}
-  var result = fetchExchangeRates();
-  return (result.success && result.rates[currency]) ? result.rates[currency] : 1;
+  // Try live fetch next.
+  var result;
+  try { result = fetchExchangeRates(); } catch(e) { result = { success: false }; }
+  if (result && result.success && result.rates[currency]) return result.rates[currency];
+  // Fall back to STALE cache (even expired) rather than 1 — a stale rate is
+  // vastly safer than silently converting a 2B COP note into $2B USD.
+  try {
+    var stale = PropertiesService.getScriptProperties().getProperty('FX_CACHE');
+    if (stale) {
+      var sobj = JSON.parse(stale);
+      if (sobj.rates && sobj.rates[currency]) {
+        Logger.log('getFxRate_: live fetch failed, using stale ' + currency + ' rate ' + sobj.rates[currency] + ' from ' + sobj.fetched);
+        return sobj.rates[currency];
+      }
+    }
+  } catch(e) {}
+  // Last resort: throw so the caller logs and the number doesn't silently
+  // get stored as 1:1 USD. Callers that want graceful degradation can catch.
+  throw new Error('getFxRate_: no rate available for ' + currency + ' (API failed, no cached rate). Not falling back to 1.0 — refusing to silently inflate value.');
 }
 
 // Metadata for the dashboard's FX Rates panel: which service supplies the
@@ -990,7 +1008,8 @@ function addAsset(data) { _requireEditor_();
   var localVal = Number(data.localValue) || 0;
   var usdVal   = localVal * fxRate;
   var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
-  var shareUsd = usdVal * sharePct / 100;
+  // My Share % is INFORMATIONAL only — do not multiply the dollar amount.
+  var shareUsd = usdVal;
   var costBasis  = Number(data.costBasis) || 0;
   var nameToSave = data.name || '';
 
@@ -1040,7 +1059,8 @@ function updateAsset(data) { _requireEditor_();
     var localVal = data.localValue !== undefined ? Number(data.localValue) : (Number(cur('Local Value')) || 0);
     var usdVal   = localVal * fxRate;
     var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : (Number(cur('My Share %')) || 0);
-    var shareUsd = usdVal * sharePct / 100;
+    // My Share % is INFORMATIONAL only — do not multiply the dollar amount.
+    var shareUsd = usdVal;
     var now      = new Date();
 
     var newRow = rows[i].slice();
@@ -1574,8 +1594,12 @@ function saveLiabilityDetails(id, detailsJson) { _requireEditor_();
     currency = (currCol > 0 ? liabData[i][currCol - 1] : '') || 'USD';
     liabSheet.getRange(i + 1, detailsCol).setValue(detailsJson || '');
     if (lastUpdCol > 0) liabSheet.getRange(i + 1, lastUpdCol).setValue(new Date());
-    // Sync current balance → Amount + USD Value so the dashboard reflects it
-    if (balanceNum > 0 && amtCol > 0 && usdCol > 0) {
+    // Sync current balance → Amount + USD Value so the dashboard reflects it.
+    // Honor an explicit $0 (paid off) — only skip when balance is actually
+    // undefined / blank. Previously the >0 guard meant Amanda couldn't mark
+    // a liability as paid off; the old non-zero number lingered on the
+    // dashboard, dragging down Net Worth.
+    if (balanceNum !== undefined && balanceNum !== '' && !isNaN(balanceNum) && amtCol > 0 && usdCol > 0) {
       var fxRate = getFxRate_(currency);
       liabSheet.getRange(i + 1, amtCol).setValue(balanceNum);
       liabSheet.getRange(i + 1, usdCol).setValue(balanceNum * fxRate);
@@ -2064,12 +2088,14 @@ function refreshPropertyValues() { _requireEditor_();
     var sheetRow = i + 1;
     var oldUsd   = hci('USD Value')    >= 0 ? (Number(rows[i][hci('USD Value')])    || 0) : 0;
     var newUsd   = result.value;
-    var sharePct = hci('My Share %')   >= 0 ? (Number(rows[i][hci('My Share %')])   || 100) : 100;
+    // My Share % is INFORMATIONAL only — do not multiply. Writing newUsd 1:1
+    // to My Share USD matches the Solaris / loan-sync fix (don't let the %
+    // influence the amounts).
 
     if (hci('Local Value')  >= 0) sheet.getRange(sheetRow, hci('Local Value')  + 1).setValue(newUsd);
     if (hci('USD Rate')     >= 0) sheet.getRange(sheetRow, hci('USD Rate')     + 1).setValue(1);
     if (hci('USD Value')    >= 0) sheet.getRange(sheetRow, hci('USD Value')    + 1).setValue(newUsd);
-    if (hci('My Share USD') >= 0) sheet.getRange(sheetRow, hci('My Share USD') + 1).setValue(newUsd * sharePct / 100);
+    if (hci('My Share USD') >= 0) sheet.getRange(sheetRow, hci('My Share USD') + 1).setValue(newUsd);
     if (hci('Last Updated') >= 0) sheet.getRange(sheetRow, hci('Last Updated') + 1).setValue(new Date());
 
     var existingNotes = hci('Notes') >= 0 ? String(rows[i][hci('Notes')] || '') : '';
@@ -4736,6 +4762,56 @@ function setDailyPDFRecipient() {
 
 
 
+// Walk ASSETS + LIABILITIES, recompute USD Value = Local × current FX for
+// every non-USD row. Writes My Share USD = USD Value (no %) to match the
+// share-is-informational contract. Runs after fetchExchangeRates() in the
+// daily cron so foreign-currency values stay fresh even without a manual
+// edit. Skips Plaid/SnapTrade-sourced rows (they're already live-synced in
+// USD by the account sync).
+function refreshNonUsdValuations_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var touched = 0;
+  ['ASSETS', 'LIABILITIES'].forEach(function(sheetName) {
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+    var hdr  = data[0];
+    var iCurrency = hdr.indexOf('Currency');
+    var iLocal    = hdr.indexOf('Local Value');
+    var iAmount   = hdr.indexOf('Amount');          // liabilities use Amount
+    var iRate     = hdr.indexOf('USD Rate');
+    var iUsd      = hdr.indexOf('USD Value');
+    var iMine     = hdr.indexOf('My Share USD');
+    var iUpd      = hdr.indexOf('Last Updated');
+    var iSource   = hdr.indexOf('Source');
+    if (iCurrency < 0 || iUsd < 0) return;
+    var localCol = iLocal >= 0 ? iLocal : iAmount;
+    if (localCol < 0) return;
+    for (var r = 1; r < data.length; r++) {
+      var currency = String(data[r][iCurrency] || 'USD').toUpperCase().trim();
+      if (!currency || currency === 'USD') continue;
+      // Skip rows that are live-synced from an external provider (Plaid /
+      // SnapTrade already push USD directly).
+      if (iSource >= 0 && /plaid|snaptrade/i.test(String(data[r][iSource] || ''))) continue;
+      var localVal = Number(data[r][localCol]) || 0;
+      if (!localVal) continue;
+      var rate;
+      try { rate = getFxRate_(currency); }
+      catch(e) { Logger.log('refreshNonUsdValuations_: skip row ' + (r+1) + ' (' + currency + ') — ' + e.message); continue; }
+      var newUsd = localVal * rate;
+      var oldUsd = Number(data[r][iUsd]) || 0;
+      if (Math.abs(newUsd - oldUsd) < 0.5) continue;   // no meaningful change
+      if (iRate >= 0) sheet.getRange(r + 1, iRate + 1).setValue(rate);
+      sheet.getRange(r + 1, iUsd + 1).setValue(newUsd);
+      if (iMine >= 0) sheet.getRange(r + 1, iMine + 1).setValue(newUsd);
+      if (iUpd  >= 0) sheet.getRange(r + 1, iUpd  + 1).setValue(new Date());
+      touched++;
+    }
+  });
+  Logger.log('refreshNonUsdValuations_: ' + touched + ' row(s) revalued');
+  return { touched: touched };
+}
+
 function syncAllAccounts() { _requireEditor_();
   var synced = 0;
   var errors = [];
@@ -4746,6 +4822,12 @@ function syncAllAccounts() { _requireEditor_();
 
 function dailySync_() {
   fetchExchangeRates();
+  // After FX refresh, recompute USD Value + My Share USD for every non-USD
+  // ASSET and LIABILITY row — previously these only updated on manual edit,
+  // so COP / EUR / DOP values displayed last-saved USD regardless of what
+  // the actual exchange rate did.
+  try { refreshNonUsdValuations_(); }
+  catch(e) { Logger.log('dailySync_: refreshNonUsdValuations_ failed: ' + e.message); }
   syncAllAccounts();
   refreshPropertyValues();
   // Full raw-transaction pull from EVERY Plaid-connected account into
