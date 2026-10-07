@@ -66,8 +66,28 @@ function ensureComplianceSheets_() {
 function _ensureComplianceSheet_(name, headers) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(name);
+  // Case/whitespace fallback — if getSheetByName returns null but a sheet
+  // with the same case-insensitive trimmed name exists, use that one. This
+  // avoids the "A sheet with the name 'X' already exists" error when the
+  // sheet exists under a slightly different form.
   if (!sheet) {
-    sheet = ss.insertSheet(name);
+    var allSheets = ss.getSheets();
+    var lcTrimmed = String(name).toLowerCase().trim();
+    for (var i = 0; i < allSheets.length; i++) {
+      if (String(allSheets[i].getName()).toLowerCase().trim() === lcTrimmed) {
+        sheet = allSheets[i];
+        break;
+      }
+    }
+  }
+  if (!sheet) {
+    try {
+      sheet = ss.insertSheet(name);
+    } catch (e) {
+      // Race / weird-naming fallback: assume it was just created and look it up again
+      sheet = ss.getSheetByName(name);
+      if (!sheet) throw e;
+    }
     sheet.getRange(1, 1, 1, headers.length)
       .setValues([headers])
       .setFontWeight('bold').setBackground('#14263d').setFontColor('#ffffff');
