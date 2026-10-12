@@ -752,6 +752,13 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </select>
       </div>
     </div>
+    <!-- View toggle -->
+    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+      <button data-cv="cards"    onclick="_compSwitchView('cards')"    class="comp-view-btn comp-view-btn-active" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#0d2137;color:#fff;cursor:pointer;font-weight:600">🧱 Cards</button>
+      <button data-cv="timeline" onclick="_compSwitchView('timeline')" class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">📅 Timeline</button>
+      <button data-cv="byperson" onclick="_compSwitchView('byperson')" class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">👥 By Person</button>
+      <button data-cv="list"     onclick="_compSwitchView('list')"     class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">📋 List</button>
+    </div>
     <div id="compliance-content">
       <div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>
     </div>
@@ -10289,7 +10296,8 @@ var _compState = {
   items: [],
   loading: false,
   editingId: null,
-  people: []
+  people: [],
+  viewMode: 'cards'   // 'cards' | 'timeline' | 'byperson' | 'list'
 };
 
 function loadCompliance() {
@@ -10362,7 +10370,13 @@ function _compRender() {
         || (i['Person Responsible'] || '').toLowerCase().indexOf(search) >= 0;
   });
 
-  // Group by urgency bucket for section rendering.
+  // Dispatch to the chosen view renderer. Stat tiles are always rendered
+  // first (unfiltered counts) so Amanda can tap one to jump filter.
+  if (_compState.viewMode === 'timeline') return _compRenderTimeline(items, all);
+  if (_compState.viewMode === 'byperson') return _compRenderByPerson(items, all);
+  if (_compState.viewMode === 'list')     return _compRenderList(items, all);
+
+  // Default: cards grouped by urgency bucket.
   var buckets = { overdue: [], critical: [], 'due-soon': [], ok: [], done: [], cancelled: [], 'no-date': [] };
   items.forEach(function(it) {
     var b = (it._urgency && it._urgency.bucket) || 'no-date';
@@ -10494,6 +10508,230 @@ function _compCard(it, accentColor) {
       '</div>' +
     '</div>' +
   '</div>';
+}
+
+// ─── View switcher + alternate renderers ────────────────────────────────────
+
+function _compSwitchView(mode) {
+  _compState.viewMode = mode;
+  // Visual toggle on the pill buttons
+  Array.prototype.forEach.call(document.querySelectorAll('.comp-view-btn'), function(b) {
+    var active = b.getAttribute('data-cv') === mode;
+    b.style.background = active ? '#0d2137' : '#fff';
+    b.style.color      = active ? '#fff'    : '#0d2137';
+    b.style.fontWeight = active ? '600'     : '500';
+    if (active) b.classList.add('comp-view-btn-active'); else b.classList.remove('comp-view-btn-active');
+  });
+  _compRender();
+}
+
+// Always-show stat tiles + filter banner reused across views.
+function _compStatTilesHtml(all) {
+  var o = 0, c = 0, s = 0, a = 0;
+  all.forEach(function(i) {
+    var u = i._urgency; if (!u) return;
+    if (u.isActive) a++;
+    if (u.bucket === 'overdue') o++;
+    if (u.bucket === 'critical') c++;
+    if (u.bucket === 'due-soon') s++;
+  });
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px">' +
+    _compTile('OVERDUE', o, '#c5221f', 'overdue') +
+    _compTile('DUE IN ≤7 DAYS', c, '#ea8600', 'due7') +
+    _compTile('DUE IN ≤30 DAYS', s, '#f9ab00', 'due30') +
+    _compTile('ACTIVE', a, '#1e8e3e', 'active') +
+  '</div>';
+}
+
+// ─── Timeline view: next 12 months horizontally, overdue pinned left ────────
+
+function _compRenderTimeline(items, all) {
+  var container = document.getElementById('compliance-content');
+  var html = _compStatTilesHtml(all);
+  if (!items.length) {
+    container.innerHTML = html + '<div style="padding:60px;text-align:center;background:#fff;border:1px dashed #d0dae5;border-radius:10px;color:#7a8ba8">No items match the current filters.</div>';
+    return;
+  }
+
+  // Build 12 month-buckets starting from the current month.
+  var now = new Date();
+  var baseY = now.getFullYear(), baseM = now.getMonth();
+  var months = [];
+  for (var i = 0; i < 12; i++) {
+    var m = baseM + i, y = baseY;
+    while (m > 11) { m -= 12; y++; }
+    months.push({ y: y, m: m, key: y + '-' + String(m+1).padStart(2,'0'), label: _compMonthLabel(y, m), items: [] });
+  }
+  var overdue = [];
+  items.forEach(function(it) {
+    var u = it._urgency || {};
+    if (u.bucket === 'overdue') { overdue.push(it); return; }
+    if (!u.dueIso) return;
+    var d = new Date(u.dueIso + 'T12:00:00Z');
+    var key = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0');
+    var bucket = months.find(function(mo) { return mo.key === key; });
+    if (bucket) bucket.items.push(it);
+  });
+
+  // Sort each month's items by due date
+  months.forEach(function(mo) {
+    mo.items.sort(function(a, b) {
+      return (a._urgency.dueIso || '').localeCompare(b._urgency.dueIso || '');
+    });
+  });
+  overdue.sort(function(a, b) {
+    return (a._urgency.daysAway || 0) - (b._urgency.daysAway || 0);   // most overdue first
+  });
+
+  html += '<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;align-items:stretch">';
+
+  // Overdue column (pinned left, red background)
+  if (overdue.length) {
+    html += '<div style="flex:0 0 240px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px">' +
+      '<div style="font-size:11px;color:#c5221f;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #fecaca">⚠ OVERDUE · ' + overdue.length + '</div>' +
+      overdue.map(_compMiniRow).join('') +
+    '</div>';
+  }
+
+  // One column per month
+  months.forEach(function(mo) {
+    var hasItems = mo.items.length > 0;
+    html += '<div style="flex:0 0 240px;background:#fff;border:1px solid ' + (hasItems ? '#d0dae5' : '#e8ecf1') + ';border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px;' + (hasItems ? '' : 'opacity:.6') + '">' +
+      '<div style="font-size:11px;color:#0d2137;font-weight:700;letter-spacing:.3px;padding-bottom:6px;border-bottom:1px solid #e8ecf1;display:flex;justify-content:space-between">' +
+        '<span>' + esc(mo.label) + '</span><span style="color:#7a8ba8;font-weight:500">' + mo.items.length + '</span>' +
+      '</div>' +
+      (mo.items.length ? mo.items.map(_compMiniRow).join('') : '<div style="font-size:11px;color:#9ca9b7;font-style:italic;padding:8px 0">nothing</div>') +
+    '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function _compMonthLabel(y, m) {
+  var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return monthNames[m] + ' ' + y;
+}
+
+function _compMiniRow(it) {
+  var u = it._urgency || {};
+  var catColor = _compCategoryColor(it['Item Type'], it.Category);
+  var personColor = _compPersonColor(it['Person Responsible']);
+  var obligation = String(it.Obligation || '(no obligation)').replace(/\n/g, ' · ');
+  var short = obligation.length > 50 ? obligation.substring(0, 50) + '…' : obligation;
+  var dueDay = u.dueIso ? u.dueIso.substring(8, 10) : '—';
+  return '<div onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="background:#fff;border-left:3px solid ' + catColor.fg + ';border-radius:4px;padding:6px 8px;cursor:pointer;transition:.1s" ' +
+         'onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'#fff\'">' +
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
+      '<div style="font-size:11px;color:#0d2137;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis">' + esc(short) + '</div>' +
+      '<div style="font-size:10px;color:#5f6368;font-weight:700;font-variant-numeric:tabular-nums">' + esc(dueDay) + '</div>' +
+    '</div>' +
+    '<div style="margin-top:3px;display:flex;align-items:center;gap:4px">' +
+      '<span style="background:' + personColor.bg + ';color:' + personColor.fg + ';padding:1px 6px;border-radius:8px;font-size:9px;font-weight:600">' + esc((it['Person Responsible']||'—').split('/')[0]) + '</span>' +
+      '<span style="font-size:10px;color:#7a8ba8">' + esc(it.Entity || '') + '</span>' +
+    '</div>' +
+  '</div>';
+}
+
+// ─── By Person view: columns per responsible person ─────────────────────────
+
+function _compRenderByPerson(items, all) {
+  var container = document.getElementById('compliance-content');
+  var html = _compStatTilesHtml(all);
+  if (!items.length) {
+    container.innerHTML = html + '<div style="padding:60px;text-align:center;background:#fff;border:1px dashed #d0dae5;border-radius:10px;color:#7a8ba8">No items match the current filters.</div>';
+    return;
+  }
+
+  // Group by (normalized) person. Compound names ("Amanda/Brandon") duplicate
+  // the item into both people's columns so each person sees everything they
+  // own — intentional, since you can't accurately split responsibility.
+  var byPerson = {};
+  items.forEach(function(it) {
+    var raw = String(it['Person Responsible'] || '(unassigned)');
+    var people = raw.split(/[\/,&]+/).map(function(s) { return s.trim(); }).filter(Boolean);
+    if (!people.length) people = ['(unassigned)'];
+    people.forEach(function(p) {
+      byPerson[p] = byPerson[p] || { name: p, items: [] };
+      byPerson[p].items.push(it);
+    });
+  });
+  var cols = Object.keys(byPerson).map(function(k) { return byPerson[k]; });
+  // Sort columns by item count desc, then name
+  cols.sort(function(a, b) {
+    if (b.items.length !== a.items.length) return b.items.length - a.items.length;
+    return a.name.localeCompare(b.name);
+  });
+
+  html += '<div style="display:flex;gap:12px;overflow-x:auto;align-items:stretch;padding-bottom:8px">';
+  cols.forEach(function(col) {
+    var personColor = _compPersonColor(col.name);
+    // Sort each person's items by overdue first, then days-away ascending
+    col.items.sort(function(a, b) {
+      var ad = a._urgency && a._urgency.daysAway;
+      var bd = b._urgency && b._urgency.daysAway;
+      if (ad == null && bd == null) return 0;
+      if (ad == null) return 1;
+      if (bd == null) return -1;
+      return ad - bd;
+    });
+    var overdueCount = col.items.filter(function(i) { return i._urgency && i._urgency.bucket === 'overdue'; }).length;
+    html += '<div style="flex:0 0 300px;background:#fff;border:1px solid #e8ecf1;border-top:3px solid ' + personColor.fg + ';border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:8px;border-bottom:1px solid #f0f3f7">' +
+        '<div style="display:flex;align-items:center;gap:6px">' +
+          '<span style="background:' + personColor.bg + ';color:' + personColor.fg + ';padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700">' + esc(col.name) + '</span>' +
+          '<span style="font-size:11px;color:#7a8ba8">' + col.items.length + '</span>' +
+        '</div>' +
+        (overdueCount ? '<span style="background:#fef2f2;color:#c5221f;padding:2px 7px;border-radius:3px;font-size:10px;font-weight:700">' + overdueCount + ' OVERDUE</span>' : '') +
+      '</div>' +
+      col.items.slice(0, 30).map(_compMiniRow).join('') +
+      (col.items.length > 30 ? '<div style="font-size:11px;color:#7a8ba8;font-style:italic;text-align:center;padding:4px">+' + (col.items.length - 30) + ' more</div>' : '') +
+    '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+// ─── List view: dense table for fast scanning ───────────────────────────────
+
+function _compRenderList(items, all) {
+  var container = document.getElementById('compliance-content');
+  var html = _compStatTilesHtml(all);
+  if (!items.length) {
+    container.innerHTML = html + '<div style="padding:60px;text-align:center;background:#fff;border:1px dashed #d0dae5;border-radius:10px;color:#7a8ba8">No items match the current filters.</div>';
+    return;
+  }
+  // Sort: overdue first (most overdue first), then by days-away
+  items.sort(function(a, b) {
+    var ad = a._urgency && a._urgency.daysAway;
+    var bd = b._urgency && b._urgency.daysAway;
+    if (ad == null && bd == null) return 0;
+    if (ad == null) return 1;
+    if (bd == null) return -1;
+    return ad - bd;
+  });
+  html += '<div style="background:#fff;border:1px solid #e8ecf1;border-radius:8px;overflow:hidden">';
+  html += '<div style="display:grid;grid-template-columns:90px 1fr 130px 140px 100px 90px;background:#0d2137;color:#fff;padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;gap:8px">' +
+    '<div>Status</div><div>Obligation</div><div>Entity</div><div>Responsible</div><div>Due</div><div></div>' +
+  '</div>';
+  items.forEach(function(it) {
+    var u = it._urgency || {};
+    var personColor = _compPersonColor(it['Person Responsible']);
+    var catColor = _compCategoryColor(it['Item Type'], it.Category);
+    var obligation = String(it.Obligation || '(no obligation)').replace(/\n/g, ' · ');
+    var short = obligation.length > 90 ? obligation.substring(0, 90) + '…' : obligation;
+    html += '<div onclick="_compOpenEdit(\'' + esc(it.ID) + '\')" style="display:grid;grid-template-columns:90px 1fr 130px 140px 100px 90px;padding:8px 12px;border-top:1px solid #f0f3f7;font-size:12px;align-items:center;gap:8px;border-left:3px solid ' + catColor.fg + ';cursor:pointer" onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'\'">' +
+      '<div>' + _compUrgencyChip(u) + '</div>' +
+      '<div style="color:#0d2137;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(short) +
+        '<div style="font-size:10px;color:#9ca9b7;margin-top:2px">' + esc([it['Item Type'], it.Category].filter(Boolean).join(' · ')) + '</div>' +
+      '</div>' +
+      '<div style="color:#5f6368;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(it.Entity || '') + '</div>' +
+      '<div><span style="background:' + personColor.bg + ';color:' + personColor.fg + ';padding:3px 8px;border-radius:10px;font-size:10px;font-weight:600;white-space:nowrap">' + esc(it['Person Responsible'] || '—') + '</span></div>' +
+      '<div style="color:#0d2137;font-size:11px;font-variant-numeric:tabular-nums">' + esc(it['Next Due Date'] || '—') + '</div>' +
+      '<div style="display:flex;justify-content:flex-end" onclick="event.stopPropagation()"><button class="btn btn-primary" onclick="_compMarkDone(\'' + esc(it.ID) + '\')" style="padding:4px 10px;font-size:10px;white-space:nowrap">✓ Done</button></div>' +
+    '</div>';
+  });
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 // ─── Color helpers ──────────────────────────────────────────────────────────
