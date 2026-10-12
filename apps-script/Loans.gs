@@ -1866,11 +1866,35 @@ function getLoanLinkedToAsset(assetId) {
   var loans = getLoans();
   var linked = loans.filter(function(l){ return String(l['Linked Asset ID']||'') === String(assetId); })[0];
   if (!linked) return null;
+  // Also compute LIVE totals from the loan's schedule + Plaid-matched
+  // payments so the asset detail modal can show real Principal Received,
+  // Interest Received, Outstanding Interest, etc. — instead of "--" when
+  // the manual payment log on the asset is empty.
+  var summary = null;
+  try {
+    var status = _computeLoanStatus_(linked);
+    if (status && status.summary) summary = status.summary;
+  } catch (e) {
+    Logger.log('getLoanLinkedToAsset: _computeLoanStatus_ failed for ' + linked.ID + ': ' + e.message);
+  }
   return {
     loanId: linked.ID,
     loanName: linked.Name,
     plaidPattern: linked['Plaid Match Pattern'],
-    monthlyPayment: linked['Monthly Payment']
+    monthlyPayment: linked['Monthly Payment'],
+    originalPrincipal: Number(linked['Original Principal']) || 0,
+    effectivePrincipal: Number(linked['Effective Principal']) || 0,
+    annualRate: Number(linked['Annual Rate']) || 0,
+    loanType: linked['Loan Type'] || 'Amortizing',
+    firstPaymentDate: linked['First Payment Date'],
+    totals: summary ? {
+      principalReceived: Number(summary.totalPrincipalReceived) || 0,
+      interestReceived:  Number(summary.totalInterestReceived)  || 0,
+      totalReceived:     Number(summary.totalReceived)          || 0,
+      currentBalance:    Number(summary.currentBalance)         || 0,
+      paymentsReceived:  summary.paymentsReceived               || 0,
+      paymentsScheduled: summary.paymentsScheduled              || 0
+    } : null
   };
 }
 

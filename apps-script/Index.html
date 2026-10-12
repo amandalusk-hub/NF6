@@ -6401,6 +6401,29 @@ function openAssetDetail(id){
         '</div>';
       linkBanner.style.display = 'block';
       _setLoanPaymentLogCollapsed(true);
+
+      // Populate the top summary tiles with LIVE totals from the Loans tab
+      // (otherwise they show "--" because the manual payment log on the
+      // asset is empty when the Loans tab is the source of truth).
+      if (link.totals) {
+        var set = function(id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+        var t = link.totals;
+        var original = Number(link.originalPrincipal) || 0;
+        var effective = Number(link.effectivePrincipal) || original;
+        var outstanding = Number(t.currentBalance) || 0;
+        set('d-loan-orig-display',    original > 0 ? fmtUSD(original) : '--');
+        set('d-loan-outstanding',     effective > 0 ? fmtUSD(outstanding) : '--');
+        set('d-loan-principal-recv',  t.principalReceived > 0 ? fmtUSD(t.principalReceived) : '--');
+        set('d-loan-interest-earned', t.interestReceived  > 0 ? fmtUSD(t.interestReceived)  : '--');
+        // Annualized yield from live interest / original × (365 / days elapsed)
+        var loanDateStr = link.firstPaymentDate || '';
+        if (original > 0 && t.interestReceived > 0 && loanDateStr) {
+          var ld = new Date(loanDateStr);
+          var daysElapsed = Math.max(1, (Date.now() - ld.getTime()) / 86400000);
+          var yield_ = (t.interestReceived / original) * (365 / daysElapsed) * 100;
+          set('d-loan-roi', yield_.toFixed(2) + '%');
+        }
+      }
     })
     .withFailureHandler(function(e){ console.warn('loan-link check failed:', e && e.message); })
     .getLoanLinkedToAsset(id);
