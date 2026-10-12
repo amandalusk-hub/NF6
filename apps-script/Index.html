@@ -749,8 +749,10 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       </div>
       <!-- Selected-value chips surface below the row so Amanda can see what's active -->
       <div id="comp-filter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px"></div>
-      <!-- Popover for the active multi-select filter -->
-      <div id="comp-filter-popover" style="display:none;position:absolute;z-index:50;background:#fff;border:1px solid #d0dae5;border-radius:8px;padding:10px;box-shadow:0 6px 24px rgba(13,33,55,.12);min-width:240px;max-width:340px;max-height:360px;overflow-y:auto"></div>
+      <!-- Popover for the active multi-select filter — viewport-fixed so
+           positioning is calculated directly from the button's bounding rect
+           (no offsetParent math quirks). -->
+      <div id="comp-filter-popover" style="display:none;position:fixed;z-index:1000;background:#fff;border:1px solid #d0dae5;border-radius:8px;padding:10px;box-shadow:0 6px 24px rgba(13,33,55,.12);min-width:240px;max-width:340px;max-height:360px;overflow-y:auto"></div>
     </div>
     <!-- View toggle -->
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
@@ -10377,13 +10379,17 @@ function _compToggleFilterPopover(field, evt) {
     '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #f0f3f7;text-align:right">' +
       '<button class="btn btn-primary" onclick="_compCloseFilterPopover()" style="padding:5px 14px;font-size:11px">Done</button>' +
     '</div>';
-  // Position popover near the button
+  // Position popover in viewport coordinates (position:fixed) so it anchors
+  // to the button regardless of ancestor positioning. Clamp to viewport so
+  // it doesn't fall off the right edge on narrow screens.
+  pop.style.display = 'block';   // show first so we can measure width
   var rect = btn.getBoundingClientRect();
-  var parent = btn.offsetParent || document.body;
-  var parentRect = parent.getBoundingClientRect();
-  pop.style.left = (rect.left - parentRect.left) + 'px';
-  pop.style.top = (rect.bottom - parentRect.top + 6) + 'px';
-  pop.style.display = 'block';
+  var popWidth = pop.offsetWidth || 260;
+  var vw = window.innerWidth || document.documentElement.clientWidth;
+  var left = rect.left;
+  if (left + popWidth > vw - 8) left = Math.max(8, vw - popWidth - 8);
+  pop.style.left = left + 'px';
+  pop.style.top  = (rect.bottom + 6) + 'px';
 }
 
 function _compToggleFilterValue(field, value, checked) {
