@@ -10343,13 +10343,20 @@ function _compRender() {
   else if (urg === 'due60') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 60; });
   else if (urg === 'due30') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 30; });
   else if (urg === 'due7')  items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway <= 7; });
-  if (ent) items = items.filter(function(i) { return i.Entity === ent; });
-  if (typ) items = items.filter(function(i) { return i['Item Type'] === typ; });
-  if (per) items = items.filter(function(i) { return i['Person Responsible'] === per; });
+  // Normalize both sides for comparisons — trim + lowercase — so trailing
+  // whitespace or case drift in the sheet (e.g. "NF Texas " with a trailing
+  // space) doesn't make the dropdown value fail to match.
+  function _normCmp(a) { return String(a == null ? '' : a).toLowerCase().replace(/\s+/g, ' ').trim(); }
+  if (ent) { var entN = _normCmp(ent); items = items.filter(function(i) { return _normCmp(i.Entity) === entN; }); }
+  if (typ) { var typN = _normCmp(typ); items = items.filter(function(i) { return _normCmp(i['Item Type']) === typN; }); }
+  if (per) { var perN = _normCmp(per); items = items.filter(function(i) { return _normCmp(i['Person Responsible']) === perN; }); }
   if (search) items = items.filter(function(i) {
     return (i.Obligation || '').toLowerCase().indexOf(search) >= 0
         || (i.Category || '').toLowerCase().indexOf(search) >= 0
-        || (i.Notes || '').toLowerCase().indexOf(search) >= 0;
+        || (i.Notes || '').toLowerCase().indexOf(search) >= 0
+        || (i.Entity || '').toLowerCase().indexOf(search) >= 0
+        || (i['Item Type'] || '').toLowerCase().indexOf(search) >= 0
+        || (i['Person Responsible'] || '').toLowerCase().indexOf(search) >= 0;
   });
 
   // Group by urgency bucket for section rendering.
@@ -10445,8 +10452,20 @@ function _compCard(it, accentColor) {
   var dueTxt = _compDueDisplay(u);
   var obligation = (it.Obligation || '(no obligation set)').replace(/\n/g, ' · ');
   var shortObligation = esc(obligation.length > 110 ? obligation.substring(0, 110) + '…' : obligation);
-  var meta = [it['Item Type'], it.Category, it.Entity, it.Location].filter(Boolean).map(esc).join(' · ');
   var hasLink = !!(it['Link to Docs'] && String(it['Link to Docs']).match(/^https?:/));
+  var personColor = _compPersonColor(it['Person Responsible']);
+  var catColor = _compCategoryColor(it['Item Type'], it.Category);
+  var entityColor = _compEntityColor(it.Entity);
+
+  // Meta pills: type, category, entity, location — each with its own color
+  var pills = [];
+  if (it['Item Type']) pills.push({ text: it['Item Type'], c: catColor });
+  if (it.Category && it.Category !== it['Item Type']) pills.push({ text: it.Category, c: catColor });
+  if (it.Entity)      pills.push({ text: it.Entity, c: entityColor });
+  if (it.Location)    pills.push({ text: it.Location, c: { bg:'#f1f5f9', fg:'#64748b' } });
+  var pillsHtml = pills.map(function(p) {
+    return '<span style="display:inline-block;background:' + p.c.bg + ';color:' + p.c.fg + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-right:4px;margin-bottom:3px">' + esc(p.text) + '</span>';
+  }).join('');
 
   return '<div onclick="_compOpenEdit(\'' + idEsc + '\')" style="background:#fff;border:1px solid #e8ecf1;border-radius:8px;padding:14px;cursor:pointer;transition:.15s;display:flex;flex-direction:column;gap:8px;position:relative" ' +
          'onmouseover="this.style.borderColor=\'' + accentColor + '\';this.style.boxShadow=\'0 4px 12px rgba(13,33,55,.08)\'" ' +
@@ -10458,20 +10477,130 @@ function _compCard(it, accentColor) {
     '</div>' +
     // Obligation
     '<div style="font-size:13px;color:#0d2137;font-weight:600;line-height:1.35">' + shortObligation + '</div>' +
-    // Meta (type · category · entity · location)
-    (meta ? '<div style="font-size:11px;color:#7a8ba8;line-height:1.4">' + meta + '</div>' : '') +
-    // Footer: Person + actions
+    // Colored meta pills
+    (pillsHtml ? '<div style="line-height:1.6;margin:-2px 0 2px 0">' + pillsHtml + '</div>' : '') +
+    // Footer: Person (colored chip) + actions
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;padding-top:8px;border-top:1px solid #f0f3f7">' +
-      '<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:#5f6368">' +
-        '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" style="opacity:.6"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="currentColor"/></svg>' +
+      '<span style="display:inline-flex;align-items:center;gap:5px;background:' + personColor.bg + ';color:' + personColor.fg + ';padding:4px 10px;border-radius:14px;font-size:11px;font-weight:600;line-height:1">' +
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>' +
         esc(it['Person Responsible'] || '(unassigned)') +
-      '</div>' +
+      '</span>' +
       '<div style="display:flex;gap:4px" onclick="event.stopPropagation()">' +
         (hasLink ? '<a href="' + esc(it['Link to Docs']) + '" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:4px 8px;font-size:10px;text-decoration:none;color:#1a73e8" title="Open docs">↗</a>' : '') +
         '<button class="btn btn-primary" onclick="_compMarkDone(\'' + idEsc + '\')" style="padding:4px 10px;font-size:10px">✓ Done</button>' +
       '</div>' +
     '</div>' +
   '</div>';
+}
+
+// ─── Color helpers ──────────────────────────────────────────────────────────
+// Deterministic colors keyed by person / category / entity. Amanda's ask:
+// Manuela purple, Amanda blue, Dorado yellow, cars orange, etc. Compound
+// names like "Amanda/Brandon" pick the first matched person.
+
+var _COMPLIANCE_PERSON_COLORS = {
+  'amanda':          { bg:'#dbeafe', fg:'#1d4ed8' },   // blue
+  'brandon':         { bg:'#dcfce7', fg:'#15803d' },   // green
+  'manuela':         { bg:'#f3e8ff', fg:'#7e22ce' },   // purple
+  'manuela vallejo': { bg:'#f3e8ff', fg:'#7e22ce' },
+  'tim':             { bg:'#ffedd5', fg:'#c2410c' },   // orange
+  'mike':            { bg:'#ccfbf1', fg:'#0f766e' },   // teal
+  'michael':         { bg:'#ccfbf1', fg:'#0f766e' },
+  'peter':           { bg:'#fce7f3', fg:'#be185d' }    // pink
+};
+
+var _COMPLIANCE_CATEGORY_COLORS = {
+  // keyword in Item Type / Category → color (first match wins)
+  'dorado':       { bg:'#fef9c3', fg:'#854d0e' },   // yellow
+  'property':     { bg:'#fef9c3', fg:'#854d0e' },   // yellow (real-estate)
+  '529':          { bg:'#ccfbf1', fg:'#0f766e' },   // teal
+  'gift':         { bg:'#fce7f3', fg:'#be185d' },   // pink
+  'donation':     { bg:'#fce7f3', fg:'#be185d' },   // pink
+  'car':          { bg:'#ffedd5', fg:'#c2410c' },   // orange
+  'tesla':        { bg:'#ffedd5', fg:'#c2410c' },
+  'tahoe':        { bg:'#ffedd5', fg:'#c2410c' },
+  'insurance':    { bg:'#dbeafe', fg:'#1d4ed8' },   // blue
+  'tax':          { bg:'#fee2e2', fg:'#b91c1c' },   // red
+  'subscription': { bg:'#e0e7ff', fg:'#4338ca' },   // indigo
+  'business':     { bg:'#f5f5f4', fg:'#44403c' },   // stone
+  'entity':       { bg:'#f3e8ff', fg:'#7e22ce' },   // purple
+  'passport':     { bg:'#ede9fe', fg:'#6d28d9' },   // violet
+  'license':      { bg:'#ede9fe', fg:'#6d28d9' },
+  'health':       { bg:'#dcfce7', fg:'#15803d' },   // green
+  'medical':      { bg:'#dcfce7', fg:'#15803d' },
+  'trust':        { bg:'#e0e7ff', fg:'#4338ca' },
+  'legal':        { bg:'#e0e7ff', fg:'#4338ca' },
+  'estate':       { bg:'#fef9c3', fg:'#854d0e' },
+  'personal':     { bg:'#fef2f2', fg:'#b91c1c' },
+  'maintenance':  { bg:'#fff7ed', fg:'#9a3412' },
+  'investment':   { bg:'#ecfccb', fg:'#4d7c0f' }    // lime
+};
+
+var _COMPLIANCE_ENTITY_COLORS = {
+  // Preset for common entities, hash-fallback for new ones
+  'nf texas':      { bg:'#fef3c7', fg:'#92400e' },
+  'nf usa tx llc': { bg:'#fef3c7', fg:'#92400e' },
+  'mn personal':   { bg:'#dbeafe', fg:'#1d4ed8' },
+  'nf mde co':     { bg:'#ccfbf1', fg:'#0f766e' },
+  'nf pr sj':      { bg:'#fef9c3', fg:'#854d0e' },
+  'tlmnd':         { bg:'#e0e7ff', fg:'#4338ca' },
+  'tlmnd llc':     { bg:'#e0e7ff', fg:'#4338ca' },
+  'paris thacko':  { bg:'#fce7f3', fg:'#be185d' },
+  'nf6 family':    { bg:'#dcfce7', fg:'#15803d' },
+  'nf6 family holdings lp': { bg:'#dcfce7', fg:'#15803d' },
+  'nf6 ventures':  { bg:'#f3e8ff', fg:'#7e22ce' },
+  'nf6 tiger capital llc':  { bg:'#ffedd5', fg:'#c2410c' },
+  'nf6 tiger capital': { bg:'#ffedd5', fg:'#c2410c' },
+  'nf vip holdco': { bg:'#f0fdfa', fg:'#115e59' },
+  'mn vip holdco llc': { bg:'#f0fdfa', fg:'#115e59' }
+};
+
+function _compPersonColor(name) {
+  if (!name) return { bg:'#f1f5f9', fg:'#64748b' };
+  var low = String(name).toLowerCase().trim();
+  if (_COMPLIANCE_PERSON_COLORS[low]) return _COMPLIANCE_PERSON_COLORS[low];
+  // Compound names ("Amanda/Brandon", "Mike/Amanda/Brandon") — color by first token
+  var tokens = low.split(/[\/,&+]+/).map(function(s){ return s.trim(); }).filter(Boolean);
+  for (var i = 0; i < tokens.length; i++) {
+    var t = tokens[i];
+    if (_COMPLIANCE_PERSON_COLORS[t]) return _COMPLIANCE_PERSON_COLORS[t];
+    var first = t.split(/\s+/)[0];
+    if (_COMPLIANCE_PERSON_COLORS[first]) return _COMPLIANCE_PERSON_COLORS[first];
+  }
+  return _compHashColor(name);
+}
+
+function _compCategoryColor(itemType, category) {
+  var hay = ((itemType || '') + ' ' + (category || '')).toLowerCase();
+  for (var key in _COMPLIANCE_CATEGORY_COLORS) {
+    if (hay.indexOf(key) >= 0) return _COMPLIANCE_CATEGORY_COLORS[key];
+  }
+  return _compHashColor(itemType || category || '');
+}
+
+function _compEntityColor(entity) {
+  if (!entity) return { bg:'#f1f5f9', fg:'#64748b' };
+  var low = String(entity).toLowerCase().trim();
+  if (_COMPLIANCE_ENTITY_COLORS[low]) return _COMPLIANCE_ENTITY_COLORS[low];
+  return _compHashColor(entity);
+}
+
+function _compHashColor(s) {
+  var palette = [
+    { bg:'#f0f9ff', fg:'#0369a1' },  // sky
+    { bg:'#f0fdfa', fg:'#0f766e' },  // teal
+    { bg:'#fefce8', fg:'#854d0e' },  // yellow
+    { bg:'#fef2f2', fg:'#b91c1c' },  // red
+    { bg:'#fff7ed', fg:'#9a3412' },  // orange
+    { bg:'#eef2ff', fg:'#4338ca' },  // indigo
+    { bg:'#faf5ff', fg:'#7e22ce' },  // purple
+    { bg:'#f0fdf4', fg:'#15803d' },  // green
+    { bg:'#fdf2f8', fg:'#be185d' }   // pink
+  ];
+  if (!s) return palette[0];
+  var h = 0;
+  for (var i = 0; i < String(s).length; i++) h = (h * 31 + String(s).charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
 }
 
 function _compDueDisplay(u) {
