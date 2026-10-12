@@ -11,7 +11,8 @@
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/script.send_mail",
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/calendar.readonly"
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar"
   ],
   "webapp": {
     "executeAs": "USER_DEPLOYING",

@@ -444,6 +444,8 @@ function onOpen() {
     .addItem('Compliance → Seed from existing Excel (48 items + unique names)', 'seedComplianceCalendar')
     .addItem('Compliance → Set CC list (Amanda + Brandon)', 'setComplianceCcListFromMenu')
     .addItem('Compliance → Install triggers (daily 7 AM + Monday digest)', 'installComplianceReminderTriggers')
+    .addItem('Compliance → Set FO Calendar (where events land)', 'setComplianceCalendarIdFromMenu')
+    .addItem('Compliance → Sync all items to FO Calendar (backfill)', 'syncAllComplianceToCalendar')
     .addItem('Compliance → TEST send daily reminders now', 'sendComplianceRemindersTest')
     .addItem('Compliance → TEST send weekly digest now', 'sendComplianceDigestTest')
     .addSeparator()

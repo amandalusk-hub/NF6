@@ -52,8 +52,9 @@ var COMPLIANCE_PEOPLE_HEADERS = [
   'Active'
 ];
 
-// Script property keys for the CC list on reminder emails.
+// Script property keys for the CC list on reminder emails + calendar ID.
 var _COMPLIANCE_CC_KEY = 'COMPLIANCE_CC_EMAILS';
+var _COMPLIANCE_CALENDAR_KEY = 'COMPLIANCE_CALENDAR_ID';
 
 
 // ── Sheet lifecycle ───────────────────────────────────────────────────────
@@ -267,6 +268,9 @@ function upsertComplianceItem(data) {
           if (data.hasOwnProperty(h)) vals[r][i] = val(h);
         });
         block.setValues(vals);
+        // Auto-sync updated row to the FO calendar — date / title / notes
+        // changes propagate to the existing event in place.
+        try { _syncComplianceCalendarEvent_(data.ID); } catch(e) { Logger.log('Calendar sync (update): ' + e.message); }
         return { success: true, id: data.ID, updated: true };
       }
     }
@@ -285,6 +289,8 @@ function upsertComplianceItem(data) {
     else row[h] = '';
   });
   _writeComplianceRow_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS, row);
+  // Auto-sync the new row to the FO calendar (non-fatal if not configured).
+  try { _syncComplianceCalendarEvent_(id); } catch(e) { Logger.log('Calendar sync (new): ' + e.message); }
   return { success: true, id: id, updated: false };
 }
 
@@ -330,6 +336,9 @@ function markComplianceItemDone(id) {
     }
     if (iUpd >= 0) vals[r][iUpd] = today;
     block.setValues(vals);
+    // Advance the calendar event to the new Next Due Date (or delete it if
+    // Done with no recurrence).
+    try { _syncComplianceCalendarEvent_(id); } catch(e) { Logger.log('Calendar sync (markDone): ' + e.message); }
     return { success: true, nextDue: next ? Utilities.formatDate(next, Session.getScriptTimeZone(), 'yyyy-MM-dd') : null };
   }
   throw new Error('Item not found: ' + id);
@@ -367,14 +376,267 @@ function deleteComplianceItem(id) {
   var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
   var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   var iId = hdr.indexOf('ID');
+  var iEvt = hdr.indexOf('Calendar Event Link');
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
   for (var r = data.length - 1; r >= 0; r--) {
     if (String(data[r][iId]) === String(id)) {
+      // Remove the paired calendar event before dropping the row.
+      var link = iEvt >= 0 ? String(data[r][iEvt] || '') : '';
+      if (link) {
+        try { _deleteComplianceCalendarEventByLink_(link); }
+        catch(e) { Logger.log('Calendar delete on item delete: ' + e.message); }
+      }
       sheet.deleteRow(r + 2);
       return { success: true };
     }
   }
   return { success: false };
+}
+
+
+// ── Family-office Calendar sync ───────────────────────────────────────────
+// Every compliance item with a Next Due Date and a non-terminal Status
+// mirrors to a Google Calendar event on the FO calendar (ID stored as a
+// script property). All-day event on the due date, with pop-up reminders
+// 30 / 7 / 1 days prior. Updates in place when the item changes; deletes
+// the event when Done, Cancelled, or the row itself is deleted.
+
+function _complianceCalendarId_() {
+  return PropertiesService.getScriptProperties().getProperty(_COMPLIANCE_CALENDAR_KEY) || '';
+}
+
+function _getComplianceCalendar_() {
+  var id = _complianceCalendarId_();
+  if (!id) {
+    try { return CalendarApp.getDefaultCalendar(); }
+    catch(e) { return null; }
+  }
+  try { return CalendarApp.getCalendarById(id); }
+  catch(e) { Logger.log('_getComplianceCalendar_: getCalendarById(' + id + ') failed: ' + e.message); return null; }
+}
+
+// Core sync: given an item ID, create / update / delete its Calendar event
+// to match current state. Writes the resulting event link back to the sheet.
+function _syncComplianceCalendarEvent_(id) {
+  if (!id) return;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_ITEMS');
+  if (!sheet || sheet.getLastRow() < 2) return;
+  var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iId     = hdr.indexOf('ID');
+  var iStatus = hdr.indexOf('Status');
+  var iObl    = hdr.indexOf('Obligation');
+  var iDue    = hdr.indexOf('Next Due Date');
+  var iEntity = hdr.indexOf('Entity');
+  var iPer    = hdr.indexOf('Person Responsible');
+  var iCost   = hdr.indexOf('Cost');
+  var iDesc   = hdr.indexOf('Description');
+  var iWeb    = hdr.indexOf('Website');
+  var iLink   = hdr.indexOf('Link to Docs');
+  var iNotes  = hdr.indexOf('Notes');
+  var iEvt    = hdr.indexOf('Calendar Event Link');
+  var iOn     = hdr.indexOf('On FO Calendar');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  var r = -1;
+  for (var i = 0; i < data.length; i++) {
+    if (String(data[i][iId]) === String(id)) { r = i; break; }
+  }
+  if (r < 0) return;
+  var row = data[r];
+
+  var cal = _getComplianceCalendar_();
+  if (!cal) {
+    Logger.log('_syncComplianceCalendarEvent_: no calendar — skipping ' + id);
+    return;
+  }
+
+  var status  = String(row[iStatus] || '').toLowerCase();
+  var dueRaw  = iDue >= 0 ? row[iDue] : null;
+  var existingLink = iEvt >= 0 ? String(row[iEvt] || '').trim() : '';
+  var existingEventId = _extractComplianceEventId_(existingLink);
+  var dueDate = dueRaw instanceof Date ? dueRaw : (dueRaw ? new Date(dueRaw) : null);
+  var hasValidDue = dueDate && !isNaN(dueDate.getTime());
+
+  // Terminal state or no due date → delete any existing event, clear link.
+  if (status === 'cancelled' || status === 'done' || !hasValidDue) {
+    if (existingEventId) {
+      try {
+        var evt = cal.getEventById(existingEventId);
+        if (evt) evt.deleteEvent();
+      } catch(e) { Logger.log('Calendar delete failed: ' + e.message); }
+      if (iEvt >= 0) sheet.getRange(r + 2, iEvt + 1).setValue('');
+      if (iOn >= 0)  sheet.getRange(r + 2, iOn  + 1).setValue('No');
+    }
+    return;
+  }
+
+  // Build title + description from the row.
+  var obligationFull = String(row[iObl] || '(no obligation)').trim();
+  var titleCore = obligationFull.split('\n')[0].substring(0, 100);
+  var title = '[Compliance] ' + titleCore;
+  var desc = _buildComplianceEventDescription_({
+    obligation: obligationFull,
+    entity:     iEntity >= 0 ? row[iEntity] : '',
+    person:     iPer    >= 0 ? row[iPer]    : '',
+    cost:       iCost   >= 0 ? row[iCost]   : '',
+    description:iDesc   >= 0 ? row[iDesc]   : '',
+    website:    iWeb    >= 0 ? row[iWeb]    : '',
+    link:       iLink   >= 0 ? row[iLink]   : '',
+    notes:      iNotes  >= 0 ? row[iNotes]  : '',
+    id:         String(id)
+  });
+
+  // Create or update the event.
+  var event = null;
+  if (existingEventId) {
+    try { event = cal.getEventById(existingEventId); }
+    catch(e) { Logger.log('getEventById failed: ' + e.message); event = null; }
+  }
+  if (event) {
+    try {
+      event.setTitle(title);
+      event.setDescription(desc);
+      event.setAllDayDate(dueDate);
+    } catch (e) {
+      // Could be edit permission dropped — recreate
+      Logger.log('Event update failed, recreating: ' + e.message);
+      try { event.deleteEvent(); } catch(_) {}
+      event = cal.createAllDayEvent(title, dueDate, { description: desc });
+    }
+  } else {
+    event = cal.createAllDayEvent(title, dueDate, { description: desc });
+  }
+  if (!event) return;
+
+  // Reset reminders → 30 days, 7 days, 1 day prior (popup only).
+  try {
+    event.removeAllReminders();
+    event.addPopupReminder(30 * 24 * 60);
+    event.addPopupReminder(7 * 24 * 60);
+    event.addPopupReminder(1 * 24 * 60);
+  } catch(e) { Logger.log('Add reminders failed: ' + e.message); }
+
+  // Store a Google-Calendar-flavored link + the raw event ID so updates
+  // find the event again on next sync.
+  var newLink = _buildComplianceEventLink_(event.getId(), cal.getId());
+  if (iEvt >= 0) sheet.getRange(r + 2, iEvt + 1).setValue(newLink);
+  if (iOn  >= 0) sheet.getRange(r + 2, iOn  + 1).setValue('Yes');
+}
+
+function _buildComplianceEventDescription_(fields) {
+  var lines = [];
+  if (fields.obligation) { lines.push(fields.obligation); lines.push(''); }
+  if (fields.entity)      lines.push('Entity: '      + fields.entity);
+  if (fields.person)      lines.push('Responsible: ' + fields.person);
+  if (fields.cost)        lines.push('Cost: $' + fields.cost);
+  if (fields.website)     lines.push('Website: '     + fields.website);
+  if (fields.link)        lines.push('Docs: '        + fields.link);
+  if (fields.description) { lines.push(''); lines.push('How to: ' + fields.description); }
+  if (fields.notes)       { lines.push(''); lines.push('Notes: ' + fields.notes); }
+  if (fields.id)          { lines.push(''); lines.push('— Compliance item ' + fields.id); }
+  return lines.join('\n');
+}
+
+// Store BOTH the raw event ID (for updates/deletes) AND a clickable browser
+// link (for the UI's "Calendar Event Link" column). Format:
+//   https://calendar.google.com/calendar/event?eid=…||eventId::calendarId
+function _buildComplianceEventLink_(eventId, calendarId) {
+  // eid is base64 of "<eventId> <calendarId>" — Google calendar's own format
+  var raw = String(eventId).replace(/@.*$/, '') + ' ' + String(calendarId);
+  var eid = Utilities.base64Encode(raw).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  var browserLink = 'https://calendar.google.com/calendar/event?eid=' + eid;
+  // Append our own marker so we can extract the event ID later. The user
+  // sees only the browser link (first part) when they click; the marker is
+  // ignored by Google.
+  return browserLink + '||' + eventId + '::' + calendarId;
+}
+
+function _extractComplianceEventId_(link) {
+  if (!link) return '';
+  var m = String(link).match(/\|\|([^:]+)::/);
+  return m ? m[1] : '';
+}
+
+function _deleteComplianceCalendarEventByLink_(link) {
+  var eid = _extractComplianceEventId_(link);
+  if (!eid) return;
+  var cal = _getComplianceCalendar_();
+  if (!cal) return;
+  try {
+    var evt = cal.getEventById(eid);
+    if (evt) evt.deleteEvent();
+  } catch(e) { Logger.log('_deleteComplianceCalendarEventByLink_: ' + e.message); }
+}
+
+// Web-callable config + backfill.
+
+function getComplianceCalendarInfo() {
+  var id = _complianceCalendarId_();
+  var cal = _getComplianceCalendar_();
+  return {
+    calendarId: id || '(default)',
+    calendarName: cal ? cal.getName() : null,
+    configured: !!id || !!cal
+  };
+}
+
+function setComplianceCalendarId(calendarId) {
+  _requireEditor_();
+  var val = String(calendarId || '').trim();
+  if (!val) {
+    PropertiesService.getScriptProperties().deleteProperty(_COMPLIANCE_CALENDAR_KEY);
+    return { success: true, cleared: true };
+  }
+  var cal;
+  try { cal = CalendarApp.getCalendarById(val); } catch(e) {}
+  if (!cal) throw new Error('No calendar found with that ID. Make sure it\'s shared with you.');
+  PropertiesService.getScriptProperties().setProperty(_COMPLIANCE_CALENDAR_KEY, val);
+  return { success: true, calendarId: val, calendarName: cal.getName() };
+}
+
+// Menu-callable: prompt for calendar ID.
+function setComplianceCalendarIdFromMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var cur = _complianceCalendarId_() || '(default)';
+  var r = ui.prompt('FO Compliance Calendar',
+    'Enter the Google Calendar ID where compliance events should land.\n\n' +
+    'Find it in: Google Calendar → ⚙ Settings → pick the calendar → "Integrate calendar" → Calendar ID.\n\n' +
+    'Usually an email-like string, e.g.\n' +
+    '  nf6family@group.calendar.google.com\n' +
+    '  amanda@nf6capital.com\n\n' +
+    'Current: ' + cur + '\n\n(Leave blank + OK to reset to your default calendar.)',
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  try {
+    var result = setComplianceCalendarId(r.getResponseText());
+    ui.alert(result.cleared ? 'Reset to default calendar.' : 'FO calendar set to: ' + result.calendarName + '\n(' + result.calendarId + ')');
+  } catch (e) {
+    ui.alert('Save failed: ' + e.message);
+  }
+}
+
+// Backfill — sync every existing compliance item to the FO calendar.
+function syncAllComplianceToCalendar() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var cal = _getComplianceCalendar_();
+  if (!cal) { ui.alert('No calendar configured. Run Compliance → Set FO Calendar first.'); return; }
+  var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
+  var synced = 0, skipped = 0, failed = 0;
+  items.forEach(function(it) {
+    try {
+      _syncComplianceCalendarEvent_(it.ID);
+      synced++;
+    } catch (e) {
+      failed++;
+      Logger.log('backfill failed for ' + it.ID + ': ' + e.message);
+    }
+  });
+  ui.alert('Compliance → Calendar backfill\n\n' +
+           'Calendar: ' + cal.getName() + '\n' +
+           'Synced: ' + synced + ' item(s)\n' +
+           (failed ? 'Failed: ' + failed + ' (see Apps Script logs)\n' : '') +
+           '\nActive items with a Next Due Date now have calendar events; Done/Cancelled items were cleaned up.');
 }
 
 
