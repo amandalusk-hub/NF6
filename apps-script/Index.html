@@ -729,10 +729,10 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <button class="btn btn-secondary" onclick="loadCompliance()">↻ Refresh</button>
       </div>
     </div>
-    <!-- Filters — airy and modern -->
+    <!-- Filters — multi-select popovers -->
     <div style="margin-bottom:16px">
       <input id="comp-filter-search" placeholder="🔍  Search obligations, categories, notes…" oninput="_compRender()" style="width:100%;padding:11px 14px;border:1px solid #d0dae5;border-radius:8px;font-size:14px;background:#fff;margin-bottom:10px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:relative">
         <select id="comp-filter-urgency" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
           <option value="all">All items</option>
           <option value="overdue">Overdue only</option>
@@ -741,16 +741,16 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <option value="due30">Due in 30 days</option>
           <option value="due7">Due in 7 days</option>
         </select>
-        <select id="comp-filter-entity" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
-          <option value="">All entities</option>
-        </select>
-        <select id="comp-filter-type" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
-          <option value="">All types</option>
-        </select>
-        <select id="comp-filter-person" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
-          <option value="">All people</option>
-        </select>
+        <button id="comp-filter-entity-btn" onclick="_compToggleFilterPopover('entity', event)" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All entities ▾</button>
+        <button id="comp-filter-type-btn"   onclick="_compToggleFilterPopover('type', event)"   style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All types ▾</button>
+        <button id="comp-filter-person-btn" onclick="_compToggleFilterPopover('person', event)" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All people ▾</button>
+        <button id="comp-filter-me-btn"     onclick="_compJumpToMe()" title="Show items where you're responsible (incl. compound names like Amanda/Brandon)" style="padding:7px 12px;border:1px solid #1d4ed8;border-radius:20px;font-size:12px;background:#dbeafe;color:#1d4ed8;cursor:pointer;font-weight:600">Just me</button>
+        <button id="comp-filter-clear-btn"  onclick="_compClearFilters()" style="padding:7px 12px;border:1px solid #e8ecf1;border-radius:20px;font-size:11px;background:transparent;color:#7a8ba8;cursor:pointer">Clear</button>
       </div>
+      <!-- Selected-value chips surface below the row so Amanda can see what's active -->
+      <div id="comp-filter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px"></div>
+      <!-- Popover for the active multi-select filter -->
+      <div id="comp-filter-popover" style="display:none;position:absolute;z-index:50;background:#fff;border:1px solid #d0dae5;border-radius:8px;padding:10px;box-shadow:0 6px 24px rgba(13,33,55,.12);min-width:240px;max-width:340px;max-height:360px;overflow-y:auto"></div>
     </div>
     <!-- View toggle -->
     <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
@@ -10297,7 +10297,11 @@ var _compState = {
   loading: false,
   editingId: null,
   people: [],
-  viewMode: 'cards'   // 'cards' | 'timeline' | 'byperson' | 'list'
+  viewMode: 'cards',          // 'cards' | 'timeline' | 'byperson' | 'list'
+  // Multi-select filters: each is an array of chosen values. Empty = no filter.
+  filters: { entity: [], type: [], person: [] },
+  popoverField: null,          // which multi-select is open ('entity'|'type'|'person') or null
+  myName: 'Amanda'             // "Just me" shortcut matches this name as a token
 };
 
 function loadCompliance() {
@@ -10320,47 +10324,186 @@ function loadCompliance() {
 }
 
 function _compPopulateFilters() {
-  function uniqSort(arr) {
-    var seen = {}; var out = [];
-    arr.forEach(function(v) { if (v && !seen[v]) { seen[v] = true; out.push(v); } });
-    return out.sort();
-  }
-  function fill(id, values) {
-    var sel = document.getElementById(id);
-    var current = sel.value;
-    var first = sel.options[0].outerHTML;
-    sel.innerHTML = first + values.map(function(v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('');
-    sel.value = current;
-  }
-  fill('comp-filter-entity', uniqSort(_compState.items.map(function(i) { return i.Entity; })));
-  fill('comp-filter-type', uniqSort(_compState.items.map(function(i) { return i['Item Type']; })));
-  fill('comp-filter-person', uniqSort(_compState.items.map(function(i) { return i['Person Responsible']; })));
+  // No-op now that multi-select popovers build their list on open. Kept as a
+  // hook so loadCompliance's call site doesn't need to change.
 }
+
+// Collect sorted unique values for a filter field. For "person" we SPLIT
+// compound assignments ("Amanda/Brandon") into individual names so the
+// popover lets Amanda pick just "Amanda" and we match any item where Amanda
+// is one of the responsible people.
+function _compUniqueValues(field) {
+  var seen = {};
+  _compState.items.forEach(function(i) {
+    if (field === 'person') {
+      String(i['Person Responsible'] || '').split(/[\/,&]+/).forEach(function(p) {
+        var k = p.trim(); if (k) seen[k] = true;
+      });
+    } else if (field === 'entity') {
+      var v = String(i.Entity || '').trim(); if (v) seen[v] = true;
+    } else if (field === 'type') {
+      var v2 = String(i['Item Type'] || '').trim(); if (v2) seen[v2] = true;
+    }
+  });
+  return Object.keys(seen).sort();
+}
+
+function _compToggleFilterPopover(field, evt) {
+  if (evt) evt.stopPropagation();
+  var pop = document.getElementById('comp-filter-popover');
+  if (_compState.popoverField === field) {
+    pop.style.display = 'none';
+    _compState.popoverField = null;
+    return;
+  }
+  _compState.popoverField = field;
+  var btn = document.getElementById('comp-filter-' + field + '-btn');
+  var values = _compUniqueValues(field);
+  var selected = _compState.filters[field];
+  var fieldLabel = field === 'entity' ? 'entity' : field === 'type' ? 'type' : 'person';
+  pop.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #f0f3f7">' +
+      '<div style="font-size:11px;font-weight:700;color:#0d2137;text-transform:uppercase;letter-spacing:.3px">Filter by ' + fieldLabel + '</div>' +
+      '<button onclick="_compClearOneFilter(\'' + field + '\')" style="background:none;border:none;color:#1a73e8;font-size:11px;cursor:pointer;padding:2px 6px">Clear</button>' +
+    '</div>' +
+    values.map(function(v) {
+      var checked = selected.indexOf(v) >= 0;
+      var inputId = 'comp-flt-' + field + '-' + v.replace(/[^a-z0-9]/gi,'_');
+      return '<label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer;font-size:12px;color:#0d2137" onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'\'">' +
+        '<input type="checkbox" id="' + inputId + '" ' + (checked ? 'checked' : '') + ' onchange="_compToggleFilterValue(\'' + field + '\', ' + JSON.stringify(v).replace(/"/g,'&quot;') + ', this.checked)">' +
+        '<span>' + esc(v) + '</span>' +
+      '</label>';
+    }).join('') +
+    '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #f0f3f7;text-align:right">' +
+      '<button class="btn btn-primary" onclick="_compCloseFilterPopover()" style="padding:5px 14px;font-size:11px">Done</button>' +
+    '</div>';
+  // Position popover near the button
+  var rect = btn.getBoundingClientRect();
+  var parent = btn.offsetParent || document.body;
+  var parentRect = parent.getBoundingClientRect();
+  pop.style.left = (rect.left - parentRect.left) + 'px';
+  pop.style.top = (rect.bottom - parentRect.top + 6) + 'px';
+  pop.style.display = 'block';
+}
+
+function _compToggleFilterValue(field, value, checked) {
+  var arr = _compState.filters[field];
+  var i = arr.indexOf(value);
+  if (checked && i < 0) arr.push(value);
+  else if (!checked && i >= 0) arr.splice(i, 1);
+  _compUpdateFilterButtons();
+  _compRender();
+}
+
+function _compClearOneFilter(field) {
+  _compState.filters[field] = [];
+  _compUpdateFilterButtons();
+  _compCloseFilterPopover();
+  _compRender();
+}
+
+function _compClearFilters() {
+  _compState.filters = { entity: [], type: [], person: [] };
+  var urg = document.getElementById('comp-filter-urgency'); if (urg) urg.value = 'all';
+  var srch = document.getElementById('comp-filter-search'); if (srch) srch.value = '';
+  _compUpdateFilterButtons();
+  _compRender();
+}
+
+function _compCloseFilterPopover() {
+  var pop = document.getElementById('comp-filter-popover');
+  if (pop) pop.style.display = 'none';
+  _compState.popoverField = null;
+}
+
+function _compJumpToMe() {
+  // "Just me" — select Amanda across the Person filter + render
+  _compState.filters.person = [_compState.myName];
+  _compUpdateFilterButtons();
+  _compRender();
+}
+
+function _compUpdateFilterButtons() {
+  ['entity','type','person'].forEach(function(field) {
+    var btn = document.getElementById('comp-filter-' + field + '-btn');
+    if (!btn) return;
+    var arr = _compState.filters[field];
+    var defaultLabel = field === 'entity' ? 'All entities' : field === 'type' ? 'All types' : 'All people';
+    if (!arr.length) {
+      btn.textContent = defaultLabel + ' ▾';
+      btn.style.background = '#fff';
+      btn.style.color = '#0d2137';
+      btn.style.borderColor = '#d0dae5';
+    } else {
+      btn.textContent = (arr.length === 1 ? arr[0] : arr.length + ' selected') + ' ▾';
+      btn.style.background = '#dbeafe';
+      btn.style.color = '#1d4ed8';
+      btn.style.borderColor = '#1d4ed8';
+    }
+  });
+  // Chip strip below
+  var chipDiv = document.getElementById('comp-filter-chips');
+  if (chipDiv) {
+    var chips = [];
+    ['entity','type','person'].forEach(function(field) {
+      _compState.filters[field].forEach(function(v) {
+        chips.push({ field: field, value: v });
+      });
+    });
+    if (!chips.length) { chipDiv.innerHTML = ''; return; }
+    chipDiv.innerHTML = chips.map(function(c) {
+      return '<span style="display:inline-flex;align-items:center;gap:4px;background:#f0f3f7;color:#0d2137;padding:3px 10px;border-radius:12px;font-size:11px">' +
+        esc(c.value) +
+        '<button onclick="_compToggleFilterValue(\'' + c.field + '\', ' + JSON.stringify(c.value).replace(/"/g,'&quot;') + ', false)" style="background:none;border:none;color:#5f6368;cursor:pointer;padding:0;font-size:14px;line-height:1" aria-label="Remove">×</button>' +
+      '</span>';
+    }).join('');
+  }
+}
+
+// Dismiss popover on click outside
+document.addEventListener('click', function(e) {
+  if (!_compState.popoverField) return;
+  var pop = document.getElementById('comp-filter-popover');
+  var btn = document.getElementById('comp-filter-' + _compState.popoverField + '-btn');
+  if (!pop || !btn) return;
+  if (pop.contains(e.target) || btn.contains(e.target)) return;
+  _compCloseFilterPopover();
+}, true);
 
 function _compRender() {
   var all = _compState.items.slice();
   var urg = document.getElementById('comp-filter-urgency').value;
-  var ent = document.getElementById('comp-filter-entity').value;
-  var typ = document.getElementById('comp-filter-type').value;
-  var per = document.getElementById('comp-filter-person').value;
   var search = (document.getElementById('comp-filter-search').value || '').toLowerCase().trim();
 
   var items = all.slice();
   if (urg === 'overdue') items = items.filter(function(i) { return i._urgency && i._urgency.bucket === 'overdue'; });
   else if (urg === 'active') items = items.filter(function(i) { return i._urgency && i._urgency.isActive; });
-  // "Due in N days" is UPCOMING only — explicitly exclude overdue items.
-  // Previously the condition was `daysAway <= 30` which was true for -5
-  // (overdue by 5 days), so Overdue items leaked into every Due-in filter.
   else if (urg === 'due60') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway >= 0 && i._urgency.daysAway <= 60; });
   else if (urg === 'due30') items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway >= 0 && i._urgency.daysAway <= 30; });
   else if (urg === 'due7')  items = items.filter(function(i) { return i._urgency && i._urgency.daysAway != null && i._urgency.daysAway >= 0 && i._urgency.daysAway <= 7;  });
-  // Normalize both sides for comparisons — trim + lowercase — so trailing
-  // whitespace or case drift in the sheet (e.g. "NF Texas " with a trailing
-  // space) doesn't make the dropdown value fail to match.
+  // Multi-select filters: show items matching ANY selected value. Normalize
+  // both sides (trim + lowercase + collapse spaces) so trailing-space drift
+  // can't silently break matching.
   function _normCmp(a) { return String(a == null ? '' : a).toLowerCase().replace(/\s+/g, ' ').trim(); }
-  if (ent) { var entN = _normCmp(ent); items = items.filter(function(i) { return _normCmp(i.Entity) === entN; }); }
-  if (typ) { var typN = _normCmp(typ); items = items.filter(function(i) { return _normCmp(i['Item Type']) === typN; }); }
-  if (per) { var perN = _normCmp(per); items = items.filter(function(i) { return _normCmp(i['Person Responsible']) === perN; }); }
+  var fe = _compState.filters.entity, ft = _compState.filters.type, fp = _compState.filters.person;
+  if (fe.length) {
+    var feN = fe.map(_normCmp);
+    items = items.filter(function(i) { return feN.indexOf(_normCmp(i.Entity)) >= 0; });
+  }
+  if (ft.length) {
+    var ftN = ft.map(_normCmp);
+    items = items.filter(function(i) { return ftN.indexOf(_normCmp(i['Item Type'])) >= 0; });
+  }
+  if (fp.length) {
+    // Person: split each item's Person Responsible on separators, match if
+    // ANY token matches ANY selected person. So picking "Amanda" catches
+    // "Amanda", "Amanda/Brandon", "Mike/Amanda/Brandon", etc.
+    var fpN = fp.map(_normCmp);
+    items = items.filter(function(i) {
+      var tokens = String(i['Person Responsible'] || '').split(/[\/,&]+/).map(_normCmp);
+      return tokens.some(function(t) { return fpN.indexOf(t) >= 0; });
+    });
+  }
   if (search) items = items.filter(function(i) {
     return (i.Obligation || '').toLowerCase().indexOf(search) >= 0
         || (i.Category || '').toLowerCase().indexOf(search) >= 0
