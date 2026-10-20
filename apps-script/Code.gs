@@ -45,7 +45,7 @@ var CURRENCIES = ['USD','EUR','GBP','COP','BRL','MXN','CAD','JPY','CHF','AUD','D
 //
 // The default owner email is here for bootstrap; it can be overridden with
 // the OWNER_EMAIL script property (e.g. if the sheet transfers ownership).
-var OWNER_EMAIL_DEFAULT = 'amanda.lusk@nf6capital.com';
+var OWNER_EMAIL_DEFAULT = 'amanda.lusk@nf6.com';
 
 function _getOwnerEmail_() {
   return String(PropertiesService.getScriptProperties().getProperty('OWNER_EMAIL') || OWNER_EMAIL_DEFAULT).toLowerCase();
@@ -559,9 +559,19 @@ function deploymentReadinessCheck() {
 
 // ── Web App Entry Point ───────────────────────────────────────────────────────
 
+// Domains allowed to access the web app. Mike's team migrated from
+// @nf6capital.com → @nf6.com in Oct 2026. Both allowed during transition so
+// anyone still on the legacy email isn't locked out.
+var _NF6_ALLOWED_DOMAINS = ['@nf6.com', '@nf6capital.com'];
+function _nf6EmailAllowed_(email) {
+  if (!email) return false;
+  var low = String(email).toLowerCase();
+  return _NF6_ALLOWED_DOMAINS.some(function(d) { return low.endsWith(d); });
+}
+
 function doGet() {
   var email = Session.getActiveUser().getEmail();
-  if (!email || !email.toLowerCase().endsWith('@nf6capital.com')) {
+  if (!_nf6EmailAllowed_(email)) {
     var display = email ? email : 'not signed in';
     return HtmlService.createHtmlOutput(
       '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
@@ -577,8 +587,8 @@ function doGet() {
       '<div class="box"><div class="logo">NF6</div><div class="sub">Family Office Wealth Tracker</div>' +
       '<div class="icon">🔒</div>' +
       '<h2>Access Restricted</h2>' +
-      '<p>This application is only available to NF6 Capital team members.</p>' +
-      '<p>Please sign in with your <strong>@nf6capital.com</strong> account.</p>' +
+      '<p>This application is only available to NF6 team members.</p>' +
+      '<p>Please sign in with your <strong>@nf6.com</strong> account.</p>' +
       '<div class="account">Currently signed in as: <strong>' + display + '</strong></div>' +
       '</div></body></html>'
     ).setTitle('Access Restricted');

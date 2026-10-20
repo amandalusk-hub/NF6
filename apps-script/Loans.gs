@@ -1188,7 +1188,7 @@ function sendTestLoanAlertEmail() {
 //   Receivable (📥 owed to Mike) — borrower hasn't paid this month
 //   Payable    (📤 Mike owes)   — outgoing payment didn't get taken out
 var _LOAN_ALERT_GRACE_DAYS = 10;   // Amanda: "by the 10th of the month if it isnt there then email me"
-var _LOAN_ALERT_CC_DEFAULT = 'brandon.cheema@nf6capital.com';
+var _LOAN_ALERT_CC_DEFAULT = 'brandon.cheema@nf6.com';
 
 // Look up the current USD balance of the account that a loan's Source Account
 // field refers to. We match Source Account substring against Assets first

@@ -603,7 +603,7 @@ function setComplianceCalendarIdFromMenu() {
     'Find it in: Google Calendar → ⚙ Settings → pick the calendar → "Integrate calendar" → Calendar ID.\n\n' +
     'Usually an email-like string, e.g.\n' +
     '  nf6family@group.calendar.google.com\n' +
-    '  amanda@nf6capital.com\n\n' +
+    '  amanda@nf6.com\n\n' +
     'Current: ' + cur + '\n\n(Leave blank + OK to reset to your default calendar.)',
     ui.ButtonSet.OK_CANCEL);
   if (r.getSelectedButton() !== ui.Button.OK) return;
