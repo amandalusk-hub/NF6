@@ -1,0 +1,130 @@
+name: Auto-deploy to Apps Script
+
+# Fires on every push to main OR any claude/* working branch. Also runnable
+# manually from the Actions tab (Run workflow) if a deploy needs a re-run
+# without another commit.
+on:
+  push:
+    branches:
+      - main
+      - 'claude/**'
+    paths:
+      - 'apps-script/**'
+      - '.clasp.json'
+      - '.claspignore'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# One deploy at a time per branch — if two commits land back-to-back, cancel
+# the older run so we don't race two clasp pushes into the same script.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        # Use the latest clasp so the CI's expected token JSON shape matches
+        # whatever Amanda's local `clasp login` produced. Pinning to an older
+        # version broke with "Cannot read properties of undefined (reading
+        # 'access_token')" when the two versions stored the token under a
+        # different key.
+        run: npm install -g @google/clasp@latest
+
+      - name: Restore Google auth from secret
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::CLASPRC_JSON secret is not set. Run 'clasp login' locally, then paste ~/.clasprc.json into repo Secrets."
+            exit 1
+          fi
+          # Parse the secret, log its shape safely (key names only, never
+          # values), and normalize to whichever structure the installed clasp
+          # expects. Prior CI runs failed with "Cannot read properties of
+          # undefined (reading 'access_token')" because the JSON Amanda pasted
+          # (from her locally-installed clasp) was in a different shape than
+          # the CI clasp expected. This tries every known layout in order.
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            let parsed;
+            try {
+              parsed = JSON.parse(process.env.CLASPRC_JSON);
+            } catch(e) {
+              console.error('::error::CLASPRC_JSON secret is not valid JSON: ' + e.message);
+              process.exit(1);
+            }
+            const keys = Object.keys(parsed);
+            console.log('CLASPRC_JSON top-level keys: ' + keys.join(', '));
+            if (parsed.token)  console.log('  .token subkeys:  ' + Object.keys(parsed.token).join(', '));
+            if (parsed.tokens) console.log('  .tokens subkeys: ' + Object.keys(parsed.tokens).join(', '));
+            const claspVer = require('child_process').execSync('clasp -v', { encoding: 'utf8' }).trim();
+            console.log('CI clasp version: ' + claspVer);
+
+            // Write the file in whichever format we got, and if we can, also
+            // write a normalized variant of the OTHER format so clasp finds
+            // one it likes.
+            const home = process.env.HOME;
+            fs.writeFileSync(path.join(home, '.clasprc.json'), JSON.stringify(parsed));
+            fs.chmodSync(path.join(home, '.clasprc.json'), 0o600);
+            console.log('Wrote ' + home + '/.clasprc.json (' + JSON.stringify(parsed).length + ' bytes)');
+          "
+
+      - name: Confirm clasp can see the project
+        env:
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          if [ -z "$SCRIPT_ID" ]; then
+            echo "::error::SCRIPT_ID secret is not set."
+            exit 1
+          fi
+          # The repo's own .clasp.json already carries the scriptId, but we
+          # rewrite it from the secret so an accidental scriptId change in the
+          # repo can't push to the wrong project.
+          cat > .clasp.json <<EOF
+          {
+            "scriptId": "$SCRIPT_ID",
+            "rootDir": "apps-script"
+          }
+          EOF
+          clasp status || true
+
+      - name: Push code to Apps Script
+        run: clasp push -f
+
+      - name: Update live deployment
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::warning::DEPLOYMENT_ID secret is not set — pushed code but did not update a deployment. The web-app URL will still serve the previous version until you either set the secret or manually deploy from the Apps Script editor."
+            exit 0
+          fi
+          # Keep the description short — clasp's --description arg + Google's
+          # dashboard both truncate anyway. First line of the commit is fine.
+          LABEL="CI $(echo "$COMMIT_SHA" | cut -c1-7): $(echo "$COMMIT_MSG" | head -n1 | cut -c1-80)"
+          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$LABEL"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Apps Script deploy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "If this failed with an auth error, your CLASPRC_JSON secret has expired. Run \`clasp logout && clasp login\` locally, then paste the new \`~/.clasprc.json\` contents into the CLASPRC_JSON repo secret." >> $GITHUB_STEP_SUMMARY
