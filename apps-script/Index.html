@@ -260,6 +260,20 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     </div>
   </div>
 
+  <!-- Summary drill-down modal — opens on bucket / jurisdiction click -->
+  <div class="modal-overlay" id="summary-drill-modal">
+    <div class="modal" style="max-width:620px;background:#faf7f1">
+      <div class="modal-header" style="background:#faf7f1;border-bottom:1px solid #eae4d6;padding:20px 28px">
+        <div>
+          <div id="summary-drill-title" style="font-family:Georgia,'Playfair Display',serif;font-size:22px;font-weight:400;color:#0d0f12">Items</div>
+          <div id="summary-drill-sub" style="font-size:11px;color:#6b6b73;margin-top:3px;letter-spacing:0.3px">—</div>
+        </div>
+        <button class="modal-close" onclick="_closeSummaryDrill()" style="color:#0d0f12">x</button>
+      </div>
+      <div class="modal-body" id="summary-drill-body" style="padding:12px 28px 28px 28px;background:#faf7f1"></div>
+    </div>
+  </div>
+
   <!-- Assets -->
   <div class="tab-panel" id="tab-assets">
     <div class="card">
@@ -11170,6 +11184,128 @@ function _compSaveCc() {
 
 
 // ═══ SUMMARY TAB — "Statement of Position" editorial view ═══════════════════
+
+var _summaryState = {
+  lastBuckets: null,
+  lastLiabList: null,
+  lastJurList: null,
+  lastByJur: null
+};
+
+// Open the drill-down modal for a given bucket. kind = 'asset'|'liability'|
+// 'jurisdiction', key identifies which bucket within that kind.
+function _summaryDrill(kind, key) {
+  var modal = document.getElementById('summary-drill-modal');
+  var titleEl = document.getElementById('summary-drill-title');
+  var subEl = document.getElementById('summary-drill-sub');
+  var bodyEl = document.getElementById('summary-drill-body');
+  if (!modal || !titleEl || !bodyEl) return;
+
+  var items = [];
+  var title = '';
+  var sub = '';
+  var accentColor = '#1e5e3e';
+  var showEntity = true;
+
+  if (kind === 'asset' && _summaryState.lastBuckets) {
+    var bucketLabels = {
+      realEstate: 'Real estate', privateHoldings: 'Private holdings',
+      notes: 'Promissory notes & receivables', investments: 'Investments',
+      cash: 'Cash', collectibles: 'Collectibles & vehicles', other: 'Other assets'
+    };
+    var rows = _summaryState.lastBuckets[key] || [];
+    title = bucketLabels[key] || key;
+    accentColor = '#1e5e3e';
+    items = rows.map(function(a) {
+      return {
+        name:   a.Name || '(unnamed)',
+        entity: a.Entity || '',
+        subcat: a.Category || '',
+        amount: Number(a['My Share USD']) || 0
+      };
+    });
+  } else if (kind === 'liability' && _summaryState.lastLiabList) {
+    var found = _summaryState.lastLiabList.find(function(lb) { return lb.label === key; });
+    if (!found) return;
+    title = found.label;
+    accentColor = '#8a2a2a';
+    items = found.items.map(function(l) {
+      return {
+        name:   l.Name || '(unnamed)',
+        entity: l.Entity || '',
+        subcat: l.Type || '',
+        amount: Number(l['USD Value']) || 0
+      };
+    });
+  } else if (kind === 'jurisdiction' && _summaryState.lastByJur) {
+    var j = _summaryState.lastByJur[key];
+    if (!j) return;
+    title = key;
+    sub = j.entityCount + ' entit' + (j.entityCount === 1 ? 'y' : 'ies');
+    accentColor = '#1e5e3e';
+    // Pull every asset whose jurisdiction matches
+    function _jurOfRow(row) {
+      var cat = String(row.Category || '');
+      var tail = cat.split(' - ').pop();
+      if (tail && tail !== cat && !/real estate$/i.test(tail)) return tail;
+      var ent = String(row.Entity || '');
+      var e = (state && state.entities || []).find(function(x) { return x.Name === ent; });
+      return (e && e.Jurisdiction) || '';
+    }
+    var A = (state && state.assets || []).filter(function(a) {
+      var v = a && a.Archived; var s = String(v||'').trim().toLowerCase();
+      var arch = v === true || s==='yes'||s==='true'||s==='archived'||s==='y';
+      if (!(state && state.showArchived) && arch) return false;
+      return (_jurOfRow(a) || 'Other') === key;
+    });
+    items = A.map(function(a) {
+      return {
+        name:   a.Name || '(unnamed)',
+        entity: a.Entity || '',
+        subcat: a.Category || '',
+        amount: Number(a['My Share USD']) || 0
+      };
+    });
+  } else {
+    return;
+  }
+
+  // Sort by amount desc for both lists
+  items.sort(function(a, b) { return b.amount - a.amount; });
+  var total = items.reduce(function(s, i) { return s + i.amount; }, 0);
+
+  titleEl.textContent = title;
+  subEl.textContent = sub || (items.length + ' item' + (items.length === 1 ? '' : 's'));
+  titleEl.style.color = accentColor;
+
+  var serif = "Georgia, 'Playfair Display', 'Times New Roman', serif";
+  if (!items.length) {
+    bodyEl.innerHTML = '<div style="padding:40px;text-align:center;color:#9ca3af">No items in this bucket.</div>';
+  } else {
+    bodyEl.innerHTML =
+      items.map(function(i) {
+        return '<div style="display:grid;grid-template-columns:1fr auto;gap:16px;padding:14px 0;border-bottom:1px solid #eae4d6;align-items:baseline">' +
+          '<div style="min-width:0">' +
+            '<div style="font-size:14px;font-weight:600;color:#0d0f12">' + esc(i.name) + '</div>' +
+            '<div style="font-size:11px;color:#6b6b73;margin-top:3px">' + esc([i.subcat, i.entity].filter(Boolean).join(' · ')) + '</div>' +
+          '</div>' +
+          '<div style="font-size:14px;font-weight:600;color:#0d0f12;font-variant-numeric:tabular-nums;white-space:nowrap">' + _fmtMoneyFull(i.amount) + '</div>' +
+        '</div>';
+      }).join('') +
+      '<div style="display:grid;grid-template-columns:1fr auto;gap:16px;padding:16px 0 4px 0;margin-top:4px;border-top:2px solid #0d0f12;align-items:baseline">' +
+        '<div style="font-family:' + serif + ';font-size:18px;color:#0d0f12">Total</div>' +
+        '<div style="font-family:' + serif + ';font-size:20px;color:' + accentColor + ';font-variant-numeric:tabular-nums">' + _fmtMoneyFull(total) + '</div>' +
+      '</div>';
+  }
+  modal.classList.add('open');
+}
+
+function _closeSummaryDrill() {
+  var modal = document.getElementById('summary-drill-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+
 // Standalone renderer. Reads ONLY from already-loaded state.assets +
 // state.liabilities so it never triggers a new server call and can't break
 // anything else. If data hasn't loaded yet, waits for it.
@@ -11327,11 +11463,12 @@ function renderSummaryStatement() {
   var red = '#8a2a2a';
   var serif = "Georgia, 'Playfair Display', 'Times New Roman', serif";
 
-  function row(iconColor, iconChar, name, subtitle, amount, pct) {
-    return '<div style="display:flex;align-items:center;gap:14px;padding:16px 0;border-bottom:1px solid ' + border + '">' +
+  function row(iconColor, iconChar, name, subtitle, amount, pct, drillKey, kind) {
+    var clickable = drillKey ? ('onclick="_summaryDrill(\'' + kind + '\', \'' + drillKey.replace(/\'/g,"\\'") + '\')" style="cursor:pointer;transition:.15s" onmouseover="this.style.background=\'#f8f5ec\'" onmouseout="this.style.background=\'transparent\'"') : '';
+    return '<div ' + clickable + ' style="display:flex;align-items:center;gap:14px;padding:16px 10px;border-bottom:1px solid ' + border + ';border-radius:4px">' +
       '<div style="width:40px;height:40px;border-radius:50%;background:' + iconColor + '15;display:flex;align-items:center;justify-content:center;color:' + iconColor + ';font-size:16px;flex-shrink:0">' + iconChar + '</div>' +
       '<div style="flex:1;min-width:0">' +
-        '<div style="font-size:15px;font-weight:600;color:' + ink + '">' + esc(name) + '</div>' +
+        '<div style="font-size:15px;font-weight:600;color:' + ink + '">' + esc(name) + (drillKey ? ' <span style="color:' + mutedDark + ';font-weight:400;font-size:11px">›</span>' : '') + '</div>' +
         '<div style="font-size:12px;color:' + mutedDark + ';margin-top:2px">' + esc(subtitle) + '</div>' +
       '</div>' +
       '<div style="text-align:right;flex-shrink:0">' +
@@ -11341,24 +11478,31 @@ function renderSummaryStatement() {
     '</div>';
   }
 
+  // Stash the bucket data for the drill-down modal to read.
+  _summaryState.lastBuckets  = buckets;
+  _summaryState.lastLiabList = liabList;
+  _summaryState.lastJurList  = jurList;
+  _summaryState.lastByJur    = byJur;
+
   var assetsRows = [];
-  if (reTotal)    assetsRows.push(row(green, '🏠', 'Real estate',         _reProps(), reTotal, _pct(reTotal, totalAssets)));
-  if (phTotal)    assetsRows.push(row(green, '◇',  'Private holdings',    buckets.privateHoldings.length + ' operating interest' + (buckets.privateHoldings.length === 1 ? '' : 's'), phTotal, _pct(phTotal, totalAssets)));
-  if (notesTotal) assetsRows.push(row(green, '📜', 'Promissory notes & receivables', buckets.notes.length + ' note' + (buckets.notes.length === 1 ? '' : 's'), notesTotal, _pct(notesTotal, totalAssets)));
-  if (invTotal)   assetsRows.push(row(green, '📈', 'Investments',         'Brokerage & treasury', invTotal, _pct(invTotal, totalAssets)));
-  if (cashTot)    assetsRows.push(row(green, '💵', 'Cash',                cashAccountCount + ' account' + (cashAccountCount === 1 ? '' : 's'), cashTot, _pct(cashTot, totalAssets)));
-  if (collTotal)  assetsRows.push(row(green, '★',  'Collectibles & vehicles', buckets.collectibles.length + ' item' + (buckets.collectibles.length === 1 ? '' : 's'), collTotal, _pct(collTotal, totalAssets)));
-  if (otherTotal) assetsRows.push(row(green, '◦',  'Other assets',        buckets.other.length + ' item' + (buckets.other.length === 1 ? '' : 's'), otherTotal, _pct(otherTotal, totalAssets)));
+  if (reTotal)    assetsRows.push(row(green, '🏠', 'Real estate',         _reProps(), reTotal, _pct(reTotal, totalAssets), 'realEstate', 'asset'));
+  if (phTotal)    assetsRows.push(row(green, '◇',  'Private holdings',    buckets.privateHoldings.length + ' operating interest' + (buckets.privateHoldings.length === 1 ? '' : 's'), phTotal, _pct(phTotal, totalAssets), 'privateHoldings', 'asset'));
+  if (notesTotal) assetsRows.push(row(green, '📜', 'Promissory notes & receivables', buckets.notes.length + ' note' + (buckets.notes.length === 1 ? '' : 's'), notesTotal, _pct(notesTotal, totalAssets), 'notes', 'asset'));
+  if (invTotal)   assetsRows.push(row(green, '📈', 'Investments',         'Brokerage & treasury', invTotal, _pct(invTotal, totalAssets), 'investments', 'asset'));
+  if (cashTot)    assetsRows.push(row(green, '💵', 'Cash',                cashAccountCount + ' account' + (cashAccountCount === 1 ? '' : 's'), cashTot, _pct(cashTot, totalAssets), 'cash', 'asset'));
+  if (collTotal)  assetsRows.push(row(green, '★',  'Collectibles & vehicles', buckets.collectibles.length + ' item' + (buckets.collectibles.length === 1 ? '' : 's'), collTotal, _pct(collTotal, totalAssets), 'collectibles', 'asset'));
+  if (otherTotal) assetsRows.push(row(green, '◦',  'Other assets',        buckets.other.length + ' item' + (buckets.other.length === 1 ? '' : 's'), otherTotal, _pct(otherTotal, totalAssets), 'other', 'asset'));
 
   var liabsRowsHtml = liabList.map(function(lb) {
     var icon = /promissory/i.test(lb.label) ? '📄' : '🏠';
     var subtitle = lb.items.length + ' item' + (lb.items.length === 1 ? '' : 's');
-    return row(red, icon, lb.label, subtitle, lb.total, _pct(lb.total, totalLiabs));
+    return row(red, icon, lb.label, subtitle, lb.total, _pct(lb.total, totalLiabs), lb.label, 'liability');
   }).join('');
 
   var jurisdictionHtml = jurList.map(function(j) {
     var pctWidth = jurMax ? (j.assets / jurMax * 100) : 0;
-    return '<div style="background:' + cardBg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px 18px;flex:1;min-width:180px">' +
+    var jurKey = j.name.replace(/\'/g, "\\'");
+    return '<div onclick="_summaryDrill(\'jurisdiction\', \'' + jurKey + '\')" style="background:' + cardBg + ';border:1px solid ' + border + ';border-radius:8px;padding:16px 18px;flex:1;min-width:180px;cursor:pointer;transition:.15s" onmouseover="this.style.borderColor=\'#c7bfab\';this.style.boxShadow=\'0 2px 8px rgba(13,15,18,.06)\'" onmouseout="this.style.borderColor=\'' + border + '\';this.style.boxShadow=\'\'">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
         '<span style="background:#f0ebd9;color:' + ink + ';padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:1px">' + esc(_jurCode(j.name)) + '</span>' +
         '<span style="font-size:11px;color:' + mutedDark + '">' + j.entityCount + ' entit' + (j.entityCount === 1 ? 'y' : 'ies') + '</span>' +
