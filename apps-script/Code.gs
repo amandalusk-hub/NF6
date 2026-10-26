@@ -1307,9 +1307,16 @@ function saveFullAsset(coreData, id, detailsJson) { _requireEditor_();
   };
 }
 
-// Fast auto-save: reads only the header row + ID column, writes just the Details cell.
-// Called by the 2-second auto-save timer — much faster than saveFullAsset (~300ms vs 1-3s).
-function saveAssetDetailsOnly(id, detailsJson) { _requireEditor_();
+// Fast auto-save: writes Details, Currency, Local Value, USD Value,
+// My Share USD, My Share % — the fields the modal exposes. Previously only
+// wrote Details, which silently dropped Currency / Local Value / USD Value
+// changes until an explicit Save button fire. Caused Amanda's bug where
+// Casa Bianca looked right after save but reverted to the old COP value on
+// reload (auto-save had never captured the Currency flip).
+//
+// Third arg (coreData) is optional for backward-compat; if omitted, falls
+// back to Details-only (old behavior).
+function saveAssetDetailsOnly(id, detailsJson, coreData) { _requireEditor_();
   var sheet   = getSheet_('ASSETS');
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return { success: false, error: 'No asset rows' };
@@ -1335,7 +1342,36 @@ function saveAssetDetailsOnly(id, detailsJson) { _requireEditor_();
     if (String(ids[i][0]) === String(id)) {
       sheet.getRange(i + 2, detCol).setValue(detailsJson || '');
       if (updCol > 0) sheet.getRange(i + 2, updCol).setValue(new Date());
+
+      // NEW: if coreData passed, also write Currency / Local Value / USD Rate /
+      // USD Value / My Share USD / My Share % so auto-save doesn't silently
+      // drop currency flips the way it used to.
+      if (coreData && typeof coreData === 'object') {
+        function _col(name) { return headers.indexOf(name) + 1; }
+        var row = i + 2;
+        var currency = (coreData.currency || 'USD').toUpperCase();
+        var fxRate;
+        try { fxRate = getFxRate_(currency); } catch(e) { fxRate = null; }
+        if (_col('Currency')) sheet.getRange(row, _col('Currency')).setValue(currency);
+        if (coreData.localValue !== undefined && _col('Local Value')) {
+          var lv = Number(coreData.localValue) || 0;
+          sheet.getRange(row, _col('Local Value')).setValue(lv);
+          if (fxRate != null) {
+            var usd = lv * fxRate;
+            if (_col('USD Rate'))     sheet.getRange(row, _col('USD Rate')).setValue(fxRate);
+            if (_col('USD Value'))    sheet.getRange(row, _col('USD Value')).setValue(usd);
+            if (_col('My Share USD')) sheet.getRange(row, _col('My Share USD')).setValue(usd);
+          }
+        }
+        if (coreData.ownershipPct !== undefined && _col('My Share %')) {
+          sheet.getRange(row, _col('My Share %')).setValue(Number(coreData.ownershipPct) || 0);
+        }
+        if (coreData.name && _col('Name'))       sheet.getRange(row, _col('Name')).setValue(coreData.name);
+        if (coreData.category && _col('Category')) sheet.getRange(row, _col('Category')).setValue(coreData.category);
+        if (coreData.entity !== undefined && _col('Entity')) sheet.getRange(row, _col('Entity')).setValue(coreData.entity);
+      }
       SpreadsheetApp.flush(); // ensure write commits before XHR returns
+
       // Read-back verification
       if (detailsJson) {
         var verifyVal = sheet.getRange(i + 2, detCol).getValue();

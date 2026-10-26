@@ -6636,18 +6636,42 @@ function saveAssetDetails(keepOpen){
     })
   };
 
-  // Auto-save path: writes only the Details JSON cell (~300ms).
-  // Name/value/currency/entity changes are saved on explicit save (Save Details
-  // button, modal close, or click outside) — that path uses saveFullAsset.
+  // Auto-save path: writes Details + core fields (Currency, Local Value,
+  // USD Value, My Share USD, My Share %, Name, Category, Entity). Previously
+  // only wrote Details, which silently dropped currency flips (Amanda's
+  // Casa Bianca bug). Now the auto-save is self-sufficient.
   if (keepOpen) {
     // In-flight guard: never run two auto-saves at once.
     // If one is already running, mark a follow-up so we re-fire when it returns.
     if (_autoSaveInFlight) { _autoSavePending = true; return; }
     _autoSaveInFlight = true;
     var _autoName = (document.getElementById('da-name')||{value:''}).value.trim();
+    var _autoCat  = (document.getElementById('da-category')||{value:''}).value;
+    var _autoEnt  = (document.getElementById('da-entity')||{value:''}).value;
+    var _autoCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
+    var _autoLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
+    var _autoIsRE = _autoCat.startsWith('Real Estate');
+    var _autoReOwn = _autoIsRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
+    var _autoShr  = _autoReOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
+    var _autoCore = {
+      name:         _autoName || undefined,
+      category:     _autoCat,
+      entity:       _autoEnt,
+      currency:     _autoCur,
+      localValue:   _autoLoc,
+      ownershipPct: _autoShr
+    };
     var _autoAsset = (state.assets||[]).find(function(a){ return String(a.ID)===String(id); });
     if (_autoAsset) {
       if (_autoName) _autoAsset.Name = _autoName;
+      if (_autoCur)  _autoAsset.Currency = _autoCur;
+      _autoAsset['Local Value'] = _autoLoc;
+      // Local-side USD estimate: for USD rows it's exact; for non-USD we use
+      // the row's cached rate until the server returns the authoritative value.
+      var _autoFx = (_autoCur === 'USD') ? 1 : (num(_autoAsset['USD Rate']) || 1);
+      _autoAsset['USD Value'] = _autoLoc * _autoFx;
+      _autoAsset['My Share USD'] = _autoLoc * _autoFx;
+      _autoAsset['My Share %']   = _autoShr;
       _autoAsset.Details = JSON.stringify(details);
       _autoAsset['Last Updated'] = new Date().toISOString();
     }
@@ -6672,7 +6696,7 @@ function saveAssetDetails(keepOpen){
         _showSaveError('detail-save-status', msg);
         toast(msg, 'error');
       })
-      .saveAssetDetailsOnly(id, JSON.stringify(details));
+      .saveAssetDetailsOnly(id, JSON.stringify(details), _autoCore);
     return;
   }
 
