@@ -417,6 +417,8 @@ function onOpen() {
     .addItem('Loans → Backfill MacDonald historical (Jun 2024–Sep 2026)', 'backfillMacDonaldHistorical')
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Fix Solaris backfill Principal/Interest + report orphans', 'fixSolarisBackfillPrincipal')
+    .addSeparator()
+    .addItem('Assets → Fix Casa Bianca (force to USD $4.2M)', 'fixCasaBianca')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Send Test Alert Email (to me + Brandon)', 'sendTestLoanAlertEmail')
@@ -4773,6 +4775,67 @@ function setDailyPDFRecipient() {
 }
 
 
+
+// Diagnostic: dump every column of an asset by name substring, so we can
+// see exactly what the sheet actually stores vs what the UI displays. Call
+// from the Apps Script editor as debugAssetByName_('casa') or similar.
+function debugAssetByName_(nameSubstring) {
+  var sheet = getSheet_('ASSETS');
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var iName = headers.indexOf('Name');
+  var needle = String(nameSubstring || '').toLowerCase();
+  var hits = [];
+  for (var r = 1; r < data.length; r++) {
+    var n = String(data[r][iName] || '').toLowerCase();
+    if (n.indexOf(needle) >= 0) {
+      var obj = {};
+      headers.forEach(function(h, i) { obj[h] = data[r][i]; });
+      obj._row = r + 1;
+      hits.push(obj);
+    }
+  }
+  var out = 'Found ' + hits.length + ' asset(s) matching "' + nameSubstring + '":\n\n';
+  hits.forEach(function(h) {
+    out += 'Row ' + h._row + ' · ' + h.Name + '\n';
+    ['Category','Entity','Currency','Local Value','USD Rate','USD Value','My Share %','My Share USD','Last Updated']
+      .forEach(function(k) { out += '  ' + k + ': ' + JSON.stringify(h[k]) + '\n'; });
+    out += '\n';
+  });
+  try { SpreadsheetApp.getUi().alert('Asset Diagnostic', out, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
+  Logger.log(out);
+  return out;
+}
+
+// Menu-callable: force Casa Bianca to the correct USD-only values Mike gave
+// Amanda. Strips any lingering COP mess, writes Local=USD=MyShare=$4,200,000,
+// Currency=USD, Rate=1. Also sets My Share %=84 for Mike's reference.
+function fixCasaBianca() {
+  _requireEditor_();
+  var sheet = getSheet_('ASSETS');
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var iName = headers.indexOf('Name');
+  function col(name) { return headers.indexOf(name); }
+  var touched = 0;
+  for (var r = 1; r < data.length; r++) {
+    var n = String(data[r][iName] || '').toLowerCase();
+    if (n.indexOf('casa bianca') < 0 && n.indexOf('casabianca') < 0) continue;
+    var row = r + 1;
+    if (col('Currency')    >= 0) sheet.getRange(row, col('Currency')    + 1).setValue('USD');
+    if (col('Local Value') >= 0) sheet.getRange(row, col('Local Value') + 1).setValue(4200000);
+    if (col('USD Rate')    >= 0) sheet.getRange(row, col('USD Rate')    + 1).setValue(1);
+    if (col('USD Value')   >= 0) sheet.getRange(row, col('USD Value')   + 1).setValue(4200000);
+    if (col('My Share %')  >= 0) sheet.getRange(row, col('My Share %')  + 1).setValue(84);
+    if (col('My Share USD')>= 0) sheet.getRange(row, col('My Share USD')+ 1).setValue(4200000);
+    if (col('Last Updated')>= 0) sheet.getRange(row, col('Last Updated')+ 1).setValue(new Date());
+    touched++;
+  }
+  var msg = 'Casa Bianca patched: ' + touched + ' row(s) updated.\n\n' +
+            'Currency: USD · Local/USD/MyShare: $4,200,000 · Rate: 1 · My Share %: 84';
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  Logger.log(msg);
+}
 
 // Walk ASSETS + LIABILITIES, recompute USD Value = Local × current FX for
 // every non-USD row. Writes My Share USD = USD Value (no %) to match the
