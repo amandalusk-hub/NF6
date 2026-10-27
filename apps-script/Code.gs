@@ -404,6 +404,7 @@ function onOpen() {
     .addItem('Preview Net Worth PDF (in browser)',     'previewNetWorthPdfHtml')
     .addItem('Send Weekly Net Worth PDF (test to me)', 'sendWeeklyNetWorthPdfTest')
     .addItem('Send Daily Net Worth PDF (test to me)',  'sendDailyNetWorthPdfTest')
+    .addItem('⚡ Send Weekly PDFs NOW (to FULL recipient list)', 'sendWeeklyEmailsNowToFullList')
     .addSeparator()
     .addSeparator()
     .addItem('Seed Org Chart Structure (empty starter)', 'seedOrgChart')
@@ -4798,6 +4799,58 @@ function sendWeeklyNetWorthPdfTest() {
   if (!me) { ui.alert('Could not determine your email address.'); return; }
   var r = sendBalancesPDF_(me, 'TEST — Weekly Net Worth Summary');
   ui.alert(r.success ? 'Test PDF sent to ' + me : 'Send failed: ' + (r.error || 'unknown'), '', ui.ButtonSet.OK);
+}
+
+// Menu-callable: fire BOTH weekly emails right now to the full configured
+// recipient list (not just the active user). For catching up when Monday's
+// cron missed, or just forcing a resend. Shows a confirm dialog with the
+// recipient lists so Amanda doesn't accidentally mass-mail.
+function sendWeeklyEmailsNowToFullList() {
+  var ui = SpreadsheetApp.getUi();
+  var wkRecip  = PropertiesService.getScriptProperties().getProperty('WEEKLY_PDF_RECIPIENT') || '(none set)';
+  var confirm = ui.alert('Send Weekly PDFs NOW',
+    'This fires BOTH weekly emails to the full recipient list immediately:\n\n' +
+    '  • Weekly Net Worth PDF → ' + wkRecip + '\n' +
+    '  • Weekly TLMND Cash Flow PDF → ' + wkRecip + '\n\n' +
+    '(Both pull from the WEEKLY_PDF_RECIPIENT setting.)\n\n' +
+    'Proceed?',
+    ui.ButtonSet.OK_CANCEL);
+  if (confirm !== ui.Button.OK) return;
+
+  var lines = ['Weekly email send results:'];
+  var ok = 0, fail = 0;
+
+  try {
+    var r1 = weeklyPDFEmail();
+    if (r1 && r1.success === false) {
+      lines.push('  ✗ Weekly Net Worth: ' + (r1.error || 'failed'));
+      fail++;
+    } else {
+      lines.push('  ✓ Weekly Net Worth sent');
+      ok++;
+    }
+  } catch (e) {
+    lines.push('  ✗ Weekly Net Worth exception: ' + e.message);
+    fail++;
+  }
+
+  try {
+    var r2 = weeklyTLMNDCashFlowEmail();
+    if (r2 && r2.success === false) {
+      lines.push('  ✗ Weekly TLMND Cash Flow: ' + (r2.error || 'failed'));
+      fail++;
+    } else {
+      lines.push('  ✓ Weekly TLMND Cash Flow sent');
+      ok++;
+    }
+  } catch (e) {
+    lines.push('  ✗ Weekly TLMND Cash Flow exception: ' + e.message);
+    fail++;
+  }
+
+  lines.push('');
+  lines.push(ok + ' succeeded · ' + fail + ' failed');
+  ui.alert('Weekly Emails', lines.join('\n'), ui.ButtonSet.OK);
 }
 
 // Daily PDF — runs Mon-Fri at 8am via 5 weekday triggers. Uses a separate
