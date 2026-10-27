@@ -419,7 +419,8 @@ function onOpen() {
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Fix Solaris backfill Principal/Interest + report orphans', 'fixSolarisBackfillPrincipal')
     .addSeparator()
-    .addItem('Assets → Fix Casa Bianca (force to USD $4.2M)', 'fixCasaBianca')
+    .addItem('Assets → Fix Casa Bianca / Moros / Faranda (force USD values + %)', 'fixEffectiveStakeAssets')
+    .addItem('Assets → Fix Casa Bianca only (legacy alias)', 'fixCasaBianca')
     .addItem('Loans → Backfill Waskar historical monthlies', 'seedWaskarHistoricalPayments')
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Send Test Alert Email (to me + Brandon)', 'sendTestLoanAlertEmail')
@@ -4933,35 +4934,62 @@ function debugAssetByName_(nameSubstring) {
   return out;
 }
 
-// Menu-callable: force Casa Bianca to the correct USD-only values Mike gave
-// Amanda. Strips any lingering COP mess, writes Local=USD=MyShare=$4,200,000,
-// Currency=USD, Rate=1. Also sets My Share %=84 for Mike's reference.
-function fixCasaBianca() {
+// Menu-callable: force all 3 of Mike's "effective stake" investments
+// (Casa Bianca, Moros, Faranda Medellín) to their canonical USD values
+// directly on the ASSETS sheet. Bypasses every UI save path. Also updates
+// the Details JSON's rePropertyValue so the modal doesn't rehydrate the
+// old value from there. Idempotent, safe to re-run.
+function fixEffectiveStakeAssets() {
   _requireEditor_();
+  var patches = [
+    { needle: 'casa bianca',    label: 'Casa Bianca',       value: 4200000, pct: 84  },
+    { needle: 'moros',          label: 'Moros',             value: 5250000, pct: 10.5 },
+    { needle: 'faranda',        label: 'Faranda Medellín',  value: 2100000, pct: 8.4 }
+  ];
   var sheet = getSheet_('ASSETS');
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
   var iName = headers.indexOf('Name');
+  var iDet  = headers.indexOf('Details');
   function col(name) { return headers.indexOf(name); }
+  var report = [];
   var touched = 0;
-  for (var r = 1; r < data.length; r++) {
-    var n = String(data[r][iName] || '').toLowerCase();
-    if (n.indexOf('casa bianca') < 0 && n.indexOf('casabianca') < 0) continue;
-    var row = r + 1;
-    if (col('Currency')    >= 0) sheet.getRange(row, col('Currency')    + 1).setValue('USD');
-    if (col('Local Value') >= 0) sheet.getRange(row, col('Local Value') + 1).setValue(4200000);
-    if (col('USD Rate')    >= 0) sheet.getRange(row, col('USD Rate')    + 1).setValue(1);
-    if (col('USD Value')   >= 0) sheet.getRange(row, col('USD Value')   + 1).setValue(4200000);
-    if (col('My Share %')  >= 0) sheet.getRange(row, col('My Share %')  + 1).setValue(84);
-    if (col('My Share USD')>= 0) sheet.getRange(row, col('My Share USD')+ 1).setValue(4200000);
-    if (col('Last Updated')>= 0) sheet.getRange(row, col('Last Updated')+ 1).setValue(new Date());
-    touched++;
-  }
-  var msg = 'Casa Bianca patched: ' + touched + ' row(s) updated.\n\n' +
-            'Currency: USD · Local/USD/MyShare: $4,200,000 · Rate: 1 · My Share %: 84';
+  patches.forEach(function(p) {
+    var matched = 0;
+    for (var r = 1; r < data.length; r++) {
+      var n = String(data[r][iName] || '').toLowerCase();
+      if (n.indexOf(p.needle) < 0) continue;
+      var row = r + 1;
+      if (col('Currency')    >= 0) sheet.getRange(row, col('Currency')    + 1).setValue('USD');
+      if (col('Local Value') >= 0) sheet.getRange(row, col('Local Value') + 1).setValue(p.value);
+      if (col('USD Rate')    >= 0) sheet.getRange(row, col('USD Rate')    + 1).setValue(1);
+      if (col('USD Value')   >= 0) sheet.getRange(row, col('USD Value')   + 1).setValue(p.value);
+      if (col('My Share %')  >= 0) sheet.getRange(row, col('My Share %')  + 1).setValue(p.pct);
+      if (col('My Share USD')>= 0) sheet.getRange(row, col('My Share USD')+ 1).setValue(p.value);
+      if (col('Last Updated')>= 0) sheet.getRange(row, col('Last Updated')+ 1).setValue(new Date());
+      // Patch the Details JSON too so the modal doesn't rehydrate stale
+      // rePropertyValue / peOwnership / reOwnership on next open.
+      if (iDet >= 0) {
+        var detRaw = String(data[r][iDet] || '');
+        var det = {}; try { det = detRaw ? JSON.parse(detRaw) : {}; } catch(e) { det = {}; }
+        det.rePropertyValue = p.value;
+        det.reOwnership = p.pct;
+        det.peOwnership = p.pct;
+        sheet.getRange(row, iDet + 1).setValue(JSON.stringify(det));
+      }
+      matched++;
+      touched++;
+    }
+    report.push('  • ' + p.label + ': ' + matched + ' row(s) → $' + p.value.toLocaleString() + ' @ ' + p.pct + '%');
+  });
+  var msg = 'Effective-stake fix complete: ' + touched + ' row(s) updated.\n\n' + report.join('\n') +
+            '\n\nAll three rows forced to Currency=USD, Rate=1, with Local/USD/MyShare equal to the share value above.';
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
   Logger.log(msg);
 }
+
+// Keep the old single-asset menu around for anyone with muscle memory.
+function fixCasaBianca() { fixEffectiveStakeAssets(); }
 
 // Walk ASSETS + LIABILITIES, recompute USD Value = Local × current FX for
 // every non-USD row. Writes My Share USD = USD Value (no %) to match the
