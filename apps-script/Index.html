@@ -1674,7 +1674,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
                 <input type="text" id="d-pe-initial" placeholder="$0" onblur="onAcctBlur(this,recalcPE)" onfocus="onAcctFocus(this)">
               </div>
               <div class="form-row"><label>Ownership %</label>
-                <input type="number" id="d-pe-ownership" placeholder="e.g. 5" step="0.01">
+                <input type="number" id="d-pe-ownership" placeholder="e.g. 5" step="0.01" onchange="var s=document.getElementById('da-share'); if(s)s.value=this.value;" oninput="var s=document.getElementById('da-share'); if(s)s.value=this.value;">
               </div>
             </div>
             <div style="font-size:11px;color:#8ab;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">Additional Capital Calls</div>
@@ -6074,12 +6074,14 @@ function updateCurrencyLabel() {
 function saveAsset(){
   const name = document.getElementById('a-name').value.trim();
   if(!name){toast('Asset name is required','error');return;}
+  // Don't hardcode My Share %. Let backend addAsset default it to empty
+  // (not 100) so the detail modal doesn't start showing a bogus 100 before
+  // Amanda has entered her actual ownership.
   const data={
     name: name,
     category: document.getElementById('a-category').value,
     entity:   document.getElementById('a-entity').value,
     currency: document.getElementById('a-currency').value,
-    mySharePct: 100,
     localValue: 0,
     costBasis: 0
   };
@@ -6093,7 +6095,7 @@ function saveAsset(){
       var newAsset = {
         ID: r.id, Name: data.name, Category: data.category,
         Entity: data.entity, Currency: data.currency,
-        'My Share %': 100, 'Local Value': 0, 'USD Value': 0, 'My Share USD': 0,
+        'My Share %': '', 'Local Value': 0, 'USD Value': 0, 'My Share USD': 0,
         'Cost Basis': 0, Details: '{}', Notes: '',
         'Date Added': _now, 'Last Updated': _now
       };
@@ -6651,8 +6653,14 @@ function saveAssetDetails(keepOpen){
     var _autoCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
     var _autoLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
     var _autoIsRE = _autoCat.startsWith('Real Estate');
+    // Pull ownership % from whichever category-specific field is being used.
+    // RE uses d-re-ownership; PE uses d-pe-ownership. Fall back to da-share
+    // for other categories. Any match wins so a value typed into the
+    // category-specific field is never silently dropped.
+    var _autoIsPE_ = _autoCat === 'Private Equity';
     var _autoReOwn = _autoIsRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
-    var _autoShr  = _autoReOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
+    var _autoPeOwn = _autoIsPE_ ? (parseFloat((document.getElementById('d-pe-ownership')||{value:''}).value)||0) : 0;
+    var _autoShr   = _autoReOwn || _autoPeOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
     var _autoCore = {
       name:         _autoName || undefined,
       category:     _autoCat,
@@ -6705,12 +6713,16 @@ function saveAssetDetails(keepOpen){
   var _daCat  = (document.getElementById('da-category')||{value:''}).value;
   var _daEnt  = (document.getElementById('da-entity')||{value:''}).value;
   var _daCur  = (document.getElementById('da-currency')||{value:'USD'}).value;
-  // For RE, use d-re-ownership if filled (it's more prominent); fall back to da-share
-  // IMPORTANT: only read d-re-ownership when category is actually Real Estate — the field
-  // persists in the DOM and would corrupt ownershipPct for loans / PE / other categories.
+  // Pull ownership % from the category-specific field that's actually visible.
+  // RE → d-re-ownership · PE → d-pe-ownership · else → da-share. Any match
+  // wins so Amanda's typed % is never silently dropped on save. IMPORTANT:
+  // only read a category-specific field when the category matches, since the
+  // field persists in the DOM and would corrupt the save for other categories.
   var _isRE   = _daCat.startsWith('Real Estate');
+  var _isPE   = _daCat === 'Private Equity';
   var _reOwn  = _isRE ? (parseFloat((document.getElementById('d-re-ownership')||{value:''}).value)||0) : 0;
-  var _daShr  = _reOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
+  var _peOwn  = _isPE ? (parseFloat((document.getElementById('d-pe-ownership')||{value:''}).value)||0) : 0;
+  var _daShr  = _reOwn || _peOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
   // Value IS the direct holding value — ownership % is informational only, never multiplied
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,

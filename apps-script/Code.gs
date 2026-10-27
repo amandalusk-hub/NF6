@@ -1021,7 +1021,17 @@ function addAsset(data) { _requireEditor_();
   var fxRate   = getFxRate_(data.currency || 'USD');
   var localVal = Number(data.localValue) || 0;
   var usdVal   = localVal * fxRate;
-  var sharePct = data.mySharePct !== undefined ? Number(data.mySharePct) : 100;
+  // Prefer user-entered ownershipPct over the legacy UI-hardcoded mySharePct.
+  // Default to blank (not 100) so new assets don't inherit a bogus 100%
+  // placeholder before Amanda has set her real ownership.
+  var sharePct;
+  if (data.ownershipPct !== undefined && data.ownershipPct !== '' && data.ownershipPct !== null) {
+    sharePct = Number(data.ownershipPct);
+  } else if (data.mySharePct !== undefined && Number(data.mySharePct) !== 100) {
+    sharePct = Number(data.mySharePct);
+  } else {
+    sharePct = '';   // blank — not 100
+  }
   // My Share % is INFORMATIONAL only — do not multiply the dollar amount.
   var shareUsd = usdVal;
   var costBasis  = Number(data.costBasis) || 0;
