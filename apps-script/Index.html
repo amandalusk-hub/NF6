@@ -1427,7 +1427,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-share-label">Ownership %</span>
-            <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" onchange="recalcRE();updateDetailPreview()" oninput="updateDetailPreview()" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
+            <input type="number" id="da-share" value="" min="0" max="100" step="0.01" placeholder="—" onchange="recalcRE();updateDetailPreview();_syncShareToSectionFields(this.value)" oninput="updateDetailPreview();_syncShareToSectionFields(this.value)" style="width:60px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px">
           </div>
         </div>
       </div>
@@ -6068,6 +6068,19 @@ function updateCurrencyLabel() {
   var cur = (document.getElementById('da-currency')||{}).value || 'USD';
   var lbl = document.getElementById('da-local-label');
   if (lbl) lbl.textContent = cur !== 'USD' ? 'Value (' + cur + ')' : 'Value';
+}
+
+// Two-way share-% sync. When Amanda types into the universal `da-share`
+// field, mirror the value into the category-specific fields so the save
+// logic (which prefers the category-specific field) picks up her change.
+// Previously only the reverse mirror existed (d-re-ownership → da-share,
+// d-pe-ownership → da-share), so if the user typed in da-share, the stale
+// 100 in the section field was still what got saved for PE/RE assets.
+function _syncShareToSectionFields(val) {
+  var re = document.getElementById('d-re-ownership');
+  if (re && re.value !== val) re.value = val;
+  var pe = document.getElementById('d-pe-ownership');
+  if (pe && pe.value !== val) pe.value = val;
 }
 
 
