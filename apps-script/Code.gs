@@ -4402,12 +4402,23 @@ function installTriggers() {
 
 function setWeeklyPDFRecipient() {
   var ui   = SpreadsheetApp.getUi();
-  var resp = ui.prompt('Weekly PDF Email', 'Enter email address(es) to receive the weekly Balances PDF.\nFor multiple recipients, separate with commas:\n e.g. alice@example.com, bob@example.com', ui.ButtonSet.OK_CANCEL);
+  var current = PropertiesService.getScriptProperties().getProperty('WEEKLY_PDF_RECIPIENT') || '';
+  var resp = ui.prompt('Weekly PDF Email',
+    'CURRENT recipient(s): ' + (current || '(none set)') + '\n\n' +
+    'Enter email address(es) to receive the weekly Balances PDF (replaces the current).\n' +
+    'For multiple recipients, separate with commas:\n' +
+    '  e.g. alice@example.com, bob@example.com\n\n' +
+    'Leave blank + OK to CLEAR.',
+    ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   var email = resp.getResponseText().trim();
-  if (!email) { ui.alert('No email entered.'); return; }
+  if (!email) {
+    PropertiesService.getScriptProperties().deleteProperty('WEEKLY_PDF_RECIPIENT');
+    ui.alert('Weekly PDF recipient CLEARED. The weekly email will no longer send until a new recipient is set.');
+    return;
+  }
   PropertiesService.getScriptProperties().setProperty('WEEKLY_PDF_RECIPIENT', email);
-  ui.alert('Weekly PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mondays at 8 AM.');
+  ui.alert('Weekly PDF will be sent to: ' + email + '\n\nRun "Install Triggers" from the menu to schedule it for Mondays at 8 AM.');
 }
 
 // Shared helper: regenerate the Balances sheet, export it as PDF, send to the
@@ -4802,12 +4813,23 @@ function sendDailyNetWorthPdfTest() {
 
 function setDailyPDFRecipient() {
   var ui   = SpreadsheetApp.getUi();
-  var resp = ui.prompt('Daily PDF Email', 'Enter email address(es) to receive the DAILY (Mon-Fri) Balances PDF.\nFor multiple recipients, separate with commas:\n e.g. alice@example.com, bob@example.com', ui.ButtonSet.OK_CANCEL);
+  var current = PropertiesService.getScriptProperties().getProperty('DAILY_PDF_RECIPIENT') || '';
+  var resp = ui.prompt('Daily PDF Email',
+    'CURRENT recipient(s): ' + (current || '(none set)') + '\n\n' +
+    'Enter email address(es) to receive the DAILY (Mon-Fri) Balances PDF (replaces the current).\n' +
+    'For multiple recipients, separate with commas:\n' +
+    '  e.g. alice@example.com, bob@example.com\n\n' +
+    'Leave blank + OK to CLEAR.',
+    ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
   var email = resp.getResponseText().trim();
-  if (!email) { ui.alert('No email entered.'); return; }
+  if (!email) {
+    PropertiesService.getScriptProperties().deleteProperty('DAILY_PDF_RECIPIENT');
+    ui.alert('Daily PDF recipient CLEARED. The daily email will no longer send until a new recipient is set.');
+    return;
+  }
   PropertiesService.getScriptProperties().setProperty('DAILY_PDF_RECIPIENT', email);
-  ui.alert('Daily PDF will be sent to: ' + email + '\nRun "Install Triggers" from the menu to schedule it for Mon-Fri at 8 AM.');
+  ui.alert('Daily PDF will be sent to: ' + email + '\n\nRun "Install Triggers" from the menu to schedule it for Mon-Fri at 8 AM.');
 }
 
 
