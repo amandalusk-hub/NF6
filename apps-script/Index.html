@@ -1422,7 +1422,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <div id="da-value-row" style="display:none;margin-top:8px;gap:10px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
             <span id="da-local-label">Value</span>
-            <input type="text" id="da-local" placeholder="0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview()" onfocus="onAcctFocus(this)" oninput="updateDetailPreview()">
+            <input type="text" id="da-local" placeholder="0" style="width:140px;font-size:12px;background:#1a2d44;border:1px solid #2a4060;color:#e0e8f0;border-radius:4px;padding:3px 6px" onblur="onAcctBlur(this);updateDetailPreview();_syncLocalToReValue(this.value)" onfocus="onAcctFocus(this)" oninput="updateDetailPreview();_syncLocalToReValue(this.value)">
             <span id="da-usd-preview" style="font-size:11px;color:#8ab;white-space:nowrap"></span>
           </div>
           <div id="da-share-wrap" style="display:flex;align-items:center;gap:5px;font-size:12px;color:#8ab">
@@ -1949,7 +1949,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
             <div class="form-two">
               <div class="form-row">
                 <label>Current Property Value</label>
-                <input type="text" id="d-re-property-value" placeholder="$0  (full property value, not just your share)" onblur="onAcctBlur(this,recalcRE)" onfocus="onAcctFocus(this)">
+                <input type="text" id="d-re-property-value" placeholder="$0  (your share — ownership % is informational)" onblur="onAcctBlur(this,recalcRE);_syncReValueFields(this.value)" onfocus="onAcctFocus(this)" oninput="_syncReValueFields(this.value)">
               </div>
               <div class="form-row">
                 <label>My Ownership %</label>
@@ -6081,6 +6081,23 @@ function _syncShareToSectionFields(val) {
   if (re && re.value !== val) re.value = val;
   var pe = document.getElementById('d-pe-ownership');
   if (pe && pe.value !== val) pe.value = val;
+}
+
+// For Real Estate assets, mirror the Property Value field ↔ the top-level
+// Value (da-local) field so the user can edit either and both the Local
+// Value column AND the Details.rePropertyValue stay in sync. Previously a
+// change to one field left the other at its stale pre-edit value, so the
+// save path (which reads da-local for Local Value) would keep the OLD
+// amount when the user edited only the Property Value, and vice versa.
+function _syncReValueFields(val) {
+  var local = document.getElementById('da-local');
+  if (local && local.value !== val) local.value = val;
+  try { updateDetailPreview(); } catch(e) {}
+}
+function _syncLocalToReValue(val) {
+  var prop = document.getElementById('d-re-property-value');
+  if (prop && prop.value !== val) prop.value = val;
+  try { recalcRE(); } catch(e) {}
 }
 
 
