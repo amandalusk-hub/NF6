@@ -6724,9 +6724,12 @@ function saveAssetDetails(keepOpen){
   var _peOwn  = _isPE ? (parseFloat((document.getElementById('d-pe-ownership')||{value:''}).value)||0) : 0;
   var _daShr  = _reOwn || _peOwn || (parseFloat((document.getElementById('da-share')||{value:''}).value)||0);
   var _daLoc  = parseAcct((document.getElementById('da-local')||{value:'0'}).value);
-  // Value IS the direct holding value — ownership % is informational only, never multiplied
+  // Value IS the direct holding value — ownership % is informational only,
+  // never multiplied. Removed the legacy `mySharePct: 100` hardcode — backend
+  // ignored it in favor of ownershipPct anyway, but it was a trap for anyone
+  // reading the code who might wire a new path through mySharePct.
   var coreData = { id: id, name: _daName||undefined, category: _daCat, entity: _daEnt, currency: _daCur,
-                   localValue: _daLoc, mySharePct: 100, ownershipPct: _daShr };
+                   localValue: _daLoc, ownershipPct: _daShr };
   if (!_daName) { if(!keepOpen) toast('Asset name cannot be empty', 'error'); return; }
   var _shouldClose = !keepOpen; // capture now — close after server confirms, not immediately
   if (_shouldClose) {
@@ -6765,6 +6768,12 @@ function saveAssetDetails(keepOpen){
           if (r && r.myShareUsd != null) {
             _stateAsset['My Share USD'] = r.myShareUsd;
             _stateAsset['Local Value']  = r.localValue;
+          }
+          // Sync the ownership % from the server too — otherwise if the user
+          // reopens the modal before loadData refreshes, they see the stale
+          // state value (which may still be the pre-save placeholder).
+          if (r && r.ownershipPct != null) {
+            _stateAsset['My Share %'] = r.ownershipPct;
           }
           _stateAsset['Last Updated'] = new Date().toISOString();
         }

@@ -1392,7 +1392,12 @@ function saveAssetDetailsOnly(id, detailsJson, coreData) { _requireEditor_();
           Logger.log('saveAssetDetailsOnly: Details write required retry for id=' + id);
         }
       }
-      return { success: true };
+      // Return the committed ownership % so the frontend can sync state
+      // without waiting for a full reload (mirrors saveFullAsset's return).
+      var retPct = (coreData && coreData.ownershipPct !== undefined)
+                     ? Number(coreData.ownershipPct)
+                     : null;
+      return { success: true, ownershipPct: retPct };
     }
   }
   return { success: false, error: 'Asset not found: ' + id };
