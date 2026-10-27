@@ -2113,3 +2113,177 @@ function seedComplianceCalendar() {
            '  • ' + seededPeople + ' unique names added to COMPLIANCE_PEOPLE (fill in emails from the web UI)\n\n' +
            'Next: open the web app → Compliance tab → fill in email addresses for each person.');
 }
+
+
+// ── Date refresh from Amanda's updated Excel (uploaded 2026-10-27) ────────
+//
+// Overwrites Status / Last Done / Next Due Date / Notes.dateToDo on each
+// matching COMPLIANCE_ITEMS row. Matched on (first line of Obligation,
+// Entity, optional second-line disambiguator). Preserves everything else
+// (Description, Payment Method, Point of Contact, Account Number, etc.).
+// Also re-fires _syncComplianceCalendarEvent_ for each updated row so the
+// Google Calendar entries move to the new dates.
+
+var COMPLIANCE_DATE_UPDATES = [
+  { obligation: "Pay property taxes by 1/31 each year", disambiguator: "Harris County", entity: "NF Texas", status: "Recurring - Up to date", lastDone: "2026-01-15", dateToDo: "2027-01-15", nextDue: "2027-01-31" },
+  { obligation: "Pay property taxes by 1/31 each year", disambiguator: "Spring Branch ISD", entity: "NF Texas", status: "Recurring - Up to date", lastDone: "2026-01-15", dateToDo: "2027-01-15", nextDue: "2027-01-31" },
+  { obligation: "Pay the proerty insurance", disambiguator: "", entity: "NF Texas", status: "Recurring - Up to date", lastDone: "2025-09-01", dateToDo: "2026-08-25", nextDue: null },
+  { obligation: "Make a yearly donation in PR - For 2027 -", disambiguator: "For 2027 - There’s this charity party every year in Dorado", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-01-08", dateToDo: "2027-01-05", nextDue: "2027-12-31" },
+  { obligation: "Make a yearly contribution to Dr. Mikes nieces and nephews", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-12-29", dateToDo: "2026-12-01", nextDue: "2026-12-31" },
+  { obligation: "Tesla Car Insurance", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-10-06", dateToDo: "2026-09-01", nextDue: "2026-10-06" },
+  { obligation: "Tesla Registration", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-08-31", dateToDo: "2027-08-31", nextDue: "2027-09-30" },
+  { obligation: "Tahoe insurance SURA", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2025-12-23", dateToDo: "2026-12-23", nextDue: "2026-12-28" },
+  { obligation: "Tahoe vehicle tax - Gobernación de Antioquia", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2026-01-15", dateToDo: "2027-01-15", nextDue: "2027-01-28" },
+  { obligation: "Tahoe - SOAT renewal", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2025-12-25", dateToDo: "2026-12-25", nextDue: "2026-12-25" },
+  { obligation: "Renew Insurance every year and make sure the hazard policy meets Oriental's requirements and send to them", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-01-23", dateToDo: "2027-05-01", nextDue: "2027-05-14" },
+  { obligation: "Obtain the Master Policy from Dorado", disambiguator: "Due to Oriental 60 days before it expires", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-11-14", dateToDo: "2026-08-01", nextDue: "2026-11-14" },
+  { obligation: "Commercial insurance", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-02-17", dateToDo: "2027-01-16", nextDue: "2027-02-16" },
+  { obligation: "Golf cart insurance", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-10-06", dateToDo: "2026-09-01", nextDue: "2026-10-06" },
+  { obligation: "Personal/Commercial insurance", disambiguator: "", entity: "NF PR SJ", status: "Recurring - Up to date", lastDone: "2026-06-08", dateToDo: "2027-05-01", nextDue: "2027-06-08" },
+  { obligation: "Pay the bi-yearly CRIM taxes for Condado Lagoon Villas", disambiguator: "", entity: "NF PR SJ", status: "Recurring - Up to date", lastDone: "2026-06-19", dateToDo: "2026-01-11", nextDue: "2027-04-01" },
+  { obligation: "Pay the fees yearly", disambiguator: "", entity: "NF PR SJ", status: "Recurring - Up to date", lastDone: "2026-06-05", dateToDo: "2026-05-01", nextDue: "2027-06-05" },
+  { obligation: "Pay the bi-yearly CRIM Dorado Taxes", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-06-19", dateToDo: "2026-01-11", nextDue: "2027-04-01" },
+  { obligation: "AC maintenance quarterly", disambiguator: "", entity: "MN Personal", status: "Recurring - Due Soon", lastDone: "2026-04-17", dateToDo: "2026-10-01", nextDue: "2026-10-17" },
+  { obligation: "AC mainternance bi-yearly", disambiguator: "", entity: "MN Personal", status: "Recurring - Due Soon", lastDone: "2026-05-15", dateToDo: "2026-10-01", nextDue: "2026-10-15" },
+  { obligation: "Exterminator monthly service", disambiguator: "", entity: "MN Personal", status: "Recurring - Due Soon", lastDone: "2026-07-12", dateToDo: "2026-07-01", nextDue: "2026-08-12" },
+  { obligation: "Golf cart maintenance at Dorado", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-03-19", dateToDo: "2026-06-15", nextDue: "2026-09-30" },
+  { obligation: "Renew passport", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: null, dateToDo: null, nextDue: "2034-03-25" },
+  { obligation: "Renew Dr. Mikes medical license", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2024-08-04", dateToDo: "2027-06-01", nextDue: "2027-08-04" },
+  { obligation: "Renew Dr. Mikes PR Drivers License", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-06-20", dateToDo: "2033-05-01", nextDue: "2033-08-04" },
+  { obligation: "Renew Keeper security every 3 years", disambiguator: "", entity: "TLMND", status: "Recurring - Up to date", lastDone: "2025-06-24", dateToDo: "2028-05-01", nextDue: "2028-06-25" },
+  { obligation: "Mailbox subscription - Paris", disambiguator: "The address is 253 rue Saint Honoré 75001 Paris France. It's registered as the SCI address", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2025-07-16", dateToDo: "2026-07-01", nextDue: "2027-07-01" },
+  { obligation: "House Insurance of 5 Quai Montebello AXXA", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Due Soon", lastDone: "2025-12-05", dateToDo: "2025-12-01", nextDue: "2026-12-01" },
+  { obligation: "Tax Fonciere - RE Tax", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2026-10-27", dateToDo: "2026-10-01", nextDue: "2027-10-01" },
+  { obligation: "Vacant Housing Tax - To be paid if the property wasn't rented out during 90 consecutive days during the previous year", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2026-12-30", dateToDo: "2025-10-31", nextDue: "2026-12-30" },
+  { obligation: "Paris Thacko corporate tax. Amount depends on the company income", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2025-10-01", dateToDo: "2025-10-01", nextDue: "2027-10-01" },
+  { obligation: "5 Quai Montebello HOA - Paid to the Syndic quarterly", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2025-12-28", dateToDo: "2026-04-01", nextDue: "2027-01-01" },
+  { obligation: "Fees paid to France accountants Groupe Prieur. Twice a year (In December and March)", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Due Soon", lastDone: "2025-12-09", dateToDo: "2026-03-10", nextDue: "2026-12-10" },
+  { obligation: "Tax returns filing of the previous accounting year - W/ accountants Groupe Prieur", disambiguator: "", entity: "Paris Thacko", status: "Recurring - Up to date", lastDone: "2025-04-01", dateToDo: "2025-04-01", nextDue: "2027-04-01" },
+  { obligation: "United club membership", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2025-09-30", dateToDo: null, nextDue: "2026-09-30" },
+  { obligation: "AARP Membership renewal (every 5 years)", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-02-03", dateToDo: "2031-02-01", nextDue: "2031-02-03" },
+  { obligation: "Renew Mike's Health insurance with GeoBlue", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-09-08", dateToDo: "2027-09-01", nextDue: "2027-10-14" },
+  { obligation: "Quebrada Arriba RE Tax (Predial)", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2025-02-10", dateToDo: "2026-02-28", nextDue: "2027-02-28" },
+  { obligation: "Cinturón Verde RE Tax (Predial)", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2026-02-10", dateToDo: "2027-02-10", nextDue: "2027-02-10" },
+  { obligation: "Provincia Lot RE Tax (Predial)", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2026-02-10", dateToDo: "2027-02-10", nextDue: null },
+  { obligation: "Renew Mikes life insurance every year through lincoln financial", disambiguator: "", entity: "MN Personal", status: "Recurring - Up to date", lastDone: "2026-01-07", dateToDo: "2027-01-01", nextDue: "2027-01-07" },
+  { obligation: "Renovación Matrícula Mercantil", disambiguator: "", entity: "NF MDE CO", status: "Recurring - Up to date", lastDone: "2026-03-31", dateToDo: "2026-03-31", nextDue: "2027-03-31" },
+  { obligation: "Pay the flood insurance premium by May 30 every year", disambiguator: "", entity: "NF Texas", status: "Recurring - Up to date", lastDone: "2026-04-25", dateToDo: "2027-04-25", nextDue: "2027-05-30" },
+  { obligation: "Pay the yearly fee to Bryn Mawr Trust Company", disambiguator: "", entity: "NF6 Family 2026 US Trust", status: "Recurring - Up to date", lastDone: "2026-06-15", dateToDo: "2027-06-01", nextDue: "2027-06-15" },
+  { obligation: "Complete questions every quarter", disambiguator: "", entity: "MN Personal", status: "In progress", lastDone: "2026-10-03", dateToDo: "2027-01-01", nextDue: "2027-01-01" },
+  { obligation: "April 15 annual fee reminder — $150 due to PR DOS each year", disambiguator: "", entity: "NF PR SJ", status: "Recurring - Up to date", lastDone: null, dateToDo: "2027-04-01", nextDue: "2027-04-01" },
+];
+
+
+function _compNorm_(s) {
+  if (s == null) return '';
+  return String(s).replace(/[​-‏﻿]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function _compDateFromISO_(iso) {
+  if (!iso) return '';
+  var parts = String(iso).split('-');
+  if (parts.length !== 3) return '';
+  var y = parseInt(parts[0], 10), m = parseInt(parts[1], 10) - 1, d = parseInt(parts[2], 10);
+  var tz = (SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || 'America/New_York');
+  // Build a Date at noon in sheet TZ to avoid DST edge cases crossing midnight.
+  var dt = new Date(y, m, d, 12, 0, 0);
+  return dt;
+}
+
+function updateComplianceDatesFromExcel() {
+  var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  _requireEditor_();
+  var sheet = getSheet_('COMPLIANCE_ITEMS');
+  if (!sheet) { if (ui) ui.alert('COMPLIANCE_ITEMS sheet not found. Run "Seed Compliance Calendar" first.'); return; }
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) { if (ui) ui.alert('No rows in COMPLIANCE_ITEMS.'); return; }
+  var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iID         = hdr.indexOf('ID');
+  var iStatus     = hdr.indexOf('Status');
+  var iEntity     = hdr.indexOf('Entity');
+  var iObligation = hdr.indexOf('Obligation');
+  var iLastDone   = hdr.indexOf('Last Done');
+  var iNextDue    = hdr.indexOf('Next Due Date');
+  var iUpdated    = hdr.indexOf('Last Updated');
+  if (iObligation < 0 || iNextDue < 0) {
+    if (ui) ui.alert('Required columns missing on COMPLIANCE_ITEMS.');
+    return;
+  }
+  var data = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+
+  // Group updates by matching key: firstLineOfObligation + entity (both normalized)
+  var updates = {};
+  COMPLIANCE_DATE_UPDATES.forEach(function(u) {
+    var key = _compNorm_(u.obligation) + '||' + _compNorm_(u.entity);
+    (updates[key] = updates[key] || []).push(u);
+  });
+
+  var touched = 0;
+  var unmatched = [];
+  var ambiguous = [];
+  data.forEach(function(row, idx) {
+    var sheetRow = idx + 2;
+    var ob = String(row[iObligation] || '');
+    var firstLine = ob.replace(/[​-‏﻿]/g, '').split('\n').map(function(s){return s.trim();}).filter(Boolean)[0] || '';
+    var entity = String(row[iEntity] || '');
+    var key = _compNorm_(firstLine) + '||' + _compNorm_(entity);
+    var candidates = updates[key];
+    if (!candidates || !candidates.length) return;
+    var pick;
+    if (candidates.length === 1) {
+      pick = candidates[0];
+    } else {
+      // Multiple candidates — disambiguate on second line of Obligation.
+      var lower = ob.toLowerCase();
+      pick = candidates.find(function(c) {
+        return c.disambiguator && lower.indexOf(c.disambiguator.toLowerCase()) >= 0;
+      }) || candidates[0];
+      if (candidates.length > 1 && !candidates.find(function(c) { return c.disambiguator && lower.indexOf(c.disambiguator.toLowerCase()) >= 0; })) {
+        ambiguous.push({ row: sheetRow, obligation: firstLine, entity: entity });
+      }
+    }
+    if (iStatus >= 0 && pick.status) sheet.getRange(sheetRow, iStatus + 1).setValue(pick.status);
+    if (iLastDone >= 0) {
+      if (pick.lastDone) sheet.getRange(sheetRow, iLastDone + 1).setValue(_compDateFromISO_(pick.lastDone));
+      else if (pick.lastDone === null) sheet.getRange(sheetRow, iLastDone + 1).setValue('');
+    }
+    if (iNextDue >= 0) {
+      if (pick.nextDue) sheet.getRange(sheetRow, iNextDue + 1).setValue(_compDateFromISO_(pick.nextDue));
+      else if (pick.nextDue === null) sheet.getRange(sheetRow, iNextDue + 1).setValue('');
+    }
+    if (iUpdated >= 0) sheet.getRange(sheetRow, iUpdated + 1).setValue(new Date());
+    touched++;
+    // Also re-sync Google Calendar event to new date (silent on failure).
+    try {
+      if (iID >= 0) {
+        var id = row[iID];
+        if (id) _syncComplianceCalendarEvent_(String(id));
+      }
+    } catch (e) { Logger.log('calendar sync failed row ' + sheetRow + ': ' + e); }
+  });
+
+  // Collect update entries that matched no sheet row.
+  var matchedKeys = {};
+  data.forEach(function(row) {
+    var firstLine = String(row[iObligation] || '').split('\n').map(function(s){return s.trim();}).filter(Boolean)[0] || '';
+    var entity = String(row[iEntity] || '');
+    matchedKeys[_compNorm_(firstLine) + '||' + _compNorm_(entity)] = true;
+  });
+  Object.keys(updates).forEach(function(k) {
+    if (!matchedKeys[k]) {
+      updates[k].forEach(function(u) {
+        unmatched.push(u.obligation + ' / ' + u.entity);
+      });
+    }
+  });
+
+  var msg = 'Compliance dates refreshed.\n\n' +
+            '  • ' + touched + ' sheet row(s) updated (Status / Last Done / Next Due Date)\n' +
+            '  • ' + unmatched.length + ' update entries did not match any sheet row\n' +
+            '  • ' + ambiguous.length + ' sheet row(s) had multiple candidates and were disambiguated by Obligation text\n\n' +
+            'Google Calendar events for the matched items were re-synced to the new dates.';
+  if (unmatched.length) msg += '\n\nUnmatched:\n  ' + unmatched.slice(0, 20).join('\n  ') + (unmatched.length > 20 ? '\n  ...' : '');
+  Logger.log(msg);
+  if (ui) ui.alert(msg);
+}

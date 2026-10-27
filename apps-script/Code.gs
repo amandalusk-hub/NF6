@@ -446,6 +446,7 @@ function onOpen() {
     .addItem('Properties → Install Dorado Monthly PDF Trigger (20th at 8 AM)', 'installDoradoMonthlyPdfTrigger')
     .addSeparator()
     .addItem('Compliance → Seed from existing Excel (48 items + unique names)', 'seedComplianceCalendar')
+    .addItem('Compliance → Refresh dates from latest Excel (Oct 2026 update)', 'updateComplianceDatesFromExcel')
     .addItem('Compliance → Set CC list (Amanda + Brandon)', 'setComplianceCcListFromMenu')
     .addItem('Compliance → Install triggers (daily 7 AM + Monday digest)', 'installComplianceReminderTriggers')
     .addItem('Compliance → Set FO Calendar (where events land)', 'setComplianceCalendarIdFromMenu')
