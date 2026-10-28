@@ -656,14 +656,20 @@ function seedTLMNDRules() { _requireEditor_();
     // Money In; the internal transfer from NF USA CA to TLMND is
     // excluded below to prevent double-counting.
     [10, 'Name', 'contains', 'ELLISON MEDICAL',                   '', '', 'Ellison Medical - Customer (Carroll Canyon)',   'Yes', 'TLMND',      '', 'Yes', 'Deposit lands on NF USA CA ···2086, counted as TLMND income'],
-    [10, 'Name', 'contains', 'BOOK TRANSFER CREDIT B/O: WASICA',  '', '', 'Wasica Holdings (Book Credit)',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound'],
+    // Waskar's company (Wasica Holdings) pays loan repayments through two
+    // different rails depending on the month: Chase book transfer wire
+    // ("BOOK TRANSFER CREDIT B/O: WASICA HOLDINGS…") OR an ACH where the
+    // Plaid name shows up as "WASICA HOLDINGS, ORIG ID:…". A plain
+    // "contains WASICA" catches both; nothing else in the TLMND feed
+    // references WASICA so there's no false-positive risk.
+    [10, 'Name', 'contains', 'WASICA',                            '', '', 'Wasica Holdings Loan Repayment',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound — catches both book-transfer wire and ACH'],
     [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction', '', 2083.33],
     [10, 'Name', 'contains', 'SA NJ REALTY',                      '', '', 'ASC Rental Income - TLMND Share (SA NJ Realty)', 'Yes', 'TLMND',   '', 'Yes', 'Recurring — Mike\'s real estate rent (comes in every so often)'],
     // WASKAR TEJEDA payments (CHIPS credits, wires) — categorize with Wasica
     // Holdings per user. Priority 15 keeps Penn Mutual Life Insurance
     // (priority 10) winning first for its specific pattern even though
     // that transaction also references Waskar in its wire memo.
-    [15, 'Name', 'contains', 'WASKAR',                             '', '', 'Wasica Holdings (Book Credit)',                  'Yes', 'TLMND',   '', 'Yes', 'Waskar Tejeda transfers routed to Wasica Holdings category'],
+    [15, 'Name', 'contains', 'WASKAR',                             '', '', 'Wasica Holdings Loan Repayment',                 'Yes', 'TLMND',   '', 'Yes', 'Waskar Tejeda transfers routed to Wasica loan repayment category'],
 
     // ── MONEY OUT — recurring ────────────────────────────────────────────
     [10, 'Name', 'contains', 'UNITED HEALTHCAR',                  '', '', 'United Healthcare Insurance',                   'Yes', 'TLMND',        '', 'Yes', 'Monthly ~$9,764'],
@@ -1928,4 +1934,113 @@ function installTLMNDCashFlowTrigger() {
   ScriptApp.newTrigger('_tlmndDailySync').timeBased().atHour(4).nearMinute(30).everyDays(1).create();
   ui.alert('Installed daily TLMND cash flow sync at 4:30 AM.\n\n' +
            'Replaced ' + existing.length + ' prior trigger(s) if any.');
+}
+
+
+// ── One-shot: fix Wasica Holdings categorization (Oct 2026) ────────────────
+//
+// Context: Waskar sent his October 2026 loan payment as an ACH instead of
+// the usual Chase book-transfer wire, so Plaid showed the Name as
+// "WASICA HOLDINGS, ORIG ID:…" and the existing rule (which looked for
+// "BOOK TRANSFER CREDIT B/O: WASICA") missed it — leaving the $7,127.95
+// payment under "Other ACH (Deposit or Debit)" instead of his loan line.
+//
+// This function:
+//   1. Patches TLMND_CATEGORY_RULES in place:
+//      - Broadens the WASICA pattern from "BOOK TRANSFER CREDIT B/O: WASICA"
+//        to just "WASICA" (catches ACH + wire)
+//      - Renames category "Wasica Holdings (Book Credit)" to
+//        "Wasica Holdings Loan Repayment" (Amanda refers to it as his
+//        loan repayment, and the Book Credit name is confusing now that
+//        the money also arrives as ACH)
+//      - Does the same rename on the priority-15 "WASKAR" rule
+//   2. Renames any existing TLMND_TRANSACTIONS Category values from the
+//      old name to the new one.
+//   3. Reapplies rules so the newly-broadened pattern catches the Oct 27
+//      ACH that previously fell through to "Other ACH".
+//
+// Idempotent — safe to run multiple times.
+
+function fixWasicaCategoryAndRecategorize() {
+  _requireEditor_();
+  var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var OLD_CAT = 'Wasica Holdings (Book Credit)';
+  var NEW_CAT = 'Wasica Holdings Loan Repayment';
+  var OLD_WIRE_PATTERN = 'BOOK TRANSFER CREDIT B/O: WASICA';
+  var NEW_PATTERN = 'WASICA';
+
+  var report = [];
+
+  // 1. Patch the rules sheet in place.
+  var rulesSheet = ss.getSheetByName('TLMND_CATEGORY_RULES');
+  var rulesTouched = 0;
+  if (rulesSheet && rulesSheet.getLastRow() > 1) {
+    var lastCol = Math.max(rulesSheet.getLastColumn(), TLMND_RULES_HEADERS.length);
+    var hdr = rulesSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var iPattern = hdr.indexOf('Pattern');
+    var iCategory = hdr.indexOf('Category');
+    var iNotes = hdr.indexOf('Notes');
+    var data = rulesSheet.getRange(2, 1, rulesSheet.getLastRow() - 1, lastCol).getValues();
+    data.forEach(function(row, i) {
+      var sheetRow = i + 2;
+      var dirty = false;
+      // Broaden the wire-only WASICA pattern.
+      if (iPattern >= 0 && String(row[iPattern] || '').indexOf(OLD_WIRE_PATTERN) >= 0) {
+        rulesSheet.getRange(sheetRow, iPattern + 1).setValue(NEW_PATTERN);
+        if (iNotes >= 0) rulesSheet.getRange(sheetRow, iNotes + 1).setValue('Catches book-transfer wire AND ACH (broadened Oct 2026)');
+        dirty = true;
+      }
+      // Rename the category wherever it appears in the rules.
+      if (iCategory >= 0 && String(row[iCategory] || '').trim() === OLD_CAT) {
+        rulesSheet.getRange(sheetRow, iCategory + 1).setValue(NEW_CAT);
+        dirty = true;
+      }
+      if (dirty) rulesTouched++;
+    });
+  }
+  report.push('Rules sheet rows updated: ' + rulesTouched);
+
+  // 2. Rename existing TLMND_TRANSACTIONS Category values.
+  var txnSheet = ss.getSheetByName('TLMND_TRANSACTIONS');
+  var renamedTxns = 0;
+  if (txnSheet && txnSheet.getLastRow() > 1) {
+    var tLastCol = txnSheet.getLastColumn();
+    var tHdr = txnSheet.getRange(1, 1, 1, tLastCol).getValues()[0];
+    var iCat = tHdr.indexOf('Category');
+    if (iCat >= 0) {
+      var tData = txnSheet.getRange(2, iCat + 1, txnSheet.getLastRow() - 1, 1).getValues();
+      tData.forEach(function(r, i) {
+        if (String(r[0] || '').trim() === OLD_CAT) {
+          txnSheet.getRange(i + 2, iCat + 1).setValue(NEW_CAT);
+          renamedTxns++;
+        }
+      });
+    }
+  }
+  report.push('Transaction rows renamed to new category: ' + renamedTxns);
+
+  // 3. Reapply rules so the broadened pattern catches the Oct 27 ACH.
+  var reapplyResult = {};
+  try {
+    reapplyResult = applyTLMNDRules() || {};
+  } catch (e) {
+    reapplyResult = { success: false, error: String(e) };
+  }
+  if (reapplyResult.success === false) {
+    report.push('applyTLMNDRules failed: ' + (reapplyResult.error || 'unknown'));
+  } else {
+    report.push('Categorization pass complete: ' +
+                (reapplyResult.categorized || 0) + ' categorized, ' +
+                (reapplyResult.uncategorized || 0) + ' still uncategorized, ' +
+                (reapplyResult.skippedManual || 0) + ' manual overrides preserved.');
+  }
+
+  var msg = 'Wasica categorization fix complete.\n\n  • ' + report.join('\n  • ') +
+            '\n\nThe October 27 ACH (WASICA HOLDINGS, $7,127.95) should now ' +
+            'appear under "Wasica Holdings Loan Repayment" in TLMND Cash Flow ' +
+            'instead of "Other ACH (Deposit or Debit)".';
+  Logger.log(msg);
+  if (ui) ui.alert(msg);
 }
