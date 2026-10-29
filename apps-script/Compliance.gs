@@ -52,6 +52,22 @@ var COMPLIANCE_PEOPLE_HEADERS = [
   'Active'
 ];
 
+// Audit trail: every completion of a compliance item appends a row here.
+// Lets you prove what was paid, when, by whom, and attach the receipt —
+// instead of relying on the single Last Done date on the item itself.
+var COMPLIANCE_HISTORY_HEADERS = [
+  'ID',                       // auto-generated hist_1 / hist_2 ...
+  'Item ID',                  // FK → COMPLIANCE_ITEMS.ID
+  'Item Obligation',          // snapshot of the obligation text at time of completion
+  'Date Completed',           // the day the thing was actually done
+  'Completed By',             // Session.getActiveUser().getEmail() if available
+  'Amount Paid',              // numeric or blank
+  'Confirmation Number',      // text or blank
+  'Receipt Link',             // URL to Drive/Dropbox/etc or raw text
+  'Notes',                    // free-form
+  'Created At'                // when THIS row was written (audit of the audit)
+];
+
 // Script property keys for the CC list on reminder emails + calendar ID.
 var _COMPLIANCE_CC_KEY = 'COMPLIANCE_CC_EMAILS';
 var _COMPLIANCE_CALENDAR_KEY = 'COMPLIANCE_CALENDAR_ID';
@@ -62,6 +78,7 @@ var _COMPLIANCE_CALENDAR_KEY = 'COMPLIANCE_CALENDAR_ID';
 function ensureComplianceSheets_() {
   _ensureComplianceSheet_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
   _ensureComplianceSheet_('COMPLIANCE_PEOPLE', COMPLIANCE_PEOPLE_HEADERS);
+  _ensureComplianceSheet_('COMPLIANCE_HISTORY', COMPLIANCE_HISTORY_HEADERS);
 }
 
 function _ensureComplianceSheet_(name, headers) {
@@ -306,10 +323,18 @@ function _complianceNextId_() {
   return n;
 }
 
-// Mark an item done TODAY. Advances Next Due Date by its Frequency if
-// recurring, else marks Status=Done.
-function markComplianceItemDone(id) {
+// Mark an item done. Advances Next Due Date by its Frequency if recurring,
+// else marks Status=Done. Also appends a row to COMPLIANCE_HISTORY so you
+// have an audit trail of every completion (date, who, amount paid, conf #,
+// receipt, notes) — not just the single Last Done date on the item.
+//
+// proof is optional and comes from the Mark Done dialog once that ships:
+//   { dateCompleted, amountPaid, confirmationNumber, receiptLink, notes }
+// If omitted, we still log a history row (date = today, who = active user)
+// so the audit trail stays complete.
+function markComplianceItemDone(id, proof) {
   _requireEditor_();
+  ensureComplianceSheets_();
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_ITEMS');
   if (!sheet || sheet.getLastRow() < 2) throw new Error('No items yet');
   var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
@@ -320,28 +345,101 @@ function markComplianceItemDone(id) {
   var iNextDue = hdr.indexOf('Next Due Date');
   var iFreq = hdr.indexOf('Frequency');
   var iUpd = hdr.indexOf('Last Updated');
+  var iObligation = hdr.indexOf('Obligation');
   var block = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol);
   var vals = block.getValues();
   for (var r = 0; r < vals.length; r++) {
     if (String(vals[r][iId]) !== String(id)) continue;
-    var today = new Date();
-    vals[r][iLastDone] = today;
+    // Date Completed: honor an override from the dialog if present, otherwise today.
+    var dateCompleted = (proof && proof.dateCompleted)
+      ? new Date(String(proof.dateCompleted).length === 10 ? proof.dateCompleted + 'T12:00:00' : proof.dateCompleted)
+      : new Date();
+    if (isNaN(dateCompleted.getTime())) dateCompleted = new Date();
+    vals[r][iLastDone] = dateCompleted;
     var freq = String(vals[r][iFreq] || '').toLowerCase();
-    var next = _complianceNextDue_(today, freq);
+    var next = _complianceNextDue_(dateCompleted, freq);
     if (next) {
       vals[r][iNextDue] = next;
       vals[r][iStatus] = 'Up to Date';
     } else {
       vals[r][iStatus] = 'Done';
     }
-    if (iUpd >= 0) vals[r][iUpd] = today;
+    if (iUpd >= 0) vals[r][iUpd] = new Date();
     block.setValues(vals);
+    // Append to COMPLIANCE_HISTORY (non-fatal on failure).
+    try {
+      _appendComplianceHistory_({
+        itemId:               id,
+        itemObligation:       iObligation >= 0 ? String(vals[r][iObligation] || '') : '',
+        dateCompleted:        dateCompleted,
+        amountPaid:           proof && proof.amountPaid != null ? proof.amountPaid : '',
+        confirmationNumber:   proof && proof.confirmationNumber || '',
+        receiptLink:          proof && proof.receiptLink || '',
+        notes:                proof && proof.notes || ''
+      });
+    } catch (e) { Logger.log('Compliance history append failed: ' + e.message); }
     // Advance the calendar event to the new Next Due Date (or delete it if
     // Done with no recurrence).
     try { _syncComplianceCalendarEvent_(id); } catch(e) { Logger.log('Calendar sync (markDone): ' + e.message); }
     return { success: true, nextDue: next ? Utilities.formatDate(next, Session.getScriptTimeZone(), 'yyyy-MM-dd') : null };
   }
   throw new Error('Item not found: ' + id);
+}
+
+// Append a row to COMPLIANCE_HISTORY. Caller owns timezone / Date objects.
+function _appendComplianceHistory_(rec) {
+  ensureComplianceSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_HISTORY');
+  // Generate the next hist_N id.
+  var nextN = sheet.getLastRow(); // header + N rows; next id = N (because header is row 1 → first data row is id "hist_1")
+  var id = 'hist_' + nextN;
+  // Who clicked. getActiveUser().getEmail() returns '' when the script runs
+  // from a cron / unauthorized context, which is fine — we just log blank.
+  var who = ''; try { who = Session.getActiveUser().getEmail() || ''; } catch (e) {}
+  var row = [
+    id,
+    rec.itemId || '',
+    rec.itemObligation || '',
+    rec.dateCompleted || new Date(),
+    who,
+    rec.amountPaid === '' || rec.amountPaid == null ? '' : Number(rec.amountPaid),
+    rec.confirmationNumber || '',
+    rec.receiptLink || '',
+    rec.notes || '',
+    new Date()
+  ];
+  sheet.appendRow(row);
+  return id;
+}
+
+// Return every COMPLIANCE_HISTORY row for a given item ID, oldest first,
+// shaped for the UI. Called from the item modal to populate the history
+// panel. Dates come back as ISO strings.
+function getComplianceHistory(itemId) {
+  ensureComplianceSheets_();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_HISTORY');
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_HISTORY_HEADERS.length);
+  var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+  var iItemId = hdr.indexOf('Item ID');
+  var iDate   = hdr.indexOf('Date Completed');
+  function fmtDate(v) {
+    if (v instanceof Date && !isNaN(v.getTime())) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    return String(v || '');
+  }
+  var out = [];
+  for (var r = 0; r < data.length; r++) {
+    if (String(data[r][iItemId]) !== String(itemId)) continue;
+    var rec = {};
+    hdr.forEach(function(h, i) { rec[h] = data[r][i]; });
+    rec['Date Completed'] = fmtDate(rec['Date Completed']);
+    rec['Created At']     = fmtDate(rec['Created At']);
+    out.push(rec);
+  }
+  // Oldest first — most recent at the bottom reads chronologically.
+  out.sort(function(a, b) { return (a['Date Completed'] || '') < (b['Date Completed'] || '') ? -1 : 1; });
+  return out;
 }
 
 // Given a last-done date and a frequency string, return the next due Date.

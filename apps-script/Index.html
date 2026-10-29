@@ -879,6 +879,16 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </fieldset>
         <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Notes</label>
           <textarea id="comp-f-notes" rows="2" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical"></textarea></div>
+
+        <!-- Completion history — populated by _compLoadHistory() when the
+             modal opens on an existing item. Hidden for brand-new items. -->
+        <div id="comp-history-panel" style="margin-top:14px;padding-top:14px;border-top:1px solid #eae4d6;display:none">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+            <div style="font-family:Georgia,serif;font-size:14px;color:#0d0f12;font-weight:600">Completion history</div>
+            <div id="comp-history-count" style="font-size:11px;color:#6b6b73">—</div>
+          </div>
+          <div id="comp-history-list" style="font-size:12.5px"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" id="comp-f-delete" onclick="_compDelete()" style="margin-right:auto;color:#c5221f;display:none">Delete</button>
@@ -11229,6 +11239,9 @@ function _compOpenNew() {
   });
   document.getElementById('comp-f-status').value = 'Up to Date';
   document.getElementById('comp-f-frequency').value = 'Yearly';
+  // No history to show for a brand-new item.
+  var panel = document.getElementById('comp-history-panel');
+  if (panel) panel.style.display = 'none';
   openModal('comp-item-modal');
 }
 
@@ -11256,7 +11269,61 @@ function _compOpenEdit(id) {
   document.getElementById('comp-f-acctnum').value = it['Account Number'] || '';
   _compHydratePOC(it['Point of Contact'] || '');
   document.getElementById('comp-f-notes').value = it.Notes || '';
+  _compLoadHistory(id);
   openModal('comp-item-modal');
+}
+
+// Load COMPLIANCE_HISTORY rows for this item and render them in the panel.
+function _compLoadHistory(itemId) {
+  var panel = document.getElementById('comp-history-panel');
+  var list  = document.getElementById('comp-history-list');
+  var count = document.getElementById('comp-history-count');
+  if (!panel || !list || !count) return;
+  panel.style.display = '';
+  list.innerHTML = '<div style="color:#6b6b73;font-style:italic;font-size:12px">Loading…</div>';
+  count.textContent = '—';
+  google.script.run
+    .withSuccessHandler(function(rows) {
+      rows = rows || [];
+      count.textContent = rows.length + ' completion' + (rows.length === 1 ? '' : 's') + ' on file';
+      if (!rows.length) {
+        list.innerHTML = '<div style="color:#6b6b73;font-style:italic;font-size:12px">No past completions logged. The next time you mark this done, it will show up here with the date, amount paid, and any confirmation info.</div>';
+        return;
+      }
+      list.innerHTML = rows.slice().reverse().map(function(r) {
+        var amt = r['Amount Paid'];
+        var amtStr = (amt != null && amt !== '') ? '$' + Number(amt).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '';
+        var who = r['Completed By'] || '';
+        var conf = r['Confirmation Number'] || '';
+        var recpt = r['Receipt Link'] || '';
+        var notes = r.Notes || '';
+        var meta = [];
+        if (amtStr) meta.push(amtStr);
+        if (who) meta.push(who);
+        if (conf) meta.push('Conf# ' + esc(conf));
+        if (recpt) meta.push(/^https?:/i.test(recpt)
+          ? '<a href="' + esc(recpt) + '" target="_blank" style="color:#1e5e3e">receipt</a>'
+          : 'receipt: ' + esc(recpt));
+        var metaHtml = meta.length
+          ? '<div style="color:#6b6b73;font-size:11.5px;margin-top:3px">' + meta.join(' · ') + '</div>'
+          : '';
+        var notesHtml = notes
+          ? '<div style="color:#0d0f12;font-size:11.5px;margin-top:4px;font-style:italic">' + esc(notes) + '</div>'
+          : '';
+        return '<div style="display:flex;justify-content:space-between;align-items:flex-start;padding:9px 0;border-bottom:1px solid #eae4d6;gap:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-weight:600;color:#0d0f12;font-size:12.5px">' + esc(r['Date Completed'] || '') + '</div>' +
+            metaHtml + notesHtml +
+          '</div>' +
+        '</div>';
+      }).join('');
+      // Strip the bottom border on the last row for a cleaner edge.
+      list.lastElementChild && (list.lastElementChild.style.borderBottom = 'none');
+    })
+    .withFailureHandler(function(e) {
+      list.innerHTML = '<div style="color:#8a2a2a;font-size:12px">Failed to load history: ' + esc(e.message || String(e)) + '</div>';
+    })
+    .getComplianceHistory(itemId);
 }
 
 // Split the single "Point of Contact" string into {name, phone, email, notes}
