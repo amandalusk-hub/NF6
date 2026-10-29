@@ -1353,69 +1353,185 @@ function checkLoanPaymentAlerts() {
   var totalAlerts = receivableAlerts.length + payableAlerts.length + assetAlerts.length;
   if (!totalAlerts) { Logger.log('checkLoanPaymentAlerts: no overdue payments (grace=' + _LOAN_ALERT_GRACE_DAYS + ' days).'); return; }
 
-  var body = 'Loan payment alerts — ' + totalAlerts + ' payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n';
-
-  if (receivableAlerts.length) {
-    body += '📥 LOANS OWED TO MIKE (borrower payments missing)\n';
-    body += '───────────────────────────────────────────────────\n';
-    receivableAlerts.forEach(function(a) {
-      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
-      body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
-      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n\n';
-    });
-  }
-  if (payableAlerts.length) {
-    body += '📤 LOANS MIKE OWES (outgoing payments not detected)\n';
-    body += '───────────────────────────────────────────────────\n';
-    payableAlerts.forEach(function(a) {
-      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
-      body += '    Payment #' + a.n + ' — Expected $' + Number(a.expected||0).toFixed(2) + '\n';
-      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n';
-      body += '    Should have come from: ' + (a.source || '(no account set)') + '\n';
-      // Include the current balance of the source account so Amanda can tell
-      // at a glance whether the account even has funds to make the payment.
-      if (a.source) {
-        var acct = _lookupAccountBalance_(a.source);
-        if (acct) {
-          var shortfall = acct.balance < Number(a.expected||0) ? '  ⚠ INSUFFICIENT — short by ' + _fmtBalanceUSD_(Number(a.expected||0) - acct.balance) : '';
-          body += '    Current balance of ' + acct.name + ': ' + _fmtBalanceUSD_(acct.balance) + shortfall + '\n';
-        } else {
-          body += '    (couldn\'t find "' + a.source + '" on Assets or Liabilities to check balance)\n';
-        }
-      }
-      body += '\n';
-    });
-  }
-
-  if (assetAlerts.length) {
-    body += '📥 ASSET-BASED LOANS (promissory notes / receivables past due)\n';
-    body += '───────────────────────────────────────────────────\n';
-    assetAlerts.forEach(function(a) {
-      body += '  • ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : '') + '\n';
-      body += '    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)\n\n';
-    });
-  }
-
-  body += 'Next steps:\n' +
-          '  1. For Receivables: reach out to the borrower to confirm they sent the payment.\n' +
-          '     If they say they paid on a specific date, open the Loans tab → click the row →\n' +
-          '     Mark Payment as Received with their actual date.\n' +
-          '  2. For Payables: check the source account for a recent outgoing wire/ACH.\n' +
-          '     If it went out but Plaid missed it, Mark Payment as Received on the row.\n' +
-          '     If it truly didn\'t go out, follow up with the lender + mark as Missed.\n\n' +
-          'Config: recipient = ' + to + (cc ? ' · cc = ' + cc : '') + '\n' +
-          'To change: set LOAN_ALERT_RECIPIENT / LOAN_ALERT_CC_RECIPIENT in Script Properties.';
+  // Shell/hero/tiles/table helpers live in Compliance.gs and are safe to
+  // call from any file (Apps Script hoists all declarations globally).
+  var htmlBody = _buildLoanAlertHtml_(receivableAlerts, payableAlerts, assetAlerts, totalAlerts, to, cc);
+  var plainBody = _buildLoanAlertPlain_(receivableAlerts, payableAlerts, assetAlerts, totalAlerts, to, cc);
 
   var mailOpts = {
     to: to,
-    subject: '⚠ Loan Payment Alert — ' + totalAlerts + ' overdue payment(s)',
-    body: body,
+    subject: 'Loan Payment Alert — ' + totalAlerts + ' overdue payment' + (totalAlerts === 1 ? '' : 's'),
+    body: plainBody,
+    htmlBody: htmlBody,
     name: 'Loan Payment Monitor'
   };
   if (cc) mailOpts.cc = cc;
 
   MailApp.sendEmail(mailOpts);
   Logger.log('checkLoanPaymentAlerts: emailed ' + totalAlerts + ' alerts to ' + to + (cc ? ' cc ' + cc : ''));
+}
+
+// Build the modern-styled HTML body for the loan payment alert. Mirrors
+// the Dorado-report / Compliance-reminder look: serif title, navy hero
+// card with a gold number, stat tiles, navy-header tables.
+function _buildLoanAlertHtml_(recv, pay, asset, total, to, cc) {
+  // Exposure totals for the hero + tiles.
+  var recvExpected  = recv.reduce(function(s, a) { return s + Number(a.expected || 0); }, 0);
+  var payExpected   = pay.reduce(function(s, a) { return s + Number(a.expected || 0); }, 0);
+  var totalExposure = recvExpected + payExpected;
+
+  var tiles = [
+    { label: 'Payments overdue', value: total, color: _COMP_RED },
+    { label: 'Owed to us', value: '$' + Math.round(recvExpected).toLocaleString(), sub: recv.length + ' loan' + (recv.length === 1 ? '' : 's') },
+    { label: 'We owe', value: '$' + Math.round(payExpected).toLocaleString(), sub: pay.length + ' loan' + (pay.length === 1 ? '' : 's') },
+    { label: 'Asset notes', value: asset.length, sub: 'promissory / receivable' }
+  ];
+
+  var heroValue = String(total) + '<span style="font-size:16px;color:#9fb0c3;font-weight:400;margin-left:6px">payment' + (total === 1 ? '' : 's') + '</span>';
+
+  var sections = '';
+
+  // Receivables table.
+  if (recv.length) {
+    sections += _compSectionHeading_('Loans Owed to Mike');
+    var recvRows = recv.map(function(a) {
+      var past = Math.abs(a.daysPast || 0);
+      return [
+        '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + _complianceEscH_(a.loanName) + '</div>' +
+          (a.entity ? '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:2px">' + _complianceEscH_(a.entity) + '</div>' : ''),
+        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
+        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px">' + past + 'd overdue</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
+      ];
+    });
+    sections += _compTable_(
+      [{label:'Loan'}, {label:'Payment'}, {label:'Due'}, {label:'Overdue'}, {label:'Expected', align:'right'}],
+      recvRows
+    );
+  }
+
+  // Payables table (with account balance + shortfall warning inline).
+  if (pay.length) {
+    sections += _compSectionHeading_('Loans Mike Owes');
+    var payRows = pay.map(function(a) {
+      var past = Math.abs(a.daysPast || 0);
+      var sourceLine = '(no source account set)';
+      var balanceLine = '';
+      if (a.source) {
+        var acct = _lookupAccountBalance_(a.source);
+        if (acct) {
+          var short = acct.balance < Number(a.expected || 0);
+          sourceLine = _complianceEscH_(acct.name);
+          balanceLine = '<div style="margin-top:3px;color:' + (short ? _COMP_RED : _COMP_MUTED) + ';font-size:11px;font-variant-numeric:tabular-nums">Balance: ' + _complianceEscH_(_fmtBalanceUSD_(acct.balance)) + (short ? ' — SHORT ' + _complianceEscH_(_fmtBalanceUSD_(Number(a.expected || 0) - acct.balance)) : '') + '</div>';
+        } else {
+          sourceLine = _complianceEscH_(a.source);
+          balanceLine = '<div style="margin-top:3px;color:' + _COMP_MUTED + ';font-size:11px;font-style:italic">Not found on Assets/Liabilities to check balance</div>';
+        }
+      }
+      return [
+        '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + _complianceEscH_(a.loanName) + '</div>' +
+          (a.entity ? '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:2px">' + _complianceEscH_(a.entity) + '</div>' : ''),
+        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
+        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px">' + past + 'd overdue</span>',
+        '<div style="color:' + _COMP_NAVY + ';font-size:11.5px">From: ' + sourceLine + '</div>' + balanceLine,
+        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
+      ];
+    });
+    sections += _compTable_(
+      [{label:'Loan'}, {label:'Payment'}, {label:'Due'}, {label:'Overdue'}, {label:'Source'}, {label:'Expected', align:'right'}],
+      payRows
+    );
+  }
+
+  // Asset-based receivables.
+  if (asset.length) {
+    sections += _compSectionHeading_('Asset-Based Loans (Promissory Notes / Receivables)');
+    var assetRows = asset.map(function(a) {
+      var past = Math.abs(a.daysPast || 0);
+      return [
+        '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + _complianceEscH_(a.loanName) + '</div>' +
+          (a.entity ? '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:2px">' + _complianceEscH_(a.entity) + '</div>' : ''),
+        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
+        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px">' + past + 'd overdue</span>'
+      ];
+    });
+    sections += _compTable_(
+      [{label:'Loan'}, {label:'Due'}, {label:'Overdue', align:'right'}],
+      assetRows
+    );
+  }
+
+  // "Next steps" callout box.
+  var nextSteps =
+    '<div style="margin-top:10px;background:' + _COMP_SOFT + ';border-left:3px solid ' + _COMP_GOLD + ';padding:14px 18px;border-radius:3px">' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:13.5px;font-weight:700;color:' + _COMP_NAVY + ';margin-bottom:6px">Next steps</div>' +
+      '<div style="color:' + _COMP_NAVY + ';font-size:12.5px;line-height:1.6">' +
+        '<strong>Receivables:</strong> reach out to the borrower. If they say they already paid, open the Loans tab → click the row → <em>Mark Payment as Received</em> with their actual date.<br>' +
+        '<strong>Payables:</strong> check the source account for a recent outgoing wire/ACH. If it went out but Plaid missed it, <em>Mark Payment as Received</em>. If it truly didn\'t go out, follow up with the lender and <em>Mark as Missed</em>.' +
+      '</div>' +
+    '</div>';
+
+  var body =
+    '<p style="margin:0 0 20px 0;color:' + _COMP_NAVY + ';font-size:14px;line-height:1.5">' +
+      total + ' loan payment' + (total === 1 ? ' is' : 's are') + ' more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity.' +
+    '</p>' +
+    _compHero_('Loan payments overdue · ' + _LOAN_ALERT_GRACE_DAYS + 'd past grace', heroValue, '#f0a0a0') +
+    _compStatTiles_(tiles) +
+    sections +
+    nextSteps;
+
+  var today = (new Date()).toISOString().substring(0, 10);
+  return _compEmailShell_('Loan Payment Alert', _compFmtDate_(today), body);
+}
+
+// Plain-text fallback (for mail clients that don't render the HTML body).
+function _buildLoanAlertPlain_(recv, pay, asset, total, to, cc) {
+  var lines = ['Loan payment alerts — ' + total + ' payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:', ''];
+  if (recv.length) {
+    lines.push('LOANS OWED TO MIKE (borrower payments missing)');
+    lines.push('--------------------------------------------------');
+    recv.forEach(function(a) {
+      lines.push('  * ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : ''));
+      lines.push('    Payment #' + a.n + ' - Expected $' + Number(a.expected||0).toFixed(2));
+      lines.push('    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)');
+      lines.push('');
+    });
+  }
+  if (pay.length) {
+    lines.push('LOANS MIKE OWES (outgoing payments not detected)');
+    lines.push('--------------------------------------------------');
+    pay.forEach(function(a) {
+      lines.push('  * ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : ''));
+      lines.push('    Payment #' + a.n + ' - Expected $' + Number(a.expected||0).toFixed(2));
+      lines.push('    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)');
+      lines.push('    From: ' + (a.source || '(no account set)'));
+      if (a.source) {
+        var acct = _lookupAccountBalance_(a.source);
+        if (acct) {
+          var short = acct.balance < Number(a.expected||0);
+          lines.push('    Balance: ' + _fmtBalanceUSD_(acct.balance) + (short ? ' SHORT by ' + _fmtBalanceUSD_(Number(a.expected||0) - acct.balance) : ''));
+        }
+      }
+      lines.push('');
+    });
+  }
+  if (asset.length) {
+    lines.push('ASSET-BASED LOANS (promissory notes / receivables past due)');
+    lines.push('--------------------------------------------------');
+    asset.forEach(function(a) {
+      lines.push('  * ' + a.loanName + (a.entity ? ' (' + a.entity + ')' : ''));
+      lines.push('    Due: ' + a.due + ' (' + a.daysPast + ' days overdue)');
+      lines.push('');
+    });
+  }
+  lines.push('Next steps:');
+  lines.push('  Receivables: reach out to the borrower. In Loans tab, Mark Payment as Received with the actual date they sent.');
+  lines.push('  Payables: check source account. If paid, Mark Payment as Received. If missed, follow up and Mark as Missed.');
+  lines.push('');
+  lines.push('Config: recipient = ' + to + (cc ? ' | cc = ' + cc : ''));
+  return lines.join('\n');
 }
 
 // Trigger-callable: recompute every loan's status, which internally syncs

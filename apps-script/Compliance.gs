@@ -913,42 +913,170 @@ function _complianceGroupByUrgency_(items) {
   return groups;
 }
 
-function _buildComplianceReminderHtml_(personName, items) {
-  var groups = _complianceGroupByUrgency_(items);
-  function section(title, color, arr) {
-    if (!arr.length) return '';
-    return '<div style="margin:14px 0 6px 0;background:' + color + ';color:#fff;padding:7px 12px;border-radius:4px 4px 0 0;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase">' + title + ' (' + arr.length + ')</div>' +
-      '<table style="width:100%;border-collapse:collapse;border:1px solid #d0dae5;border-top:none;border-radius:0 0 4px 4px;background:#fff">' +
-        '<thead><tr>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">When</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Obligation</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Entity</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Due</th>' +
-        '</tr></thead>' +
-        '<tbody>' + arr.map(function(it) {
-          var dueIso = it._urgency.dueIso || '';
-          var link = String(it['Link to Docs'] || '').trim();
-          var obligation = _complianceEscH_(it.Obligation || '(no obligation set)');
-          if (link) obligation = '<a href="' + _complianceEscH_(link) + '" style="color:#1a73e8;text-decoration:none">' + obligation + '</a>';
-          return '<tr>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;vertical-align:top;white-space:nowrap">' + _complianceUrgencyBadge_(it._urgency.bucket, it._urgency.daysAway) + '</td>' +
-            '<td style="padding:9px 12px;font-size:12px;border-top:1px solid #f0f3f7;color:#0d2137;line-height:1.4">' + obligation +
-              (it.Notes ? '<div style="color:#5f6368;font-size:11px;margin-top:3px">' + _complianceEscH_(String(it.Notes).substring(0, 160)) + '</div>' : '') +
-            '</td>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;color:#5f6368;vertical-align:top;white-space:nowrap">' + _complianceEscH_(it.Entity || '') + '</td>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;color:#0d2137;vertical-align:top;white-space:nowrap;font-variant-numeric:tabular-nums">' + _complianceEscH_(dueIso) + '</td>' +
-          '</tr>';
-        }).join('') + '</tbody>' +
-      '</table>';
-  }
-  return '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;max-width:720px;margin:0 auto;padding:20px;color:#0d2137;font-size:14px">' +
-    '<p style="margin:0 0 10px 0">Hi ' + _complianceEscH_(personName) + ',</p>' +
-    '<p style="margin:0 0 16px 0">You have <strong>' + items.length + '</strong> compliance item' + (items.length === 1 ? '' : 's') + ' needing attention. Tap any obligation to open its docs.</p>' +
-    section('Overdue',     '#c5221f', groups.overdue) +
-    section('Due in ≤7 days',  '#ea8600', groups.critical) +
-    section('Due in 8–30 days','#f9ab00', groups['due-soon']) +
-    '<p style="margin:18px 0 0 0;font-size:11px;color:#8a97a7;font-style:italic">Full details + edit in the Compliance Calendar tab on the Family Office Tracker. CC\'d: Amanda + Brandon.</p>' +
+// ── Email styling shared with the digest (Dorado Beach vibe) ──────────────
+// Serif heading, navy hero card with gold number, stat tiles, and a
+// Financial Summary-style table with a navy header row. Inline styles
+// only — Gmail strips <style> and web fonts, so we lean on Georgia for
+// the serif accents (ships with all mail clients) and system sans for body.
+
+var _COMP_NAVY   = '#0d2137';
+var _COMP_GOLD   = '#c9a24a';
+var _COMP_SOFT   = '#f6f8fb';
+var _COMP_LINE   = '#e0e6ee';
+var _COMP_MUTED  = '#6b7a8b';
+var _COMP_RED    = '#c5221f';
+var _COMP_GREEN  = '#1e8e3e';
+var _COMP_AMBER  = '#b7791f';
+
+function _compFmtDate_(iso) {
+  if (!iso) return '';
+  var parts = String(iso).split('-');
+  if (parts.length < 3) return iso;
+  var mos = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mos[parseInt(parts[1],10) - 1] + ' ' + parseInt(parts[2], 10) + ', ' + parts[0];
+}
+
+function _compEmailShell_(title, subtitle, bodyHtml) {
+  return '<div style="background:#eef2f6;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;color:' + _COMP_NAVY + '">' +
+    '<div style="max-width:720px;margin:0 auto;background:#fff;padding:32px 36px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)">' +
+      '<div style="padding-bottom:14px;border-bottom:1px solid ' + _COMP_LINE + ';margin-bottom:22px">' +
+        '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:26px;font-weight:700;color:' + _COMP_NAVY + ';letter-spacing:-.5px">' + _complianceEscH_(title) + '</div>' +
+        (subtitle ? '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:16px;color:' + _COMP_MUTED + ';margin-top:4px;font-weight:400">' + _complianceEscH_(subtitle) + '</div>' : '') +
+      '</div>' +
+      bodyHtml +
+      '<div style="margin-top:28px;padding-top:14px;border-top:1px solid ' + _COMP_LINE + ';font-size:11px;color:' + _COMP_MUTED + ';font-style:italic">' +
+        'Family Office Compliance · Full details + edit in the Tracker web app, Compliance Calendar tab.' +
+      '</div>' +
+    '</div>' +
   '</div>';
+}
+
+function _compHero_(label, value, accent) {
+  var accentColor = accent || _COMP_GOLD;
+  return '<div style="background:' + _COMP_NAVY + ';color:#fff;padding:22px 26px;border-radius:4px;margin-bottom:22px;display:table;width:100%;box-sizing:border-box">' +
+    '<div style="display:table-cell;vertical-align:middle">' +
+      '<div style="font-size:11px;color:#9fb0c3;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">' + _complianceEscH_(label) + '</div>' +
+    '</div>' +
+    '<div style="display:table-cell;vertical-align:middle;text-align:right">' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:30px;font-weight:700;color:' + accentColor + ';letter-spacing:-.5px">' + value + '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function _compStatTiles_(tiles) {
+  // tiles = [{label, value, sub}, ...]  — rendered as a 4-col row via <table>
+  // (grid/flex are flaky in mail clients, so this uses a table layout).
+  var cells = tiles.map(function(t) {
+    return '<td style="width:' + Math.floor(100 / tiles.length) + '%;padding:14px 10px;border:1px solid ' + _COMP_LINE + ';background:#fff;text-align:center;vertical-align:middle">' +
+      '<div style="font-size:10px;color:' + _COMP_MUTED + ';letter-spacing:1px;text-transform:uppercase;font-weight:700;margin-bottom:6px">' + _complianceEscH_(t.label) + '</div>' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:' + (t.color || _COMP_NAVY) + ';line-height:1.1">' + (t.value == null || t.value === '' ? '—' : t.value) + '</div>' +
+      (t.sub ? '<div style="font-size:10.5px;color:' + _COMP_MUTED + ';margin-top:4px">' + _complianceEscH_(t.sub) + '</div>' : '') +
+    '</td>';
+  }).join('');
+  return '<table style="width:100%;border-collapse:collapse;margin-bottom:22px"><tr>' + cells + '</tr></table>';
+}
+
+function _compSectionHeading_(text) {
+  return '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:17px;font-weight:700;color:' + _COMP_NAVY + ';margin:4px 0 10px 0">' + _complianceEscH_(text) + '</div>';
+}
+
+// A "Financial Summary"-style table: navy header row with white text,
+// soft-gray alternating body rows. Columns are passed as an array of
+// {label, align} and rows as arrays of raw HTML cells.
+function _compTable_(columns, rows) {
+  var head = '<thead><tr>' + columns.map(function(c) {
+    return '<th style="background:' + _COMP_NAVY + ';color:#fff;font-size:11px;letter-spacing:.6px;text-transform:uppercase;padding:11px 14px;text-align:' + (c.align || 'left') + ';font-weight:700">' + _complianceEscH_(c.label) + '</th>';
+  }).join('') + '</tr></thead>';
+  var body = '<tbody>' + rows.map(function(cells, i) {
+    var bg = (i % 2 === 0 ? '#fff' : _COMP_SOFT);
+    return '<tr>' + cells.map(function(cell, ci) {
+      var col = columns[ci] || {};
+      return '<td style="padding:11px 14px;text-align:' + (col.align || 'left') + ';font-size:12.5px;color:' + _COMP_NAVY + ';border-bottom:1px solid ' + _COMP_LINE + ';background:' + bg + ';vertical-align:top">' + cell + '</td>';
+    }).join('') + '</tr>';
+  }).join('') + '</tbody>';
+  return '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;border:1px solid ' + _COMP_LINE + '">' + head + body + '</table>';
+}
+
+function _compDueDaysBadge_(bucket, daysAway) {
+  var color, label;
+  if (bucket === 'overdue')       { color = _COMP_RED;   label = Math.abs(daysAway) + 'd overdue'; }
+  else if (daysAway === 0)        { color = _COMP_RED;   label = 'Due today'; }
+  else if (daysAway === 1)        { color = _COMP_AMBER; label = 'Due tomorrow'; }
+  else if (daysAway <= 7)         { color = _COMP_AMBER; label = 'Due in ' + daysAway + 'd'; }
+  else                            { color = _COMP_GREEN; label = 'Due in ' + daysAway + 'd'; }
+  return '<span style="color:' + color + ';font-weight:600;font-size:11px">' + _complianceEscH_(label) + '</span>';
+}
+
+
+function _buildComplianceReminderHtml_(personName, items) {
+  var isABTier = items.some(function(it) { return it._urgency && it._urgency.daysAway === 1; });
+  var greeting = isABTier ? 'Final warning — items due tomorrow' : 'Compliance Reminder';
+  var subtitle = isABTier
+    ? 'Please find below every compliance item due tomorrow.'
+    : 'You have ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' coming up in the next two weeks.';
+
+  // Hero: for the T-1 escalation show the item count in red; for the
+  // T-14 person reminder show it in gold against the usual "coming up"
+  // phrasing.
+  var heroLabel = isABTier
+    ? 'Compliance items · DUE TOMORROW'
+    : 'Compliance items · 2 weeks out';
+  var heroValue = String(items.length) + '<span style="font-size:16px;color:#9fb0c3;font-weight:400;margin-left:6px">item' + (items.length === 1 ? '' : 's') + '</span>';
+  var heroAccent = isABTier ? '#f0a0a0' : _COMP_GOLD;
+
+  // Stat tiles — contextual summary.
+  var byEntity = {};
+  var earliest = null;
+  var totalCost = 0;
+  items.forEach(function(it) {
+    var e = String(it.Entity || '').trim() || '(no entity)';
+    byEntity[e] = (byEntity[e] || 0) + 1;
+    if (it._urgency && it._urgency.dueIso) {
+      if (!earliest || it._urgency.dueIso < earliest) earliest = it._urgency.dueIso;
+    }
+    var c = parseFloat(String(it.Cost || '').replace(/[^0-9.\-]/g, ''));
+    if (!isNaN(c)) totalCost += c;
+  });
+  var entityNames = Object.keys(byEntity);
+  var tiles = [
+    { label: 'Items', value: items.length },
+    { label: 'Earliest due', value: earliest ? _compFmtDate_(earliest).replace(/, \d{4}$/, '') : '—' },
+    { label: 'Entities', value: entityNames.length, sub: entityNames.length === 1 ? entityNames[0] : '' },
+    { label: totalCost > 0 ? 'Total cost' : 'Person', value: totalCost > 0 ? '$' + totalCost.toLocaleString() : _complianceEscH_(personName) }
+  ];
+
+  // Rows — sorted by due date, each with a clickable obligation if a doc link exists.
+  var sorted = items.slice().sort(function(a, b) {
+    return (a._urgency.dueIso || '9999') < (b._urgency.dueIso || '9999') ? -1 : 1;
+  });
+  var rows = sorted.map(function(it) {
+    var u = it._urgency;
+    var dueIso = u.dueIso || '';
+    var link = String(it['Link to Docs'] || '').trim();
+    var obligation = _complianceEscH_(it.Obligation || '(no obligation set)');
+    if (link) obligation = '<a href="' + _complianceEscH_(link) + '" style="color:' + _COMP_NAVY + ';text-decoration:underline">' + obligation + '</a>';
+    var subMeta = '';
+    if (it.Notes) subMeta = '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:3px;line-height:1.4">' + _complianceEscH_(String(it.Notes).substring(0, 180)) + '</div>';
+    return [
+      _compDueDaysBadge_(u.bucket, u.daysAway),
+      '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + obligation + '</div>' + subMeta,
+      '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">' + _complianceEscH_(it.Entity || '') + '</span>',
+      '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums;font-size:11.5px">' + _complianceEscH_(_compFmtDate_(dueIso)) + '</span>'
+    ];
+  });
+
+  var body =
+    '<p style="margin:0 0 16px 0;color:' + _COMP_NAVY + ';font-size:14px;line-height:1.5">Hi ' + _complianceEscH_(personName) + ',</p>' +
+    '<p style="margin:0 0 20px 0;color:' + _COMP_NAVY + ';font-size:14px;line-height:1.5">' + _complianceEscH_(subtitle) + '</p>' +
+    _compHero_(heroLabel, heroValue, heroAccent) +
+    _compStatTiles_(tiles) +
+    _compSectionHeading_(isABTier ? 'Items Due Tomorrow' : 'Upcoming Items') +
+    _compTable_(
+      [{label:'When'}, {label:'Obligation'}, {label:'Entity'}, {label:'Due', align:'right'}],
+      rows
+    );
+  var title = isABTier ? 'Compliance · Escalation' : 'Compliance Reminder';
+  return _compEmailShell_(title, _compFmtDate_((new Date()).toISOString().substring(0,10)), body);
 }
 
 function _buildComplianceReminderPlain_(name, items) {
@@ -965,42 +1093,59 @@ function _buildComplianceReminderPlain_(name, items) {
 }
 
 function _buildComplianceDigestHtml_(dueThisWeek, overdue) {
-  var all = overdue.concat(dueThisWeek);
-  var groups = _complianceGroupByUrgency_(all);
-  function section(title, color, arr) {
-    if (!arr.length) return '';
-    return '<div style="margin:14px 0 6px 0;background:' + color + ';color:#fff;padding:7px 12px;border-radius:4px 4px 0 0;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase">' + title + ' (' + arr.length + ')</div>' +
-      '<table style="width:100%;border-collapse:collapse;border:1px solid #d0dae5;border-top:none;border-radius:0 0 4px 4px;background:#fff">' +
-        '<thead><tr>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">When</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Who</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Obligation</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Entity</th>' +
-          '<th style="padding:7px 12px;text-align:left;font-size:10px;color:#5f6368;background:#f0f3f7;border-bottom:1px solid #d0dae5;letter-spacing:.3px;text-transform:uppercase">Due</th>' +
-        '</tr></thead>' +
-        '<tbody>' + arr.map(function(it) {
-          var dueIso = it._urgency.dueIso || '';
-          var link = String(it['Link to Docs'] || '').trim();
-          var obligation = _complianceEscH_(it.Obligation || '(no obligation set)');
-          if (link) obligation = '<a href="' + _complianceEscH_(link) + '" style="color:#1a73e8;text-decoration:none">' + obligation + '</a>';
-          return '<tr>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;vertical-align:top;white-space:nowrap">' + _complianceUrgencyBadge_(it._urgency.bucket, it._urgency.daysAway) + '</td>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;color:#5f6368;vertical-align:top">' + _complianceEscH_(it['Person Responsible'] || '') + '</td>' +
-            '<td style="padding:9px 12px;font-size:12px;border-top:1px solid #f0f3f7;color:#0d2137;line-height:1.4">' + obligation + '</td>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;color:#5f6368;vertical-align:top;white-space:nowrap">' + _complianceEscH_(it.Entity || '') + '</td>' +
-            '<td style="padding:9px 12px;font-size:11px;border-top:1px solid #f0f3f7;color:#0d2137;vertical-align:top;white-space:nowrap;font-variant-numeric:tabular-nums">' + _complianceEscH_(dueIso) + '</td>' +
-          '</tr>';
-        }).join('') + '</tbody>' +
-      '</table>';
-  }
-  return '<div style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;max-width:860px;margin:0 auto;padding:20px;color:#0d2137;font-size:14px">' +
-    '<h2 style="margin:0 0 14px 0;font-size:18px;color:#0d2137">Compliance — Weekly Digest</h2>' +
-    '<p style="margin:0 0 14px 0;color:#5f6368">' + overdue.length + ' overdue · ' + dueThisWeek.length + ' due in the next 7 days</p>' +
-    section('Overdue', '#c5221f', groups.overdue) +
-    section('Due in ≤7 days', '#ea8600', groups.critical) +
-    (groups['due-soon'].length ? section('Due in 8–30 days', '#f9ab00', groups['due-soon']) : '') +
-    '<p style="margin:18px 0 0 0;font-size:11px;color:#8a97a7;font-style:italic">Weekly Monday digest. Full list + edit in the Compliance Calendar tab.</p>' +
-  '</div>';
+  // Sort oldest-overdue first (biggest negative daysAway at the top).
+  var sortedOverdue = overdue.slice().sort(function(a, b) {
+    return (a._urgency.daysAway || 0) - (b._urgency.daysAway || 0);
+  });
+
+  // Stat tiles: items overdue, oldest overdue days, who owes most.
+  var byPerson = {};
+  var oldestDays = 0;
+  var oldestItem = null;
+  sortedOverdue.forEach(function(it) {
+    var p = String(it['Person Responsible'] || '').trim() || '(unassigned)';
+    byPerson[p] = (byPerson[p] || 0) + 1;
+    var d = Math.abs(it._urgency.daysAway || 0);
+    if (d > oldestDays) { oldestDays = d; oldestItem = it; }
+  });
+  var topPerson = Object.keys(byPerson).sort(function(a, b) { return byPerson[b] - byPerson[a]; })[0] || '—';
+  var tiles = [
+    { label: 'Items overdue', value: sortedOverdue.length, color: sortedOverdue.length ? _COMP_RED : _COMP_NAVY },
+    { label: 'Oldest overdue', value: oldestDays ? oldestDays + 'd' : '—', sub: oldestItem ? _compFmtDate_(oldestItem._urgency.dueIso).replace(/, \d{4}$/, '') : '' },
+    { label: 'Most items', value: _complianceEscH_(topPerson), sub: byPerson[topPerson] ? byPerson[topPerson] + ' items' : '' },
+    { label: 'This week', value: dueThisWeek.length, sub: 'due in next 7d' }
+  ];
+
+  // Rows — oldest-overdue first.
+  var rows = sortedOverdue.map(function(it) {
+    var u = it._urgency;
+    var dueIso = u.dueIso || '';
+    var link = String(it['Link to Docs'] || '').trim();
+    var obligation = _complianceEscH_(it.Obligation || '(no obligation set)');
+    if (link) obligation = '<a href="' + _complianceEscH_(link) + '" style="color:' + _COMP_NAVY + ';text-decoration:underline">' + obligation + '</a>';
+    return [
+      _compDueDaysBadge_(u.bucket, u.daysAway),
+      '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">' + _complianceEscH_(it['Person Responsible'] || '') + '</span>',
+      '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + obligation + '</div>',
+      '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">' + _complianceEscH_(it.Entity || '') + '</span>',
+      '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums;font-size:11.5px">' + _complianceEscH_(_compFmtDate_(dueIso)) + '</span>'
+    ];
+  });
+
+  var heroValue = String(sortedOverdue.length) + '<span style="font-size:16px;color:#9fb0c3;font-weight:400;margin-left:6px">overdue</span>';
+  var body =
+    '<p style="margin:0 0 20px 0;color:' + _COMP_NAVY + ';font-size:14px;line-height:1.5">Below is every compliance item currently past its due date, sorted oldest first.</p>' +
+    _compHero_('Weekly past-due list', heroValue, sortedOverdue.length ? '#f0a0a0' : _COMP_GOLD) +
+    _compStatTiles_(tiles) +
+    _compSectionHeading_('Past Due Items') +
+    (rows.length
+      ? _compTable_(
+          [{label:'When'}, {label:'Who'}, {label:'Obligation'}, {label:'Entity'}, {label:'Due', align:'right'}],
+          rows
+        )
+      : '<p style="color:' + _COMP_MUTED + ';font-style:italic">Nothing past due — well done.</p>');
+  var today = (new Date()).toISOString().substring(0, 10);
+  return _compEmailShell_('Compliance · Weekly Past-Due', 'Week of ' + _compFmtDate_(today), body);
 }
 
 function _buildComplianceDigestPlain_(dueThisWeek, overdue) {
