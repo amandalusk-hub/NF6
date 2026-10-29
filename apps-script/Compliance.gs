@@ -918,14 +918,18 @@ function _compFmtDate_(iso) {
 }
 
 function _compEmailShell_(title, subtitle, bodyHtml) {
-  return '<div style="background:#eef2f6;padding:24px 12px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;color:' + _COMP_NAVY + '">' +
-    '<div style="max-width:720px;margin:0 auto;background:#fff;padding:32px 36px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.06)">' +
-      '<div style="padding-bottom:14px;border-bottom:1px solid ' + _COMP_LINE + ';margin-bottom:22px">' +
-        '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:26px;font-weight:700;color:' + _COMP_NAVY + ';letter-spacing:-.5px">' + _complianceEscH_(title) + '</div>' +
-        (subtitle ? '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:16px;color:' + _COMP_MUTED + ';margin-top:4px;font-weight:400">' + _complianceEscH_(subtitle) + '</div>' : '') +
+  // Phone-first padding: 18px on sides so a 6-column table still fits inside
+  // the card on a ~370px viewport. On wider screens the content stays
+  // left/right breathable because the shared helpers also wrap tables in
+  // an overflow-x:auto <div>.
+  return '<div style="background:#eef2f6;padding:16px 8px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;color:' + _COMP_NAVY + '">' +
+    '<div style="max-width:720px;margin:0 auto;background:#fff;padding:22px 18px;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.06);box-sizing:border-box">' +
+      '<div style="padding-bottom:12px;border-bottom:1px solid ' + _COMP_LINE + ';margin-bottom:18px">' +
+        '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:' + _COMP_NAVY + ';letter-spacing:-.3px;line-height:1.2">' + _complianceEscH_(title) + '</div>' +
+        (subtitle ? '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:14px;color:' + _COMP_MUTED + ';margin-top:4px;font-weight:400">' + _complianceEscH_(subtitle) + '</div>' : '') +
       '</div>' +
       bodyHtml +
-      '<div style="margin-top:28px;padding-top:14px;border-top:1px solid ' + _COMP_LINE + ';font-size:11px;color:' + _COMP_MUTED + ';font-style:italic">' +
+      '<div style="margin-top:22px;padding-top:12px;border-top:1px solid ' + _COMP_LINE + ';font-size:11px;color:' + _COMP_MUTED + ';font-style:italic;line-height:1.4">' +
         'Family Office Compliance · Full details + edit in the Tracker web app, Compliance Calendar tab.' +
       '</div>' +
     '</div>' +
@@ -934,27 +938,34 @@ function _compEmailShell_(title, subtitle, bodyHtml) {
 
 function _compHero_(label, value, accent) {
   var accentColor = accent || _COMP_GOLD;
-  return '<div style="background:' + _COMP_NAVY + ';color:#fff;padding:22px 26px;border-radius:4px;margin-bottom:22px;display:table;width:100%;box-sizing:border-box">' +
-    '<div style="display:table-cell;vertical-align:middle">' +
-      '<div style="font-size:11px;color:#9fb0c3;letter-spacing:1.2px;text-transform:uppercase;font-weight:700">' + _complianceEscH_(label) + '</div>' +
-    '</div>' +
-    '<div style="display:table-cell;vertical-align:middle;text-align:right">' +
-      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:30px;font-weight:700;color:' + accentColor + ';letter-spacing:-.5px">' + value + '</div>' +
-    '</div>' +
+  // Table layout keeps the label and the big number on one row across all
+  // viewports; cell widths are set so the label never squishes to nothing
+  // if the big-number cell runs long.
+  return '<div style="background:' + _COMP_NAVY + ';color:#fff;padding:18px 20px;border-radius:4px;margin-bottom:18px;box-sizing:border-box">' +
+    '<table style="width:100%;border-collapse:collapse"><tr>' +
+      '<td style="vertical-align:middle;padding:0">' +
+        '<div style="font-size:11px;color:#9fb0c3;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;line-height:1.3">' + _complianceEscH_(label) + '</div>' +
+      '</td>' +
+      '<td style="vertical-align:middle;text-align:right;padding:0;white-space:nowrap">' +
+        '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:26px;font-weight:700;color:' + accentColor + ';letter-spacing:-.3px;line-height:1.1">' + value + '</div>' +
+      '</td>' +
+    '</tr></table>' +
   '</div>';
 }
 
 function _compStatTiles_(tiles) {
-  // tiles = [{label, value, sub}, ...]  — rendered as a 4-col row via <table>
+  // tiles = [{label, value, sub}, ...]  — rendered as an N-col row via <table>
   // (grid/flex are flaky in mail clients, so this uses a table layout).
+  // Reduced padding + font sizing so a 4-tile row still fits in a ~340px
+  // phone viewport without the right-most tile pushing past the shell.
   var cells = tiles.map(function(t) {
-    return '<td style="width:' + Math.floor(100 / tiles.length) + '%;padding:14px 10px;border:1px solid ' + _COMP_LINE + ';background:#fff;text-align:center;vertical-align:middle">' +
-      '<div style="font-size:10px;color:' + _COMP_MUTED + ';letter-spacing:1px;text-transform:uppercase;font-weight:700;margin-bottom:6px">' + _complianceEscH_(t.label) + '</div>' +
-      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:22px;font-weight:700;color:' + (t.color || _COMP_NAVY) + ';line-height:1.1">' + (t.value == null || t.value === '' ? '—' : t.value) + '</div>' +
-      (t.sub ? '<div style="font-size:10.5px;color:' + _COMP_MUTED + ';margin-top:4px">' + _complianceEscH_(t.sub) + '</div>' : '') +
+    return '<td style="width:' + Math.floor(100 / tiles.length) + '%;padding:12px 6px;border:1px solid ' + _COMP_LINE + ';background:#fff;text-align:center;vertical-align:middle;word-break:break-word">' +
+      '<div style="font-size:9.5px;color:' + _COMP_MUTED + ';letter-spacing:.8px;text-transform:uppercase;font-weight:700;margin-bottom:5px;line-height:1.2">' + _complianceEscH_(t.label) + '</div>' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:18px;font-weight:700;color:' + (t.color || _COMP_NAVY) + ';line-height:1.15;word-break:break-word">' + (t.value == null || t.value === '' ? '—' : t.value) + '</div>' +
+      (t.sub ? '<div style="font-size:10px;color:' + _COMP_MUTED + ';margin-top:4px;line-height:1.3">' + _complianceEscH_(t.sub) + '</div>' : '') +
     '</td>';
   }).join('');
-  return '<table style="width:100%;border-collapse:collapse;margin-bottom:22px"><tr>' + cells + '</tr></table>';
+  return '<table style="width:100%;border-collapse:collapse;margin-bottom:18px;table-layout:fixed"><tr>' + cells + '</tr></table>';
 }
 
 function _compSectionHeading_(text) {
@@ -964,18 +975,26 @@ function _compSectionHeading_(text) {
 // A "Financial Summary"-style table: navy header row with white text,
 // soft-gray alternating body rows. Columns are passed as an array of
 // {label, align} and rows as arrays of raw HTML cells.
+//
+// Wrapped in an overflow-x:auto container so wide tables (e.g. the
+// 6-column payables table) scroll horizontally on narrow phones instead
+// of pushing past the card's right edge.
 function _compTable_(columns, rows) {
   var head = '<thead><tr>' + columns.map(function(c) {
-    return '<th style="background:' + _COMP_NAVY + ';color:#fff;font-size:11px;letter-spacing:.6px;text-transform:uppercase;padding:11px 14px;text-align:' + (c.align || 'left') + ';font-weight:700">' + _complianceEscH_(c.label) + '</th>';
+    return '<th style="background:' + _COMP_NAVY + ';color:#fff;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;padding:9px 10px;text-align:' + (c.align || 'left') + ';font-weight:700;white-space:nowrap">' + _complianceEscH_(c.label) + '</th>';
   }).join('') + '</tr></thead>';
   var body = '<tbody>' + rows.map(function(cells, i) {
     var bg = (i % 2 === 0 ? '#fff' : _COMP_SOFT);
     return '<tr>' + cells.map(function(cell, ci) {
       var col = columns[ci] || {};
-      return '<td style="padding:11px 14px;text-align:' + (col.align || 'left') + ';font-size:12.5px;color:' + _COMP_NAVY + ';border-bottom:1px solid ' + _COMP_LINE + ';background:' + bg + ';vertical-align:top">' + cell + '</td>';
+      return '<td style="padding:9px 10px;text-align:' + (col.align || 'left') + ';font-size:12px;color:' + _COMP_NAVY + ';border-bottom:1px solid ' + _COMP_LINE + ';background:' + bg + ';vertical-align:top;word-break:break-word">' + cell + '</td>';
     }).join('') + '</tr>';
   }).join('') + '</tbody>';
-  return '<table style="width:100%;border-collapse:collapse;margin-bottom:24px;border:1px solid ' + _COMP_LINE + '">' + head + body + '</table>';
+  return '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:20px">' +
+           '<table style="width:100%;border-collapse:collapse;border:1px solid ' + _COMP_LINE + ';min-width:100%">' +
+             head + body +
+           '</table>' +
+         '</div>';
 }
 
 function _compDueDaysBadge_(bucket, daysAway) {
