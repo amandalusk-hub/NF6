@@ -893,7 +893,42 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       <div class="modal-footer">
         <button class="btn btn-secondary" id="comp-f-delete" onclick="_compDelete()" style="margin-right:auto;color:#c5221f;display:none">Delete</button>
         <button class="btn btn-secondary" onclick="closeModal('comp-item-modal')">Cancel</button>
+        <button class="btn btn-primary" id="comp-f-markdone" onclick="_compMarkDoneFromModal()" style="background:#1e5e3e;display:none">✓ Mark Done</button>
         <button class="btn btn-primary" onclick="_compSave()">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mark Done dialog — captures proof metadata that gets written to
+       COMPLIANCE_HISTORY. All fields optional; the item still advances
+       to its next due date on save regardless of what you fill in. -->
+  <div class="modal-overlay" id="comp-markdone-modal">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <div class="modal-title">Mark Done</div>
+        <button class="modal-close" onclick="closeModal('comp-markdone-modal')">x</button>
+      </div>
+      <div class="modal-body">
+        <div id="comp-md-item-label" style="margin-bottom:14px;padding:10px 12px;background:#faf7f1;border:1px solid #eae4d6;border-radius:5px;font-size:12.5px;color:#0d0f12">—</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Date completed</label>
+            <input id="comp-md-date" type="date" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;box-sizing:border-box"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Amount paid (USD)</label>
+            <input id="comp-md-amount" type="number" step="0.01" placeholder="defaults to item Cost" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;box-sizing:border-box"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Confirmation #</label>
+            <input id="comp-md-conf" type="text" placeholder="optional" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;box-sizing:border-box"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Receipt (link or short note)</label>
+            <input id="comp-md-receipt" type="text" placeholder="https://drive.google.com/… or just text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;box-sizing:border-box"></div>
+        </div>
+        <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Notes</label>
+          <textarea id="comp-md-notes" rows="2" placeholder="optional — any context worth remembering next time" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
+        <div id="comp-md-next-hint" style="margin-top:10px;font-size:11.5px;color:#6b6b73;font-style:italic">—</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="closeModal('comp-markdone-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="_compMarkDoneConfirm()" style="background:#0d0f12">Mark Done</button>
       </div>
     </div>
   </div>
@@ -11234,6 +11269,8 @@ function _compOpenNew() {
   _compState.editingId = null;
   document.getElementById('comp-item-title').textContent = 'New Compliance Item';
   document.getElementById('comp-f-delete').style.display = 'none';
+  var mdBtn = document.getElementById('comp-f-markdone');
+  if (mdBtn) mdBtn.style.display = 'none';
   ['obligation','type','category','location','entity','responsible','lastdone','nextdue','cost','description','website','link','paymethod','acctnum','contact','contact-name','contact-phone','contact-email','contact-notes','notes'].forEach(function(k) {
     var el = document.getElementById('comp-f-' + k); if (el) el.value = '';
   });
@@ -11251,6 +11288,10 @@ function _compOpenEdit(id) {
   _compState.editingId = id;
   document.getElementById('comp-item-title').textContent = 'Edit — ' + (it.ID || '');
   document.getElementById('comp-f-delete').style.display = '';
+  var mdBtn = document.getElementById('comp-f-markdone');
+  // Hide Mark Done for items that are already Done or Cancelled; otherwise show it.
+  var curStatus = String(it.Status || '').toLowerCase();
+  if (mdBtn) mdBtn.style.display = (curStatus === 'done' || curStatus === 'cancelled') ? 'none' : '';
   document.getElementById('comp-f-obligation').value = it.Obligation || '';
   document.getElementById('comp-f-status').value = it.Status || 'Up to Date';
   document.getElementById('comp-f-type').value = it['Item Type'] || '';
@@ -11414,15 +11455,66 @@ function _compDelete() {
     .deleteComplianceItem(id);
 }
 
+// Open the Mark Done dialog. Pre-fills Date=today, Amount=item.Cost (if
+// present), and shows the next-due date that will result from this
+// completion. Everything in the dialog is optional — the user can hit
+// Mark Done and it just advances the next-due date like before, but any
+// proof they do fill in is written to COMPLIANCE_HISTORY.
 function _compMarkDone(id) {
-  if (!confirm('Mark this item done today and advance next due date by frequency?')) return;
+  var it = (_compState.items || []).find(function(i) { return String(i.ID) === String(id); });
+  if (!it) { toast('Item not found', 'error'); return; }
+  _compState.markDoneId = id;
+  document.getElementById('comp-md-item-label').textContent =
+    (it.Obligation || '').split('\n')[0] + (it.Entity ? ' · ' + it.Entity : '');
+  // Default Date = today in ISO.
+  var now = new Date();
+  var pad = function(n) { return (n < 10 ? '0' : '') + n; };
+  document.getElementById('comp-md-date').value =
+    now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+  // Default amount = item's Cost (strip $ and commas, keep numeric only).
+  var costRaw = String(it.Cost || '').replace(/[^0-9.\-]/g, '');
+  document.getElementById('comp-md-amount').value = costRaw && !isNaN(parseFloat(costRaw)) ? costRaw : '';
+  document.getElementById('comp-md-conf').value = '';
+  document.getElementById('comp-md-receipt').value = '';
+  document.getElementById('comp-md-notes').value = '';
+  // Hint showing what will happen when they confirm.
+  var freq = String(it.Frequency || '').toLowerCase();
+  var nextHint = '';
+  if (freq && freq !== 'one-time' && freq !== 'other') {
+    nextHint = 'Will advance Next Due Date by ' + freq + ' from the Date completed above.';
+  } else {
+    nextHint = 'Will mark Status = Done (no recurrence).';
+  }
+  document.getElementById('comp-md-next-hint').textContent = nextHint;
+  openModal('comp-markdone-modal');
+}
+
+// Open Mark Done from inside the item-edit modal. Just delegates to the
+// same dialog opener; on confirm, both modals close.
+function _compMarkDoneFromModal() {
+  var id = _compState.editingId;
+  if (id) _compMarkDone(id);
+}
+
+function _compMarkDoneConfirm() {
+  var id = _compState.markDoneId;
+  if (!id) return;
+  var proof = {
+    dateCompleted:      document.getElementById('comp-md-date').value || '',
+    amountPaid:         document.getElementById('comp-md-amount').value || '',
+    confirmationNumber: document.getElementById('comp-md-conf').value || '',
+    receiptLink:        document.getElementById('comp-md-receipt').value || '',
+    notes:              document.getElementById('comp-md-notes').value || ''
+  };
   google.script.run
     .withSuccessHandler(function(r) {
+      closeModal('comp-markdone-modal');
+      closeModal('comp-item-modal');   // close the parent edit modal if open
       toast(r.nextDue ? ('✓ Done — next due ' + r.nextDue) : '✓ Done');
       loadCompliance();
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
-    .markComplianceItemDone(id);
+    .markComplianceItemDone(id, proof);
 }
 
 function _compOpenPeople() {
