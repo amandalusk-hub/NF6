@@ -1126,8 +1126,9 @@ function _removeManualPaymentByLoanAndDate(loanId, dateStr, amount) {
 }
 
 // Menu-callable: send a SAMPLE alert email right now so Amanda can see the
-// format without having to wait for a real overdue payment. Uses fake
-// entries (one Receivable, one Payable) so both sections render.
+// format without having to wait for a real overdue payment. Uses sample
+// alert records (one Receivable, one Payable, one Asset-based) so every
+// section of the modern HTML template renders.
 function sendTestLoanAlertEmail() {
   _requireEditor_();
   var props = PropertiesService.getScriptProperties();
@@ -1137,43 +1138,40 @@ function sendTestLoanAlertEmail() {
   var cc = props.getProperty('LOAN_ALERT_CC_RECIPIENT') || _LOAN_ALERT_CC_DEFAULT;
   if (!to) { SpreadsheetApp.getUi().alert('No primary recipient found. Set LOAN_ALERT_RECIPIENT or OWNER_EMAIL script property.'); return; }
 
-  // Try to resolve the real Texas source-account balance so the test email
-  // shows the same live balance line Amanda would see in a real alert. Falls
-  // back to a placeholder if no match.
-  var texasAcct = _lookupAccountBalance_('NF USA TX');
-  var texasBalLine = texasAcct
-    ? '    Current balance of ' + texasAcct.name + ': ' + _fmtBalanceUSD_(texasAcct.balance) + (texasAcct.balance < 17666.67 ? '  ⚠ INSUFFICIENT — short by ' + _fmtBalanceUSD_(17666.67 - texasAcct.balance) : '') + '\n'
-    : '    Current balance of NF USA TX: (couldn\'t look up — check that Source Account matches an Asset name)\n';
+  var receivableAlerts = [{
+    loanName: 'MacDonald Loan (44 N Green Acre Drive)',
+    entity:   'TLMND',
+    n:        29,
+    expected: 2083.33,
+    due:      '2026-10-01',
+    daysPast: 12
+  }];
+  var payableAlerts = [{
+    loanName: 'Texas Mortgage — 709 Kuhlman Rd (Amegy Bank)',
+    entity:   'NF USA TX LLC',
+    n:        1,
+    expected: 17666.67,
+    due:      '2026-11-01',
+    daysPast: 13,
+    source:   'NF USA TX'   // _buildLoanAlertHtml_ looks up live balance
+  }];
+  var assetAlerts = [];
+  var totalAlerts = receivableAlerts.length + payableAlerts.length + assetAlerts.length;
 
-  var body = '⚠ THIS IS A TEST ALERT — for previewing the format only. No real payment is overdue.\n\n' +
-             'Loan payment alerts — 2 payment(s) are more than ' + _LOAN_ALERT_GRACE_DAYS + ' days past due with no matching Plaid activity:\n\n' +
-             '📥 LOANS OWED TO MIKE (borrower payments missing)\n' +
-             '───────────────────────────────────────────────────\n' +
-             '  • MacDonald Loan (44 N Green Acre Drive) (TLMND)\n' +
-             '    Payment #29 — Expected $2,083.33\n' +
-             '    Due: 2026-10-01 (12 days overdue)\n\n' +
-             '📤 LOANS MIKE OWES (outgoing payments not detected)\n' +
-             '───────────────────────────────────────────────────\n' +
-             '  • Texas Mortgage — 709 Kuhlman Rd (Amegy Bank) (NF USA TX LLC)\n' +
-             '    Payment #1 — Expected $17,666.67\n' +
-             '    Due: 2026-11-01 (13 days overdue)\n' +
-             '    Should have come from: NF USA TX\n' +
-             texasBalLine + '\n' +
-             'Next steps:\n' +
-             '  1. For Receivables: reach out to the borrower to confirm they sent the payment.\n' +
-             '     If they say they paid on a specific date, open the Loans tab → click the row →\n' +
-             '     Mark Payment as Received with their actual date.\n' +
-             '  2. For Payables: check the source account balance above.\n' +
-             '     If the account has funds and the payment went out but Plaid missed it,\n' +
-             '     Mark Payment as Received on the row. If it truly didn\'t go out,\n' +
-             '     follow up with the lender + mark as Missed.\n\n' +
-             'Config: recipient = ' + to + (cc ? ' · cc = ' + cc : '') + '\n' +
-             'To change: set LOAN_ALERT_RECIPIENT / LOAN_ALERT_CC_RECIPIENT in Script Properties.';
+  var htmlBody = _buildLoanAlertHtml_(receivableAlerts, payableAlerts, assetAlerts, totalAlerts, to, cc);
+  // Insert a bright TEST banner at the very top of the shell content so
+  // the recipient can't miss that this isn't a live alert.
+  var testBanner = '<div style="max-width:720px;margin:0 auto 10px auto;padding:10px 14px;background:#fff3cd;border:1px solid #ffe08a;border-radius:4px;color:#7a5f00;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;font-size:12.5px;font-weight:600">TEST ALERT — for previewing the format only. No real payment is overdue.</div>';
+  htmlBody = testBanner + htmlBody;
+
+  var plainBody = '*** TEST ALERT — for previewing the format only. No real payment is overdue. ***\n\n' +
+                  _buildLoanAlertPlain_(receivableAlerts, payableAlerts, assetAlerts, totalAlerts, to, cc);
 
   var mailOpts = {
     to: to,
-    subject: '⚠ [TEST] Loan Payment Alert — 2 overdue payment(s)',
-    body: body,
+    subject: '[TEST] Loan Payment Alert — ' + totalAlerts + ' overdue payment' + (totalAlerts === 1 ? '' : 's'),
+    htmlBody: htmlBody,
+    body: plainBody,
     name: 'Loan Payment Monitor (TEST)'
   };
   if (cc) mailOpts.cc = cc;
