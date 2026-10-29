@@ -1246,6 +1246,109 @@ function sendComplianceDigestTest() {
     ui.alert('Weekly past-due email sent (' + overdue + ' overdue item' + (overdue === 1 ? '' : 's') + ') to the Amanda+Brandon CC list.');
   }
 }
+
+// Menu-callable: send a SAMPLE compliance reminder email right now so Amanda
+// can preview the modern format without having to wait for an item that's
+// exactly 14 days from due today. Uses realistic fake data (two upcoming
+// items) and routes through the production _buildComplianceReminderHtml_
+// so what you see IS what the real email looks like.
+function sendTestComplianceReminderEmail() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var props = PropertiesService.getScriptProperties();
+  var to = (typeof _getOwnerEmail_ === 'function' ? _getOwnerEmail_() : '') ||
+           props.getProperty('OWNER_EMAIL') ||
+           'amanda.lusk@nf6.com';
+  var cc = _complianceCcList_() || '';
+
+  // Build sample items with a hand-constructed _urgency so the template
+  // renders without touching the live sheet.
+  var todayIso = (new Date()).toISOString().substring(0, 10);
+  function daysOut(n) {
+    var d = new Date(); d.setDate(d.getDate() + n);
+    return d.toISOString().substring(0, 10);
+  }
+  var items = [
+    {
+      'Obligation':       'Pay the flood insurance premium by May 30 every year',
+      'Entity':           'NF Texas',
+      'Person Responsible':'Amanda/Brandon',
+      'Notes':            'Pay through Liberty Mutual portal. Confirm no changes in the chat first.',
+      'Link to Docs':     'https://drive.google.com/drive/folders/1mHilGdrKWVSydsZydxc8ahzamDt-JIz7',
+      'Cost':             '1200',
+      '_urgency': { bucket: 'due-soon', daysAway: 14, dueIso: daysOut(14), isActive: true }
+    },
+    {
+      'Obligation':       'Tesla Car Insurance renewal',
+      'Entity':           'MN Personal',
+      'Person Responsible':'Tim',
+      'Notes':            '',
+      'Link to Docs':     '',
+      '_urgency': { bucket: 'due-soon', daysAway: 14, dueIso: daysOut(14), isActive: true }
+    }
+  ];
+
+  var htmlBody = _buildComplianceReminderHtml_('Amanda', items);
+  var banner = '<div style="max-width:720px;margin:0 auto 10px auto;padding:10px 14px;background:#fff3cd;border:1px solid #ffe08a;border-radius:4px;color:#7a5f00;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;font-size:12.5px;font-weight:600">TEST EMAIL — for previewing the format only. No real compliance item needs attention right now.</div>';
+  htmlBody = banner + htmlBody;
+  var plainBody = '*** TEST EMAIL — preview only. No real item requires action. ***\n\n' + _buildComplianceReminderPlain_('Amanda', items);
+
+  var mailOpts = {
+    to: to,
+    subject: '[TEST] Compliance Reminder — ' + items.length + ' item' + (items.length === 1 ? '' : 's'),
+    htmlBody: htmlBody,
+    body: plainBody,
+    name: 'Family Office Compliance (TEST)'
+  };
+  if (cc) mailOpts.cc = cc;
+  MailApp.sendEmail(mailOpts);
+  ui.alert('Test compliance reminder sent.\n\nTo: ' + to + (cc ? '\nCC: ' + cc : '') + '\n\nCheck your inbox in a minute.');
+}
+
+// Menu-callable: send a SAMPLE weekly past-due digest email right now.
+function sendTestCompliancePastDueEmail() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var to = _complianceCcList_() ||
+           (typeof _getOwnerEmail_ === 'function' ? _getOwnerEmail_() : '') ||
+           'amanda.lusk@nf6.com';
+  function daysOut(n) {
+    var d = new Date(); d.setDate(d.getDate() + n);
+    return d.toISOString().substring(0, 10);
+  }
+  // Sample past-due items — one old, one recent — so the sort order shows.
+  var overdue = [
+    {
+      'Obligation':       'Tahoe - SOAT renewal',
+      'Entity':           'NF MDE CO',
+      'Person Responsible':'Manuela Vallejo',
+      'Link to Docs':     '',
+      '_urgency': { bucket: 'overdue', daysAway: -32, dueIso: daysOut(-32), isActive: true }
+    },
+    {
+      'Obligation':       'Fees paid to France accountants Groupe Prieur',
+      'Entity':           'Paris Thacko',
+      'Person Responsible':'Manuela Vallejo',
+      'Link to Docs':     '',
+      '_urgency': { bucket: 'overdue', daysAway: -5,  dueIso: daysOut(-5),  isActive: true }
+    }
+  ];
+
+  var htmlBody = _buildComplianceDigestHtml_([], overdue);
+  var banner = '<div style="max-width:720px;margin:0 auto 10px auto;padding:10px 14px;background:#fff3cd;border:1px solid #ffe08a;border-radius:4px;color:#7a5f00;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,sans-serif;font-size:12.5px;font-weight:600">TEST EMAIL — for previewing the format only. These items are not actually past due.</div>';
+  htmlBody = banner + htmlBody;
+  var plainBody = '*** TEST EMAIL — preview only. These items are not actually past due. ***\n\n' + _buildComplianceDigestPlain_([], overdue);
+
+  MailApp.sendEmail({
+    to:       to,
+    subject:  '[TEST] Compliance Past-Due List — ' + overdue.length + ' overdue (sample)',
+    htmlBody: htmlBody,
+    body:     plainBody,
+    name:     'Family Office Compliance (TEST)'
+  });
+  ui.alert('Test past-due email sent.\n\nTo: ' + to + '\n\nCheck your inbox in a minute.');
+}
+
 var COMPLIANCE_SEED = [
   {
     "Status": "Up to Date",
