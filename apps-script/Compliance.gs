@@ -959,9 +959,9 @@ function _compStatTiles_(tiles) {
   // Reduced padding + font sizing so a 4-tile row still fits in a ~340px
   // phone viewport without the right-most tile pushing past the shell.
   var cells = tiles.map(function(t) {
-    return '<td style="width:' + Math.floor(100 / tiles.length) + '%;padding:12px 6px;border:1px solid ' + _COMP_LINE + ';background:#fff;text-align:center;vertical-align:middle;word-break:break-word">' +
+    return '<td style="width:' + Math.floor(100 / tiles.length) + '%;padding:12px 6px;border:1px solid ' + _COMP_LINE + ';background:#fff;text-align:center;vertical-align:middle;overflow-wrap:break-word">' +
       '<div style="font-size:9.5px;color:' + _COMP_MUTED + ';letter-spacing:.8px;text-transform:uppercase;font-weight:700;margin-bottom:5px;line-height:1.2">' + _complianceEscH_(t.label) + '</div>' +
-      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:18px;font-weight:700;color:' + (t.color || _COMP_NAVY) + ';line-height:1.15;word-break:break-word">' + (t.value == null || t.value === '' ? '—' : t.value) + '</div>' +
+      '<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:18px;font-weight:700;color:' + (t.color || _COMP_NAVY) + ';line-height:1.15;overflow-wrap:break-word">' + (t.value == null || t.value === '' ? '—' : t.value) + '</div>' +
       (t.sub ? '<div style="font-size:10px;color:' + _COMP_MUTED + ';margin-top:4px;line-height:1.3">' + _complianceEscH_(t.sub) + '</div>' : '') +
     '</td>';
   }).join('');
@@ -977,9 +977,17 @@ function _compSectionHeading_(text) {
 // {label, align} and rows as arrays of raw HTML cells.
 //
 // Wrapped in an overflow-x:auto container so wide tables (e.g. the
-// 6-column payables table) scroll horizontally on narrow phones instead
-// of pushing past the card's right edge.
+// 6-column payables table) scroll horizontally on narrow phones. The
+// table itself has a min-width proportional to column count so cells
+// stay readable — Gmail iOS otherwise squeezes columns down and
+// splits individual words character-by-character ("Texa\ns\nMort\ngage").
+// We use overflow-wrap (not word-break) so only words that genuinely
+// exceed the cell width break; normal words wrap at spaces.
 function _compTable_(columns, rows) {
+  // Give each column at least ~95px of layout width. For a 6-col payables
+  // table that's ~570px, which gracefully scrolls inside the card on a
+  // 370px phone viewport.
+  var minW = Math.max(360, columns.length * 95);
   var head = '<thead><tr>' + columns.map(function(c) {
     return '<th style="background:' + _COMP_NAVY + ';color:#fff;font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;padding:9px 10px;text-align:' + (c.align || 'left') + ';font-weight:700;white-space:nowrap">' + _complianceEscH_(c.label) + '</th>';
   }).join('') + '</tr></thead>';
@@ -987,11 +995,11 @@ function _compTable_(columns, rows) {
     var bg = (i % 2 === 0 ? '#fff' : _COMP_SOFT);
     return '<tr>' + cells.map(function(cell, ci) {
       var col = columns[ci] || {};
-      return '<td style="padding:9px 10px;text-align:' + (col.align || 'left') + ';font-size:12px;color:' + _COMP_NAVY + ';border-bottom:1px solid ' + _COMP_LINE + ';background:' + bg + ';vertical-align:top;word-break:break-word">' + cell + '</td>';
+      return '<td style="padding:9px 10px;text-align:' + (col.align || 'left') + ';font-size:12px;color:' + _COMP_NAVY + ';border-bottom:1px solid ' + _COMP_LINE + ';background:' + bg + ';vertical-align:top;overflow-wrap:break-word">' + cell + '</td>';
     }).join('') + '</tr>';
   }).join('') + '</tbody>';
   return '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;margin-bottom:20px">' +
-           '<table style="width:100%;border-collapse:collapse;border:1px solid ' + _COMP_LINE + ';min-width:100%">' +
+           '<table style="width:100%;border-collapse:collapse;border:1px solid ' + _COMP_LINE + ';min-width:' + minW + 'px">' +
              head + body +
            '</table>' +
          '</div>';

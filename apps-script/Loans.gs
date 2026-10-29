@@ -1397,10 +1397,10 @@ function _buildLoanAlertHtml_(recv, pay, asset, total, to, cc) {
       return [
         '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + _complianceEscH_(a.loanName) + '</div>' +
           (a.entity ? '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:2px">' + _complianceEscH_(a.entity) + '</div>' : ''),
-        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
-        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
-        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px">' + past + 'd overdue</span>',
-        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
+        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px;white-space:nowrap">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums;white-space:nowrap">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
+        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px;white-space:nowrap">' + past + 'd overdue</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
       ];
     });
     sections += _compTable_(
@@ -1430,11 +1430,11 @@ function _buildLoanAlertHtml_(recv, pay, asset, total, to, cc) {
       return [
         '<div style="font-weight:600;color:' + _COMP_NAVY + '">' + _complianceEscH_(a.loanName) + '</div>' +
           (a.entity ? '<div style="color:' + _COMP_MUTED + ';font-size:11px;margin-top:2px">' + _complianceEscH_(a.entity) + '</div>' : ''),
-        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
-        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
-        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px">' + past + 'd overdue</span>',
+        '<span style="color:' + _COMP_MUTED + ';font-size:11.5px;white-space:nowrap">Payment #' + _complianceEscH_(String(a.n || '')) + '</span>',
+        '<span style="color:' + _COMP_NAVY + ';font-variant-numeric:tabular-nums;white-space:nowrap">' + _complianceEscH_(_compFmtDate_(a.due) || a.due || '') + '</span>',
+        '<span style="color:' + _COMP_RED + ';font-weight:600;font-size:11px;white-space:nowrap">' + past + 'd overdue</span>',
         '<div style="color:' + _COMP_NAVY + ';font-size:11.5px">From: ' + sourceLine + '</div>' + balanceLine,
-        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
+        '<span style="color:' + _COMP_NAVY + ';font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap">$' + Number(a.expected || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
       ];
     });
     sections += _compTable_(
