@@ -1332,6 +1332,12 @@ function checkLoanPaymentAlerts() {
         var detRaw = aIdDet >= 0 ? row[aIdDet] : '';
         if (!detRaw) continue;
         var det; try { det = JSON.parse(detRaw); } catch(e) { continue; }
+        // Honor a per-asset suppress flag. Set via Tracker → Loans → Pause
+        // overdue alerts for an asset — intended for loans where you've
+        // deliberately paused chasing (e.g. Dominican Republic loan where
+        // Mike hasn't decided what to do yet). The row still shows on the
+        // dashboard with its real history; it just doesn't nag.
+        if (det && (det.suppressAlerts === true || String(det.alertStatus||'').toLowerCase() === 'paused')) continue;
         var dueStr = det && det.loanDue;
         if (!dueStr) continue;
         var dueDate = new Date(String(dueStr) + (String(dueStr).length === 10 ? 'T00:00:00' : ''));
@@ -2074,4 +2080,89 @@ function getLoanableAssets() {
     return String(a.name||'').localeCompare(String(b.name||''));
   });
   return out;
+}
+
+
+// ── Pause / resume overdue alerts for an asset-based loan ─────────────────
+//
+// For asset-based loans (promissory notes / loans receivable that live on
+// ASSETS but aren't seeded as LOANS rows — e.g. the Dominican Republic
+// loan), the overdue alerter has no per-loan "pause" switch. This writes
+// a suppressAlerts flag into the row's Details JSON, and the asset-scan
+// in checkLoanPaymentAlerts honors it (skips the row). Idempotent and
+// reversible via the same menu.
+//
+// Menu-callable. Prompts for the asset name (substring match), lists
+// matches if ambiguous, then toggles the flag.
+
+function pauseAssetLoanAlerts() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('ASSETS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('No ASSETS rows found.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iName = hdr.indexOf('Name');
+  var iCat  = hdr.indexOf('Category');
+  var iEnt  = hdr.indexOf('Entity');
+  var iDet  = hdr.indexOf('Details');
+  var iArch = hdr.indexOf('Archived');
+  if (iName < 0 || iCat < 0 || iDet < 0) { ui.alert('ASSETS sheet missing Name/Category/Details columns.'); return; }
+
+  // Build the list of asset-based loans that COULD alert (loan/promissory
+  // category, not archived, has a loanDue in Details). Show their current
+  // suppress state so Amanda can pick which one to toggle.
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var candidates = [];
+  data.forEach(function(row, i) {
+    var cat = String(row[iCat] || '').toLowerCase();
+    if (cat.indexOf('loan') < 0 && cat.indexOf('promissory') < 0) return;
+    var arch = iArch >= 0 ? String(row[iArch] || '').toLowerCase() : '';
+    if (arch === 'yes' || arch === 'true') return;
+    var detRaw = row[iDet];
+    var det = {}; try { det = detRaw ? JSON.parse(detRaw) : {}; } catch(e) { det = {}; }
+    if (!det.loanDue) return;
+    candidates.push({
+      rowIdx:   i + 2,
+      name:     String(row[iName] || ''),
+      entity:   iEnt >= 0 ? String(row[iEnt] || '') : '',
+      due:      det.loanDue,
+      paused:   det.suppressAlerts === true || String(det.alertStatus||'').toLowerCase() === 'paused',
+      det:      det
+    });
+  });
+
+  if (!candidates.length) {
+    ui.alert('No asset-based loans found (ASSETS rows with Category containing "loan" or "promissory" and a loanDue date in Details).');
+    return;
+  }
+
+  // Show the list and ask which to toggle, by substring.
+  var list = candidates.map(function(c, i) {
+    return (i + 1) + '. ' + (c.paused ? '[PAUSED] ' : '[active] ') + c.name + (c.entity ? ' · ' + c.entity : '') + '  (due ' + String(c.due).substring(0, 10) + ')';
+  }).join('\n');
+  var resp = ui.prompt('Pause / Resume Overdue Alerts',
+    'Asset-based loans that overdue-alerts can fire on:\n\n' + list +
+    '\n\nEnter the loan name (or any unique substring) to toggle its alert state. ' +
+    'A row marked [PAUSED] will not trigger daily overdue alert emails until you toggle it back.',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var needle = String(resp.getResponseText() || '').trim().toLowerCase();
+  if (!needle) return;
+  var matches = candidates.filter(function(c) { return c.name.toLowerCase().indexOf(needle) >= 0; });
+  if (!matches.length) { ui.alert('No loan name contains "' + needle + '".'); return; }
+  if (matches.length > 1) {
+    ui.alert('Multiple matches — refine your search:\n\n' + matches.map(function(m) { return '  • ' + m.name; }).join('\n'));
+    return;
+  }
+  var pick = matches[0];
+  var nowPaused = !pick.paused;
+  pick.det.suppressAlerts = nowPaused;
+  if (nowPaused) pick.det.alertStatus = 'paused';
+  else           delete pick.det.alertStatus;
+  sheet.getRange(pick.rowIdx, iDet + 1).setValue(JSON.stringify(pick.det));
+  ui.alert('"' + pick.name + '" is now ' + (nowPaused
+    ? 'PAUSED — the daily overdue alerter will skip this row until you toggle it back.'
+    : 'ACTIVE — the daily overdue alerter will include this row again on the next run.'));
+  Logger.log('pauseAssetLoanAlerts: ' + pick.name + ' → ' + (nowPaused ? 'paused' : 'active'));
 }
