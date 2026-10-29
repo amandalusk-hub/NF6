@@ -642,27 +642,22 @@ function syncAllComplianceToCalendar() {
 
 // ── Reminder policy (Amanda, Oct 2026) ────────────────────────────────────
 //
-//   T-14 days  → email the PERSON RESPONSIBLE, CC Amanda + Brandon
-//                (Amanda wants visibility on every reminder that goes
-//                out to a person).
-//   T-1 day    → email AMANDA + BRANDON only (escalation — person had
-//                14 days to act, now it's on us). The person is NOT CC'd
-//                so this reads as an internal heads-up, not another nag.
-//   Overdue    → weekly list to AMANDA + BRANDON (Mondays 7:30 AM),
-//                covering every item past its Next Due Date. No daily
-//                overdue nagging — a single consolidated view instead.
+//   T-30, T-14, T-1 days  → email the PERSON RESPONSIBLE, CC Amanda +
+//                           Brandon on every reminder. One email per
+//                           person covering any of their items hitting
+//                           any of the three windows that day.
+//   Overdue               → weekly list to AMANDA + BRANDON (Mondays
+//                           7:30 AM), covering every item past its Next
+//                           Due Date. No daily overdue nagging — a
+//                           single consolidated view instead.
 //
 // This replaces the earlier {30,14,7,3,1} daily cascade + Mon digest.
 
-var _COMPLIANCE_PERSON_TIER_DAYS = 14;          // T-14 → person
-var _COMPLIANCE_AB_TIER_DAYS     = 1;           // T-1  → Amanda + Brandon
+var _COMPLIANCE_REMINDER_WINDOWS = [30, 14, 1];
 var _COMPLIANCE_OWNER_EMAIL_KEY  = 'COMPLIANCE_OVERDUE_OWNER_EMAIL';
 
 function _complianceShouldRemindPerson_(daysAway) {
-  return daysAway === _COMPLIANCE_PERSON_TIER_DAYS;
-}
-function _complianceShouldRemindAB_(daysAway) {
-  return daysAway === _COMPLIANCE_AB_TIER_DAYS;
+  return _COMPLIANCE_REMINDER_WINDOWS.indexOf(daysAway) >= 0;
 }
 function _complianceOverdueOwnerEmail_() {
   // Explicit override wins; otherwise the full CC list (Amanda+Brandon by
@@ -698,13 +693,12 @@ function _complianceResolvePeople_(responsibleStr, peopleMap) {
 
 // Daily cron handler. Fires 7 AM ET weekdays.
 //
-// Runs two independent passes over the items:
-//   Pass A (T-14): items exactly 14 days from due → email the Person
-//     Responsible only. No CC. One email per person, listing all their
-//     T-14 items.
-//   Pass B (T-1):  items exactly 1 day from due → single email to the
-//     Amanda+Brandon CC list listing EVERY item (grouped by person inside
-//     the email so Amanda can see who was supposed to handle each one).
+// Single pass: for every item exactly 30, 14, or 1 days from due, email
+// the Person Responsible with Amanda + Brandon on CC. One email per
+// person, listing all their qualifying items — if a person has items at
+// multiple windows on the same day they get one combined email, not
+// three. If a person is themselves on the CC list, they're stripped from
+// the CC so they aren't double-addressed.
 function dailyComplianceReminders() {
   ensureComplianceSheets_();
   var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
@@ -716,10 +710,9 @@ function dailyComplianceReminders() {
     if (p.Email) peopleMap[String(p.Name).toLowerCase()] = p.Email;
   });
 
-  var personSent = 0, abSent = 0;
-
-  // ── Pass A: T-14 → Person Responsible, no CC ────────────────────────────
-  var personBuckets = {};  // email → { name, email, items: [] }
+  // Group every qualifying item (T-30, T-14, or T-1) under each person
+  // responsible for it.
+  var buckets = {};  // email → { name, email, items: [] }
   items.forEach(function(it) {
     var u = _complianceUrgency_(it);
     if (!u.isActive) return;
@@ -727,63 +720,51 @@ function dailyComplianceReminders() {
     var responsibles = _complianceResolvePeople_(it['Person Responsible'], peopleMap);
     responsibles.forEach(function(p) {
       var key = p.email.toLowerCase();
-      personBuckets[key] = personBuckets[key] || { name: p.name, email: p.email, items: [] };
-      personBuckets[key].items.push(Object.assign({}, it, { _urgency: u }));
+      buckets[key] = buckets[key] || { name: p.name, email: p.email, items: [] };
+      buckets[key].items.push(Object.assign({}, it, { _urgency: u }));
     });
   });
-  var ccList = _complianceCcList_();   // used for BOTH tiers now
-  Object.keys(personBuckets).forEach(function(k) {
-    var pkg = personBuckets[k];
+
+  var ccList = _complianceCcList_();
+  var sent = 0;
+  Object.keys(buckets).forEach(function(k) {
+    var pkg = buckets[k];
+    // Sort items most-urgent-first inside each person's email.
+    pkg.items.sort(function(a, b) { return (a._urgency.daysAway || 0) - (b._urgency.daysAway || 0); });
     var html = _buildComplianceReminderHtml_(pkg.name, pkg.items);
-    // If the person's own address is already on the CC list, strip it from
-    // the CC so they aren't CC'd on their own To: email.
+    // Strip the person from the CC if they're already on it.
     var personKey = pkg.email.toLowerCase();
     var ccForThisSend = ccList
       ? ccList.split(',').map(function(s){ return s.trim(); })
           .filter(function(e){ return e && e.toLowerCase() !== personKey; })
           .join(', ')
       : '';
+    // Subject reflects the most urgent item in the batch so Amanda can
+    // triage from the inbox list without opening every email.
+    var minDays = pkg.items[0]._urgency.daysAway;
+    var urgencyLabel = minDays === 1 ? 'DUE TOMORROW'
+                     : minDays === 14 ? '2 weeks out'
+                     : minDays === 30 ? '30 days out'
+                     : minDays + 'd out';
     var sendOpts = {
       to:       pkg.email,
-      subject:  'Compliance Reminder (2 weeks out) — ' + pkg.items.length + ' item' + (pkg.items.length === 1 ? '' : 's'),
+      subject:  'Compliance Reminder (' + urgencyLabel + ') — ' + pkg.items.length + ' item' + (pkg.items.length === 1 ? '' : 's'),
       htmlBody: html,
       body:     _buildComplianceReminderPlain_(pkg.name, pkg.items),
       name:     'Family Office Compliance'
     };
     if (ccForThisSend) sendOpts.cc = ccForThisSend;
     MailApp.sendEmail(sendOpts);
-    personSent++;
-    Logger.log('Compliance T-14 reminder → ' + pkg.email +
+    sent++;
+    Logger.log('Compliance reminder → ' + pkg.email +
                (ccForThisSend ? ' (cc ' + ccForThisSend + ')' : '') +
-               ' — ' + pkg.items.length + ' items');
+               ' — ' + pkg.items.length + ' items (most urgent: T-' + minDays + ')');
   });
 
-  // ── Pass B: T-1 → Amanda + Brandon only, person NOT CC'd ────────────────
-  var abItems = items
-    .map(function(it) { return { item: it, u: _complianceUrgency_(it) }; })
-    .filter(function(x) { return x.u.isActive && _complianceShouldRemindAB_(x.u.daysAway); })
-    .map(function(x)   { return Object.assign({}, x.item, { _urgency: x.u }); });
-  if (abItems.length && ccList) {
-    var html = _buildComplianceReminderHtml_('Amanda & Brandon', abItems);
-    MailApp.sendEmail({
-      to:       ccList,
-      subject:  'Compliance DUE TOMORROW — ' + abItems.length + ' item' + (abItems.length === 1 ? '' : 's'),
-      htmlBody: html,
-      body:     _buildComplianceReminderPlain_('Amanda & Brandon', abItems),
-      name:     'Family Office Compliance'
-    });
-    abSent = 1;
-    Logger.log('Compliance T-1 escalation → ' + ccList + ' (' + abItems.length + ' items)');
-  } else if (abItems.length && !ccList) {
-    Logger.log('Compliance T-1: ' + abItems.length + ' items but no CC list configured — nothing sent.');
-  }
-
   return {
-    sent:        personSent + abSent,
-    personTier:  personSent,
-    abTier:      abSent,
-    personCount: Object.keys(personBuckets).length,
-    abCount:     abItems.length
+    sent:        sent,
+    personCount: Object.keys(buckets).length,
+    itemCount:   Object.keys(buckets).reduce(function(s, k) { return s + buckets[k].items.length; }, 0)
   };
 }
 
@@ -1009,20 +990,26 @@ function _compDueDaysBadge_(bucket, daysAway) {
 
 
 function _buildComplianceReminderHtml_(personName, items) {
-  var isABTier = items.some(function(it) { return it._urgency && it._urgency.daysAway === 1; });
-  var greeting = isABTier ? 'Final warning — items due tomorrow' : 'Compliance Reminder';
-  var subtitle = isABTier
-    ? 'Please find below every compliance item due tomorrow.'
-    : 'You have ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' coming up in the next two weeks.';
-
-  // Hero: for the T-1 escalation show the item count in red; for the
-  // T-14 person reminder show it in gold against the usual "coming up"
-  // phrasing.
-  var heroLabel = isABTier
+  // The daily cron now sends one combined email per person covering any
+  // of T-30 / T-14 / T-1. Pick wording + accent color from the most
+  // urgent item in the batch — if ANY item is due tomorrow the hero
+  // reads red; otherwise gold.
+  var minDays = items.reduce(function(m, it) {
+    var d = (it._urgency && it._urgency.daysAway);
+    if (d == null) return m;
+    return m == null ? d : Math.min(m, d);
+  }, null);
+  var hasTomorrow = minDays === 1;
+  var heroLabel = hasTomorrow
     ? 'Compliance items · DUE TOMORROW'
-    : 'Compliance items · 2 weeks out';
+    : minDays === 14 ? 'Compliance items · 2 weeks out'
+    : minDays === 30 ? 'Compliance items · 30 days out'
+    : 'Compliance items · action required';
+  var subtitle = hasTomorrow
+    ? 'The item' + (items.length === 1 ? ' below is' : 's below include something') + ' due tomorrow — please take action today.'
+    : 'You have ' + items.length + ' item' + (items.length === 1 ? '' : 's') + ' coming up. Earliest is ' + minDays + ' day' + (minDays === 1 ? '' : 's') + ' from now.';
   var heroValue = String(items.length) + '<span style="font-size:16px;color:#9fb0c3;font-weight:400;margin-left:6px">item' + (items.length === 1 ? '' : 's') + '</span>';
-  var heroAccent = isABTier ? '#f0a0a0' : _COMP_GOLD;
+  var heroAccent = hasTomorrow ? '#f0a0a0' : _COMP_GOLD;
 
   // Stat tiles — contextual summary.
   var byEntity = {};
@@ -1070,12 +1057,12 @@ function _buildComplianceReminderHtml_(personName, items) {
     '<p style="margin:0 0 20px 0;color:' + _COMP_NAVY + ';font-size:14px;line-height:1.5">' + _complianceEscH_(subtitle) + '</p>' +
     _compHero_(heroLabel, heroValue, heroAccent) +
     _compStatTiles_(tiles) +
-    _compSectionHeading_(isABTier ? 'Items Due Tomorrow' : 'Upcoming Items') +
+    _compSectionHeading_(hasTomorrow ? 'Items Needing Action' : 'Upcoming Items') +
     _compTable_(
       [{label:'When'}, {label:'Obligation'}, {label:'Entity'}, {label:'Due', align:'right'}],
       rows
     );
-  var title = isABTier ? 'Compliance · Escalation' : 'Compliance Reminder';
+  var title = hasTomorrow ? 'Compliance · Action Required' : 'Compliance Reminder';
   return _compEmailShell_(title, _compFmtDate_((new Date()).toISOString().substring(0,10)), body);
 }
 
@@ -1181,9 +1168,9 @@ function installComplianceReminderTriggers() {
     .timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).nearMinute(30).create();
   var cc = _complianceCcList_() || '(not set)';
   ui.alert('Compliance triggers installed.\n\n' +
-           '  • Daily reminders fire at 7 AM — one email per person with items due in 30/14/7/3/1 days or overdue.\n' +
-           '  • Weekly digest fires Monday 7:30 AM to the CC list.\n\n' +
-           'CC on all reminders: ' + cc + '\n' +
+           '  • Daily reminders fire at 7 AM — one email per person for items at T-30, T-14, or T-1 days from due.\n' +
+           '  • Weekly past-due list fires Monday 7:30 AM to the CC list.\n\n' +
+           'CC on every reminder: ' + cc + '\n' +
            '(Change via Tracker → Compliance → Set CC List)\n\n' +
            'Replaced ' + removed + ' prior trigger(s).');
 }
@@ -1210,25 +1197,23 @@ function sendComplianceRemindersTest() {
   var ui = SpreadsheetApp.getUi();
   var r = dailyComplianceReminders() || {};
   var sent = r.sent || 0;
-  var personSent = r.personTier || 0;
-  var abSent = r.abTier || 0;
   var personCount = r.personCount || 0;
-  var abCount = r.abCount || 0;
+  var itemCount = r.itemCount || 0;
   var msg;
   if (sent === 0) {
     msg = 'Daily compliance reminder test complete.\n\n' +
-          'No emails sent — nothing is at T-14 days (2-week reminder) or ' +
-          'T-1 day (final warning) today.\n\n' +
+          'No emails sent — nothing is at T-30, T-14, or T-1 days today.\n\n' +
           'Today is ' + new Date().toDateString() + '. The system fires only ' +
-          'on items whose Next Due Date is EXACTLY 14 days or 1 day from now. ' +
+          'on items whose Next Due Date is EXACTLY 30, 14, or 1 days from now. ' +
           'This is expected most days.\n\n' +
           'To force a real send, temporarily edit one item\'s Next Due Date to ' +
-          'exactly today+14 or today+1 and re-run this.';
+          'exactly today+30, today+14, or today+1 and re-run this.';
   } else {
     msg = 'Daily compliance reminder test complete.\n\n' +
-          '  • T-14 (person) emails sent: ' + personSent + ' (' + personCount + ' people)\n' +
-          '  • T-1 (Amanda+Brandon) email sent: ' + abSent + ' (' + abCount + ' item' + (abCount === 1 ? '' : 's') + ')\n' +
-          '  • Total: ' + sent + ' email' + (sent === 1 ? '' : 's');
+          '  • Emails sent: ' + sent + ' (one per person)\n' +
+          '  • People reached: ' + personCount + '\n' +
+          '  • Items covered: ' + itemCount + '\n' +
+          '  • Amanda + Brandon CC\'d on every email.';
   }
   ui.alert(msg);
 }
@@ -1276,7 +1261,7 @@ function sendTestComplianceReminderEmail() {
       'Notes':            'Pay through Liberty Mutual portal. Confirm no changes in the chat first.',
       'Link to Docs':     'https://drive.google.com/drive/folders/1mHilGdrKWVSydsZydxc8ahzamDt-JIz7',
       'Cost':             '1200',
-      '_urgency': { bucket: 'due-soon', daysAway: 14, dueIso: daysOut(14), isActive: true }
+      '_urgency': { bucket: 'critical', daysAway: 1, dueIso: daysOut(1), isActive: true }
     },
     {
       'Obligation':       'Tesla Car Insurance renewal',
@@ -1285,6 +1270,14 @@ function sendTestComplianceReminderEmail() {
       'Notes':            '',
       'Link to Docs':     '',
       '_urgency': { bucket: 'due-soon', daysAway: 14, dueIso: daysOut(14), isActive: true }
+    },
+    {
+      'Obligation':       'Renew Mikes life insurance every year through lincoln financial',
+      'Entity':           'MN Personal',
+      'Person Responsible':'Tim',
+      'Notes':            '',
+      'Link to Docs':     '',
+      '_urgency': { bucket: 'due-soon', daysAway: 30, dueIso: daysOut(30), isActive: true }
     }
   ];
 
