@@ -1063,14 +1063,43 @@ function setComplianceCcListFromMenu() {
 
 function sendComplianceRemindersTest() {
   var ui = SpreadsheetApp.getUi();
-  var r = dailyComplianceReminders();
-  ui.alert('Daily compliance reminder dry-run sent ' + r.sent + ' email(s) across ' + r.buckets + ' recipient(s).');
+  var r = dailyComplianceReminders() || {};
+  var sent = r.sent || 0;
+  var personSent = r.personTier || 0;
+  var abSent = r.abTier || 0;
+  var personCount = r.personCount || 0;
+  var abCount = r.abCount || 0;
+  var msg;
+  if (sent === 0) {
+    msg = 'Daily compliance reminder test complete.\n\n' +
+          'No emails sent — nothing is at T-14 days (2-week reminder) or ' +
+          'T-1 day (final warning) today.\n\n' +
+          'Today is ' + new Date().toDateString() + '. The system fires only ' +
+          'on items whose Next Due Date is EXACTLY 14 days or 1 day from now. ' +
+          'This is expected most days.\n\n' +
+          'To force a real send, temporarily edit one item\'s Next Due Date to ' +
+          'exactly today+14 or today+1 and re-run this.';
+  } else {
+    msg = 'Daily compliance reminder test complete.\n\n' +
+          '  • T-14 (person) emails sent: ' + personSent + ' (' + personCount + ' people)\n' +
+          '  • T-1 (Amanda+Brandon) email sent: ' + abSent + ' (' + abCount + ' item' + (abCount === 1 ? '' : 's') + ')\n' +
+          '  • Total: ' + sent + ' email' + (sent === 1 ? '' : 's');
+  }
+  ui.alert(msg);
 }
 
 function sendComplianceDigestTest() {
   var ui = SpreadsheetApp.getUi();
-  var r = weeklyComplianceDigest();
-  ui.alert('Weekly digest sent ' + r.sent + ' email(s). Overdue: ' + (r.overdue||0) + ' · Due this week: ' + (r.dueThisWeek||0));
+  var r = weeklyComplianceDigest() || {};
+  var sent = r.sent || 0;
+  var overdue = r.overdue || 0;
+  if (sent === 0 && overdue === 0) {
+    ui.alert('Weekly past-due test complete.\n\nNothing is overdue — no email was sent (by design: a weekly "all clear" would just be noise).');
+  } else if (sent === 0 && overdue > 0) {
+    ui.alert('Weekly past-due test complete.\n\n' + overdue + ' overdue item(s) found, but NO recipient is configured.\n\nRun Tracker → Compliance → Set CC list, OR Override weekly past-due recipient, to set a destination.');
+  } else {
+    ui.alert('Weekly past-due email sent (' + overdue + ' overdue item' + (overdue === 1 ? '' : 's') + ') to the Amanda+Brandon CC list.');
+  }
 }
 var COMPLIANCE_SEED = [
   {
