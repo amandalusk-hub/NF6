@@ -640,18 +640,41 @@ function syncAllComplianceToCalendar() {
 }
 
 
-// ── Reminder windows + email delivery ─────────────────────────────────────
-// Default policy: send a reminder when days-away is EXACTLY in the set
-// {30, 14, 7, 3, 1} OR when the item is overdue (any day >= 1 day late).
-// This keeps the owner inbox-manageable while surfacing items a few times
-// before they slip.
+// ── Reminder policy (Amanda, Oct 2026) ────────────────────────────────────
+//
+//   T-14 days  → email the PERSON RESPONSIBLE only (no CC)
+//   T-1 day    → email AMANDA + BRANDON only (escalation — person had
+//                14 days to act, now it's on us). The person is NOT CC'd
+//                so this reads as an internal heads-up, not another nag.
+//   Overdue    → weekly list to AMANDA only (Mondays 7:30 AM), covering
+//                every item past its Next Due Date. No daily overdue
+//                nagging — a single consolidated view instead.
+//
+// This replaces the earlier {30,14,7,3,1} daily cascade + Mon digest.
 
-var _COMPLIANCE_REMINDER_WINDOWS = [30, 14, 7, 3, 1];
+var _COMPLIANCE_PERSON_TIER_DAYS = 14;          // T-14 → person
+var _COMPLIANCE_AB_TIER_DAYS     = 1;           // T-1  → Amanda + Brandon
+var _COMPLIANCE_OWNER_EMAIL_KEY  = 'COMPLIANCE_OVERDUE_OWNER_EMAIL';
 
+function _complianceShouldRemindPerson_(daysAway) {
+  return daysAway === _COMPLIANCE_PERSON_TIER_DAYS;
+}
+function _complianceShouldRemindAB_(daysAway) {
+  return daysAway === _COMPLIANCE_AB_TIER_DAYS;
+}
+function _complianceOverdueOwnerEmail_() {
+  var stored = PropertiesService.getScriptProperties().getProperty(_COMPLIANCE_OWNER_EMAIL_KEY);
+  if (stored) return stored;
+  // Fall back to the first address on the CC list, which is Amanda by
+  // convention; final fallback is the global OWNER_EMAIL (also Amanda).
+  var cc = _complianceCcList_();
+  if (cc) return cc.split(',')[0].trim();
+  try { return _getOwnerEmail_(); } catch(e) { return 'amanda.lusk@nf6.com'; }
+}
+// Legacy name used by _buildComplianceReminderHtml_ etc. — keep returning
+// false here so nothing is accidentally re-fired from old call sites.
 function _complianceShouldRemindToday_(daysAway) {
-  if (daysAway == null) return false;
-  if (daysAway < 0) return true;    // overdue: nag daily
-  return _COMPLIANCE_REMINDER_WINDOWS.indexOf(daysAway) >= 0;
+  return _complianceShouldRemindPerson_(daysAway) || _complianceShouldRemindAB_(daysAway);
 }
 
 // Parse a "Amanda/Brandon" Person Responsible string into [{name, email}].
@@ -672,6 +695,14 @@ function _complianceResolvePeople_(responsibleStr, peopleMap) {
 }
 
 // Daily cron handler. Fires 7 AM ET weekdays.
+//
+// Runs two independent passes over the items:
+//   Pass A (T-14): items exactly 14 days from due → email the Person
+//     Responsible only. No CC. One email per person, listing all their
+//     T-14 items.
+//   Pass B (T-1):  items exactly 1 day from due → single email to the
+//     Amanda+Brandon CC list listing EVERY item (grouped by person inside
+//     the email so Amanda can see who was supposed to handle each one).
 function dailyComplianceReminders() {
   ensureComplianceSheets_();
   var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
@@ -683,65 +714,120 @@ function dailyComplianceReminders() {
     if (p.Email) peopleMap[String(p.Name).toLowerCase()] = p.Email;
   });
 
-  // Group items by resolved email
-  var byEmail = {};   // email → { name, items: [] }
+  var personSent = 0, abSent = 0;
+
+  // ── Pass A: T-14 → Person Responsible, no CC ────────────────────────────
+  var personBuckets = {};  // email → { name, email, items: [] }
   items.forEach(function(it) {
     var u = _complianceUrgency_(it);
     if (!u.isActive) return;
-    if (!_complianceShouldRemindToday_(u.daysAway)) return;
-    var people = _complianceResolvePeople_(it['Person Responsible'], peopleMap);
-    people.forEach(function(p) {
+    if (!_complianceShouldRemindPerson_(u.daysAway)) return;
+    var responsibles = _complianceResolvePeople_(it['Person Responsible'], peopleMap);
+    responsibles.forEach(function(p) {
       var key = p.email.toLowerCase();
-      byEmail[key] = byEmail[key] || { name: p.name, email: p.email, items: [] };
-      byEmail[key].items.push(Object.assign({}, it, { _urgency: u }));
+      personBuckets[key] = personBuckets[key] || { name: p.name, email: p.email, items: [] };
+      personBuckets[key].items.push(Object.assign({}, it, { _urgency: u }));
     });
   });
-
-  var ccList = _complianceCcList_();
-  var sent = 0;
-  Object.keys(byEmail).forEach(function(k) {
-    var pkg = byEmail[k];
+  Object.keys(personBuckets).forEach(function(k) {
+    var pkg = personBuckets[k];
     var html = _buildComplianceReminderHtml_(pkg.name, pkg.items);
     MailApp.sendEmail({
       to:       pkg.email,
-      cc:       ccList,
-      subject:  'Compliance Reminders — ' + pkg.items.length + ' item' + (pkg.items.length === 1 ? '' : 's'),
+      subject:  'Compliance Reminder (2 weeks out) — ' + pkg.items.length + ' item' + (pkg.items.length === 1 ? '' : 's'),
       htmlBody: html,
       body:     _buildComplianceReminderPlain_(pkg.name, pkg.items),
       name:     'Family Office Compliance'
     });
-    sent++;
-    Logger.log('Compliance reminder sent to ' + pkg.email + ' (' + pkg.items.length + ' items)');
+    personSent++;
+    Logger.log('Compliance T-14 reminder → ' + pkg.email + ' (' + pkg.items.length + ' items)');
   });
-  return { sent: sent, buckets: Object.keys(byEmail).length };
+
+  // ── Pass B: T-1 → Amanda + Brandon only, person NOT CC'd ────────────────
+  var abItems = items
+    .map(function(it) { return { item: it, u: _complianceUrgency_(it) }; })
+    .filter(function(x) { return x.u.isActive && _complianceShouldRemindAB_(x.u.daysAway); })
+    .map(function(x)   { return Object.assign({}, x.item, { _urgency: x.u }); });
+  var ccList = _complianceCcList_();
+  if (abItems.length && ccList) {
+    var html = _buildComplianceReminderHtml_('Amanda & Brandon', abItems);
+    MailApp.sendEmail({
+      to:       ccList,
+      subject:  'Compliance DUE TOMORROW — ' + abItems.length + ' item' + (abItems.length === 1 ? '' : 's'),
+      htmlBody: html,
+      body:     _buildComplianceReminderPlain_('Amanda & Brandon', abItems),
+      name:     'Family Office Compliance'
+    });
+    abSent = 1;
+    Logger.log('Compliance T-1 escalation → ' + ccList + ' (' + abItems.length + ' items)');
+  } else if (abItems.length && !ccList) {
+    Logger.log('Compliance T-1: ' + abItems.length + ' items but no CC list configured — nothing sent.');
+  }
+
+  return {
+    sent:        personSent + abSent,
+    personTier:  personSent,
+    abTier:      abSent,
+    personCount: Object.keys(personBuckets).length,
+    abCount:     abItems.length
+  };
 }
 
-// Weekly digest to Amanda + Brandon every Monday 7:30 AM ET.
+// Weekly past-due list to Amanda only. Fires Mondays 7:30 AM ET.
+// Lists every active item whose Next Due Date is in the past. If nothing
+// is overdue, no email is sent (reduces inbox noise).
 function weeklyComplianceDigest() {
   ensureComplianceSheets_();
   var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
-  var dueThisWeek = [];
   var overdue = [];
   items.forEach(function(it) {
     var u = _complianceUrgency_(it);
     if (!u.isActive) return;
     if (u.bucket === 'overdue') overdue.push(Object.assign({}, it, { _urgency: u }));
-    else if (u.daysAway != null && u.daysAway <= 7) dueThisWeek.push(Object.assign({}, it, { _urgency: u }));
   });
-  var ccList = _complianceCcList_();
-  if (!ccList) {
-    Logger.log('Weekly digest: no CC addresses configured — skipping.');
-    return { sent: 0 };
+  if (!overdue.length) {
+    Logger.log('Weekly past-due list: nothing overdue — no email sent.');
+    return { sent: 0, overdue: 0 };
   }
-  var html = _buildComplianceDigestHtml_(dueThisWeek, overdue);
+  var to = _complianceOverdueOwnerEmail_();
+  if (!to) {
+    Logger.log('Weekly past-due list: no recipient configured — skipping.');
+    return { sent: 0, overdue: overdue.length };
+  }
+  // Sort oldest-overdue first so the worst items are at the top.
+  overdue.sort(function(a, b) { return (a._urgency.daysAway || 0) - (b._urgency.daysAway || 0); });
+  var html = _buildComplianceDigestHtml_([], overdue);
   MailApp.sendEmail({
-    to:       ccList,
-    subject:  'Compliance Digest — ' + overdue.length + ' overdue / ' + dueThisWeek.length + ' due this week',
+    to:       to,
+    subject:  'Compliance Past-Due List — ' + overdue.length + ' item' + (overdue.length === 1 ? '' : 's') + ' overdue',
     htmlBody: html,
-    body:     _buildComplianceDigestPlain_(dueThisWeek, overdue),
+    body:     _buildComplianceDigestPlain_([], overdue),
     name:     'Family Office Compliance'
   });
-  return { sent: 1, overdue: overdue.length, dueThisWeek: dueThisWeek.length };
+  Logger.log('Weekly past-due list → ' + to + ' (' + overdue.length + ' items)');
+  return { sent: 1, overdue: overdue.length };
+}
+
+// Menu-callable: set/clear the recipient for the weekly past-due list.
+function setComplianceOverdueOwnerEmailFromMenu() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var current = _complianceOverdueOwnerEmail_() || '(none)';
+  var resp = ui.prompt('Weekly Past-Due Recipient',
+    'Where should the weekly past-due list go?\n\nCurrent: ' + current +
+    '\n\nEnter an email address, or leave blank + OK to clear (falls back to CC list).',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var val = String(resp.getResponseText() || '').trim();
+  if (!val) {
+    PropertiesService.getScriptProperties().deleteProperty(_COMPLIANCE_OWNER_EMAIL_KEY);
+    ui.alert('Cleared. Weekly past-due will go to the first address on the CC list (' +
+             (_complianceCcList_() || 'none configured') + ').');
+    return;
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(val)) throw new Error('Not a valid email: ' + val);
+  PropertiesService.getScriptProperties().setProperty(_COMPLIANCE_OWNER_EMAIL_KEY, val);
+  ui.alert('Weekly past-due list will go to: ' + val);
 }
 
 function _complianceCcList_() {
