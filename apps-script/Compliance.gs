@@ -2193,7 +2193,21 @@ function _compDateFromISO_(iso) {
 function updateComplianceDatesFromExcel() {
   var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   _requireEditor_();
-  var sheet = getSheet_('COMPLIANCE_ITEMS');
+  // Use the Compliance-specific lookup: it handles case/whitespace variants
+  // (e.g. "Compliance_Items" vs "COMPLIANCE_ITEMS") and creates the sheet
+  // with the right headers if it is missing.
+  ensureComplianceSheets_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('COMPLIANCE_ITEMS');
+  if (!sheet) {
+    // Case/whitespace fallback — scan all sheets.
+    var all = ss.getSheets();
+    for (var i = 0; i < all.length; i++) {
+      if (String(all[i].getName()).toLowerCase().trim() === 'compliance_items') {
+        sheet = all[i]; break;
+      }
+    }
+  }
   if (!sheet) { if (ui) ui.alert('COMPLIANCE_ITEMS sheet not found. Run "Seed Compliance Calendar" first.'); return; }
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) { if (ui) ui.alert('No rows in COMPLIANCE_ITEMS.'); return; }
