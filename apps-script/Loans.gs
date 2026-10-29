@@ -2137,25 +2137,38 @@ function pauseAssetLoanAlerts() {
     return;
   }
 
-  // Show the list and ask which to toggle, by substring.
+  // Show the list and ask which to toggle. Accept EITHER the row number
+  // from the list OR any unique substring of the loan name.
   var list = candidates.map(function(c, i) {
     return (i + 1) + '. ' + (c.paused ? '[PAUSED] ' : '[active] ') + c.name + (c.entity ? ' · ' + c.entity : '') + '  (due ' + String(c.due).substring(0, 10) + ')';
   }).join('\n');
   var resp = ui.prompt('Pause / Resume Overdue Alerts',
     'Asset-based loans that overdue-alerts can fire on:\n\n' + list +
-    '\n\nEnter the loan name (or any unique substring) to toggle its alert state. ' +
+    '\n\nType the NUMBER from the list (e.g. "1") or any part of the loan name. ' +
     'A row marked [PAUSED] will not trigger daily overdue alert emails until you toggle it back.',
     ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return;
-  var needle = String(resp.getResponseText() || '').trim().toLowerCase();
-  if (!needle) return;
-  var matches = candidates.filter(function(c) { return c.name.toLowerCase().indexOf(needle) >= 0; });
-  if (!matches.length) { ui.alert('No loan name contains "' + needle + '".'); return; }
-  if (matches.length > 1) {
-    ui.alert('Multiple matches — refine your search:\n\n' + matches.map(function(m) { return '  • ' + m.name; }).join('\n'));
-    return;
+  var raw = String(resp.getResponseText() || '').trim();
+  if (!raw) return;
+  var pick = null;
+  // Try as a 1-based list number first.
+  if (/^\d+$/.test(raw)) {
+    var n = parseInt(raw, 10);
+    if (n >= 1 && n <= candidates.length) pick = candidates[n - 1];
+    else { ui.alert('Number out of range. Pick between 1 and ' + candidates.length + '.'); return; }
+  } else {
+    var needle = raw.toLowerCase();
+    var matches = candidates.filter(function(c) { return c.name.toLowerCase().indexOf(needle) >= 0; });
+    if (!matches.length) {
+      ui.alert('No loan name contains "' + raw + '". Try the row number from the list instead (1–' + candidates.length + ').');
+      return;
+    }
+    if (matches.length > 1) {
+      ui.alert('Multiple matches — type the row number instead, or refine the search:\n\n' + matches.map(function(m) { return '  • ' + m.name; }).join('\n'));
+      return;
+    }
+    pick = matches[0];
   }
-  var pick = matches[0];
   var nowPaused = !pick.paused;
   pick.det.suppressAlerts = nowPaused;
   if (nowPaused) pick.det.alertStatus = 'paused';
