@@ -2179,3 +2179,47 @@ function pauseAssetLoanAlerts() {
     : 'ACTIVE — the daily overdue alerter will include this row again on the next run.'));
   Logger.log('pauseAssetLoanAlerts: ' + pick.name + ' → ' + (nowPaused ? 'paused' : 'active'));
 }
+
+// Menu-callable: just show which asset-based loans currently have their
+// overdue alerts paused. Read-only — no toggling. Useful for "wait, which
+// ones did I pause and when?" questions without having to run the toggle
+// menu and risk flipping the wrong row.
+function listPausedAssetLoans() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('ASSETS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('No ASSETS rows found.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iName = hdr.indexOf('Name');
+  var iCat  = hdr.indexOf('Category');
+  var iEnt  = hdr.indexOf('Entity');
+  var iDet  = hdr.indexOf('Details');
+  var iArch = hdr.indexOf('Archived');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var paused = [];
+  data.forEach(function(row) {
+    var cat = String(row[iCat] || '').toLowerCase();
+    if (cat.indexOf('loan') < 0 && cat.indexOf('promissory') < 0) return;
+    var arch = iArch >= 0 ? String(row[iArch] || '').toLowerCase() : '';
+    if (arch === 'yes' || arch === 'true') return;
+    var detRaw = row[iDet];
+    var det = {}; try { det = detRaw ? JSON.parse(detRaw) : {}; } catch(e) { det = {}; }
+    if (det.suppressAlerts === true || String(det.alertStatus||'').toLowerCase() === 'paused') {
+      paused.push({
+        name:   String(row[iName] || ''),
+        entity: iEnt >= 0 ? String(row[iEnt] || '') : '',
+        due:    det.loanDue ? String(det.loanDue).substring(0, 10) : '(no due date)'
+      });
+    }
+  });
+  if (!paused.length) {
+    ui.alert('No asset-based loans are currently paused.\n\nAll of them will trigger overdue alerts normally. To pause one, use Tracker → Loans → Pause / Resume overdue alerts for an asset-based loan.');
+    return;
+  }
+  var list = paused.map(function(p, i) {
+    return (i + 1) + '. ' + p.name + (p.entity ? ' · ' + p.entity : '') + '  (due ' + p.due + ')';
+  }).join('\n');
+  ui.alert('Paused asset-based loans (' + paused.length + ')',
+    list + '\n\nTo unpause any of these, use Tracker → Loans → Pause / Resume overdue alerts for an asset-based loan — same menu, pick the row, it toggles back to active.',
+    ui.ButtonSet.OK);
+}

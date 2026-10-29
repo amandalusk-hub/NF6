@@ -420,6 +420,7 @@ function onOpen() {
     .addItem('Loans → Backfill Solaris Jan-Mar payments', 'seedSolarisMissingPayments')
     .addItem('Loans → Fix Solaris backfill Principal/Interest + report orphans', 'fixSolarisBackfillPrincipal')
     .addItem('Loans → Pause / Resume overdue alerts for an asset-based loan', 'pauseAssetLoanAlerts')
+    .addItem('Loans → Show which asset-based loans are paused', 'listPausedAssetLoans')
     .addSeparator()
     .addItem('Assets → Fix Casa Bianca / Moros / Faranda (force USD values + %)', 'fixEffectiveStakeAssets')
     .addItem('Assets → Fix Casa Bianca only (legacy alias)', 'fixCasaBianca')
