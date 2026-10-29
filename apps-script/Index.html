@@ -746,48 +746,61 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
   </div>
 
   <div class="tab-panel" id="tab-compliance">
-    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-      <h2 style="font-size:20px;color:#0d2137;margin:0">Compliance Calendar</h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" onclick="_compOpenNew()" style="padding:6px 12px;font-size:12px">+ Add Item</button>
-        <button class="btn btn-secondary" onclick="_compOpenPeople()" style="padding:6px 12px;font-size:12px">👥 People</button>
-        <button class="btn btn-secondary" onclick="loadCompliance()">↻ Refresh</button>
+    <!-- Editorial shell — matches the Summary tab's cream/serif vibe. -->
+    <div style="background:#faf7f1;min-height:100vh;margin:-20px;padding:36px 44px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+      <!-- Header strip -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;gap:16px;flex-wrap:wrap">
+        <div>
+          <div id="comp-header-eyebrow" style="font-size:11px;color:#6b6b73;letter-spacing:1.5px;font-weight:600;margin-bottom:6px">COMPLIANCE CALENDAR</div>
+          <h1 style="font-family:Georgia,'Playfair Display','Times New Roman',serif;font-size:38px;font-weight:400;color:#0d0f12;margin:0;letter-spacing:-.5px">Obligations &amp; renewals</h1>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="_compOpenNew()" style="background:#0d0f12;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500">+ Add item</button>
+          <button onclick="_compOpenPeople()" style="background:#fff;color:#0d0f12;border:1px solid #eae4d6;padding:10px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500">People</button>
+          <button onclick="loadCompliance()" style="background:#fff;color:#6b6b73;border:1px solid #eae4d6;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer">↻</button>
+        </div>
       </div>
-    </div>
-    <!-- Filters — multi-select popovers -->
-    <div style="margin-bottom:16px">
-      <input id="comp-filter-search" placeholder="🔍  Search obligations, categories, notes…" oninput="_compRender()" style="width:100%;padding:11px 14px;border:1px solid #d0dae5;border-radius:8px;font-size:14px;background:#fff;margin-bottom:10px">
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:relative">
-        <select id="comp-filter-urgency" onchange="_compRender()" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">
-          <option value="all">All items</option>
-          <option value="overdue">Overdue only</option>
-          <option value="active">Active</option>
-          <option value="due60">Due in 60 days</option>
-          <option value="due30">Due in 30 days</option>
-          <option value="due7">Due in 7 days</option>
-        </select>
-        <button id="comp-filter-entity-btn" onclick="_compToggleFilterPopover('entity', event)" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All entities ▾</button>
-        <button id="comp-filter-type-btn"   onclick="_compToggleFilterPopover('type', event)"   style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All types ▾</button>
-        <button id="comp-filter-person-btn" onclick="_compToggleFilterPopover('person', event)" style="padding:7px 12px;border:1px solid #d0dae5;border-radius:20px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer">All people ▾</button>
-        <button id="comp-filter-me-btn"     onclick="_compJumpToMe()" title="Show items where you're responsible (incl. compound names like Amanda/Brandon)" style="padding:7px 12px;border:1px solid #1d4ed8;border-radius:20px;font-size:12px;background:#dbeafe;color:#1d4ed8;cursor:pointer;font-weight:600">Just me</button>
-        <button id="comp-filter-clear-btn"  onclick="_compClearFilters()" style="padding:7px 12px;border:1px solid #e8ecf1;border-radius:20px;font-size:11px;background:transparent;color:#7a8ba8;cursor:pointer">Clear</button>
+
+      <!-- Stat tiles (populated by _compRenderStatTiles) -->
+      <div id="comp-stat-tiles" style="background:#ffffff;border:1px solid #eae4d6;border-radius:10px;padding:24px 28px;margin-bottom:24px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:24px">
+          <div><div style="font-size:12px;color:#6b6b73;margin-bottom:8px">Total items</div><div style="font-family:Georgia,serif;font-size:28px;color:#0d0f12">—</div></div>
+        </div>
       </div>
-      <!-- Selected-value chips surface below the row so Amanda can see what's active -->
-      <div id="comp-filter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px"></div>
-      <!-- Popover for the active multi-select filter — viewport-fixed so
-           positioning is calculated directly from the button's bounding rect
-           (no offsetParent math quirks). -->
-      <div id="comp-filter-popover" style="display:none;position:fixed;z-index:1000;background:#fff;border:1px solid #d0dae5;border-radius:8px;padding:10px;box-shadow:0 6px 24px rgba(13,33,55,.12);min-width:240px;max-width:340px;max-height:360px;overflow-y:auto"></div>
-    </div>
-    <!-- View toggle -->
-    <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
-      <button data-cv="cards"    onclick="_compSwitchView('cards')"    class="comp-view-btn comp-view-btn-active" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#0d2137;color:#fff;cursor:pointer;font-weight:600">🧱 Cards</button>
-      <button data-cv="timeline" onclick="_compSwitchView('timeline')" class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">📅 Timeline</button>
-      <button data-cv="byperson" onclick="_compSwitchView('byperson')" class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">👥 By Person</button>
-      <button data-cv="list"     onclick="_compSwitchView('list')"     class="comp-view-btn" style="padding:6px 14px;border:1px solid #d0dae5;border-radius:18px;font-size:12px;background:#fff;color:#0d2137;cursor:pointer;font-weight:500">📋 List</button>
-    </div>
-    <div id="compliance-content">
-      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>
+
+      <!-- Filters — pill style tuned to the cream background -->
+      <div style="margin-bottom:14px">
+        <input id="comp-filter-search" placeholder="🔍  Search obligations, categories, notes…" oninput="_compRender()" style="width:100%;padding:11px 14px;border:1px solid #eae4d6;border-radius:8px;font-size:14px;background:#ffffff;margin-bottom:10px;box-sizing:border-box">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;position:relative">
+          <select id="comp-filter-urgency" onchange="_compRender()" style="padding:7px 12px;border:1px solid #eae4d6;border-radius:20px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer">
+            <option value="all">All items</option>
+            <option value="overdue">Overdue only</option>
+            <option value="active">Active</option>
+            <option value="due60">Due in 60 days</option>
+            <option value="due30">Due in 30 days</option>
+            <option value="due7">Due in 7 days</option>
+          </select>
+          <button id="comp-filter-entity-btn" onclick="_compToggleFilterPopover('entity', event)" style="padding:7px 12px;border:1px solid #eae4d6;border-radius:20px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer">All entities ▾</button>
+          <button id="comp-filter-type-btn"   onclick="_compToggleFilterPopover('type', event)"   style="padding:7px 12px;border:1px solid #eae4d6;border-radius:20px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer">All types ▾</button>
+          <button id="comp-filter-person-btn" onclick="_compToggleFilterPopover('person', event)" style="padding:7px 12px;border:1px solid #eae4d6;border-radius:20px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer">All people ▾</button>
+          <button id="comp-filter-me-btn"     onclick="_compJumpToMe()" title="Show items where you're responsible (incl. compound names like Amanda/Brandon)" style="padding:7px 12px;border:1px solid #0d0f12;border-radius:20px;font-size:12px;background:#0d0f12;color:#faf7f1;cursor:pointer;font-weight:600">Just me</button>
+          <button id="comp-filter-clear-btn"  onclick="_compClearFilters()" style="padding:7px 12px;border:1px solid transparent;border-radius:20px;font-size:11px;background:transparent;color:#6b6b73;cursor:pointer">Clear</button>
+        </div>
+        <div id="comp-filter-chips" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px"></div>
+        <div id="comp-filter-popover" style="display:none;position:fixed;z-index:1000;background:#fff;border:1px solid #eae4d6;border-radius:8px;padding:10px;box-shadow:0 6px 24px rgba(13,15,18,.08);min-width:240px;max-width:340px;max-height:360px;overflow-y:auto"></div>
+      </div>
+
+      <!-- View toggle — pill style on cream -->
+      <div style="display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap">
+        <button data-cv="cards"    onclick="_compSwitchView('cards')"    class="comp-view-btn comp-view-btn-active" style="padding:7px 16px;border:1px solid #0d0f12;border-radius:18px;font-size:12px;background:#0d0f12;color:#faf7f1;cursor:pointer;font-weight:600">Cards</button>
+        <button data-cv="timeline" onclick="_compSwitchView('timeline')" class="comp-view-btn" style="padding:7px 16px;border:1px solid #eae4d6;border-radius:18px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer;font-weight:500">Timeline</button>
+        <button data-cv="byperson" onclick="_compSwitchView('byperson')" class="comp-view-btn" style="padding:7px 16px;border:1px solid #eae4d6;border-radius:18px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer;font-weight:500">By person</button>
+        <button data-cv="list"     onclick="_compSwitchView('list')"     class="comp-view-btn" style="padding:7px 16px;border:1px solid #eae4d6;border-radius:18px;font-size:12px;background:#fff;color:#0d0f12;cursor:pointer;font-weight:500">List</button>
+      </div>
+
+      <div id="compliance-content">
+        <div style="padding:40px;text-align:center;color:#6b6b73">Loading compliance items…</div>
+      </div>
     </div>
   </div>
 
@@ -10440,12 +10453,14 @@ var _compState = {
 function loadCompliance() {
   _compState.loading = true;
   document.getElementById('compliance-content').innerHTML =
-    '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading compliance items…</div>';
+    '<div style="padding:40px;text-align:center;color:#6b6b73">Loading compliance items…</div>';
   google.script.run
     .withSuccessHandler(function(data) {
       _compState.loading = false;
       _compState.items = (data && data.items) || [];
       _compPopulateFilters();
+      _compRenderStatTiles();
+      _compUpdateHeaderEyebrow();
       _compRender();
     })
     .withFailureHandler(function(e) {
@@ -10459,6 +10474,76 @@ function loadCompliance() {
 function _compPopulateFilters() {
   // No-op now that multi-select popovers build their list on open. Kept as a
   // hook so loadCompliance's call site doesn't need to change.
+}
+
+// Editorial-style stat tiles for the Compliance tab header. Reads the full
+// item list (not the filtered view) so these numbers are the stable
+// "state of the world" summary rather than shifting with every filter click.
+function _compRenderStatTiles() {
+  var el = document.getElementById('comp-stat-tiles');
+  if (!el) return;
+  var items = _compState.items || [];
+  var active = items.filter(function(it) {
+    var s = String(it.Status || '').toLowerCase();
+    return s !== 'done' && s !== 'cancelled';
+  });
+  var now = new Date();
+  function daysBetween(a, b) { return Math.floor((b - a) / 86400000); }
+  function dueDate(it) {
+    var d = it['Next Due Date'];
+    if (!d) return null;
+    var dt = new Date(d);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+  var overdue = 0, due30 = 0, due7 = 0, upcoming90 = 0, noDate = 0, nextDueItem = null, nextDueDays = null;
+  active.forEach(function(it) {
+    var dt = dueDate(it);
+    if (!dt) { noDate++; return; }
+    var dd = daysBetween(now, dt);
+    if (dd < 0)      overdue++;
+    else if (dd <= 7)  { due7++; due30++; }
+    else if (dd <= 30) { due30++; }
+    if (dd >= 0 && dd <= 90) upcoming90++;
+    if (dd >= 0 && (nextDueDays === null || dd < nextDueDays)) {
+      nextDueDays = dd; nextDueItem = it;
+    }
+  });
+
+  var ink = '#0d0f12', mutedDark = '#6b6b73', serif = "Georgia, 'Playfair Display', 'Times New Roman', serif";
+  var red = '#8a2a2a', green = '#1e5e3e', amber = '#9c6c0f';
+
+  function tile(label, value, color, sub) {
+    return '<div>' +
+      '<div style="font-size:12px;color:' + mutedDark + ';margin-bottom:8px">' + esc(label) + '</div>' +
+      '<div style="font-family:' + serif + ';font-size:30px;font-weight:400;color:' + (color || ink) + ';line-height:1">' + value + '</div>' +
+      (sub ? '<div style="font-size:11px;color:' + mutedDark + ';margin-top:6px">' + esc(sub) + '</div>' : '') +
+    '</div>';
+  }
+  var nextDueLabel = nextDueItem
+    ? (function() {
+        var raw = (nextDueItem.Obligation || '').split('\n')[0];
+        if (raw.length > 42) raw = raw.substring(0, 40) + '…';
+        return raw + ' · ' + (nextDueDays === 0 ? 'today' : nextDueDays === 1 ? 'tomorrow' : 'in ' + nextDueDays + ' days');
+      })()
+    : (noDate ? 'No due dates on file' : '');
+
+  el.innerHTML =
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:24px">' +
+      tile('Active items', String(active.length), ink, items.length !== active.length ? (items.length - active.length) + ' done/cancelled' : '') +
+      tile('Overdue', String(overdue), overdue ? red : ink, overdue ? 'needs action' : 'all current') +
+      tile('Due in 30 days', String(due30), due30 ? amber : ink, due7 ? due7 + ' due this week' : '') +
+      tile('Next up', nextDueDays == null ? '—' : (nextDueDays === 0 ? 'today' : nextDueDays === 1 ? '1 day' : nextDueDays + ' days'), nextDueDays != null && nextDueDays <= 7 ? amber : ink, nextDueItem ? (nextDueItem.Obligation || '').split('\n')[0].substring(0, 60) : '') +
+    '</div>';
+}
+
+// Keeps the "COMPLIANCE CALENDAR · AS OF OCT 29, 2026" eyebrow in sync.
+function _compUpdateHeaderEyebrow() {
+  var el = document.getElementById('comp-header-eyebrow');
+  if (!el) return;
+  var mos = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  var d = new Date();
+  var asOf = mos[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+  el.textContent = 'COMPLIANCE CALENDAR · AS OF ' + asOf;
 }
 
 // Collect sorted unique values for a filter field. For "person" we SPLIT
@@ -10794,34 +10879,23 @@ function _compCard(it, accentColor) {
 
 function _compSwitchView(mode) {
   _compState.viewMode = mode;
-  // Visual toggle on the pill buttons
+  // Visual toggle — editorial palette (ink/cream) to match the Summary vibe
   Array.prototype.forEach.call(document.querySelectorAll('.comp-view-btn'), function(b) {
     var active = b.getAttribute('data-cv') === mode;
-    b.style.background = active ? '#0d2137' : '#fff';
-    b.style.color      = active ? '#fff'    : '#0d2137';
-    b.style.fontWeight = active ? '600'     : '500';
+    b.style.background   = active ? '#0d0f12' : '#fff';
+    b.style.color        = active ? '#faf7f1' : '#0d0f12';
+    b.style.borderColor  = active ? '#0d0f12' : '#eae4d6';
+    b.style.fontWeight   = active ? '600'     : '500';
     if (active) b.classList.add('comp-view-btn-active'); else b.classList.remove('comp-view-btn-active');
   });
   _compRender();
 }
 
-// Always-show stat tiles + filter banner reused across views.
-function _compStatTilesHtml(all) {
-  var o = 0, c = 0, s = 0, a = 0;
-  all.forEach(function(i) {
-    var u = i._urgency; if (!u) return;
-    if (u.isActive) a++;
-    if (u.bucket === 'overdue') o++;
-    if (u.bucket === 'critical') c++;
-    if (u.bucket === 'due-soon') s++;
-  });
-  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px">' +
-    _compTile('OVERDUE', o, '#c5221f', 'overdue') +
-    _compTile('DUE IN ≤7 DAYS', c, '#ea8600', 'due7') +
-    _compTile('DUE IN ≤30 DAYS', s, '#f9ab00', 'due30') +
-    _compTile('ACTIVE', a, '#1e8e3e', 'active') +
-  '</div>';
-}
+// Legacy stat-tiles row that used to live above every view's content.
+// Replaced by the editorial header tiles at the top of the Compliance
+// tab (_compRenderStatTiles). This stays as a no-op so the three existing
+// call sites keep working without having to touch each one.
+function _compStatTilesHtml(all) { return ''; }
 
 // ─── Timeline view: next 12 months horizontally, overdue pinned left ────────
 
