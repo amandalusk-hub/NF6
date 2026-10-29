@@ -841,14 +841,29 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Link to Docs</label>
             <input id="comp-f-link" type="url" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
           <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Payment Method</label>
             <input id="comp-f-paymethod" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
           <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Account Number</label>
             <input id="comp-f-acctnum" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Point of Contact</label>
-            <input id="comp-f-contact" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
         </div>
+        <fieldset style="border:1px solid #d8dfe6;border-radius:5px;padding:10px 12px 12px;margin-bottom:12px">
+          <legend style="color:#5f7791;font-size:11px;font-weight:600;padding:0 6px">Point of Contact</legend>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+            <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Name</label>
+              <input id="comp-f-contact-name" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+            <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Phone</label>
+              <input id="comp-f-contact-phone" type="tel" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          </div>
+          <div style="margin-bottom:8px"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Email</label>
+            <input id="comp-f-contact-email" type="email" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Other notes</label>
+            <input id="comp-f-contact-notes" type="text" placeholder="role, extension, availability, etc." style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <!-- Hidden back-compat holder: the single sheet column still stores a
+               readable multi-line Name / Phone / Email / Notes blob so existing
+               rows and anything that reads this field keeps working. -->
+          <input id="comp-f-contact" type="hidden">
+        </fieldset>
         <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Notes</label>
           <textarea id="comp-f-notes" rows="2" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical"></textarea></div>
       </div>
@@ -11135,7 +11150,7 @@ function _compOpenNew() {
   _compState.editingId = null;
   document.getElementById('comp-item-title').textContent = 'New Compliance Item';
   document.getElementById('comp-f-delete').style.display = 'none';
-  ['obligation','type','category','location','entity','responsible','lastdone','nextdue','cost','description','website','link','paymethod','acctnum','contact','notes'].forEach(function(k) {
+  ['obligation','type','category','location','entity','responsible','lastdone','nextdue','cost','description','website','link','paymethod','acctnum','contact','contact-name','contact-phone','contact-email','contact-notes','notes'].forEach(function(k) {
     var el = document.getElementById('comp-f-' + k); if (el) el.value = '';
   });
   document.getElementById('comp-f-status').value = 'Up to Date';
@@ -11165,9 +11180,58 @@ function _compOpenEdit(id) {
   document.getElementById('comp-f-link').value = it['Link to Docs'] || '';
   document.getElementById('comp-f-paymethod').value = it['Payment Method'] || '';
   document.getElementById('comp-f-acctnum').value = it['Account Number'] || '';
-  document.getElementById('comp-f-contact').value = it['Point of Contact'] || '';
+  _compHydratePOC(it['Point of Contact'] || '');
   document.getElementById('comp-f-notes').value = it.Notes || '';
   openModal('comp-item-modal');
+}
+
+// Split the single "Point of Contact" string into {name, phone, email, notes}
+// using lenient regex. Handles the two shapes we have in the wild:
+//   • Newline-separated: "Jayson Diaz\n787-904-8455\njjgolfcartcarepr@gmail.com"
+//   • Jammed together:   "Jayson Diaz787-904-8455jjgolfcartcarepr@gmail.com"
+// Email + phone are extracted first (they're the most reliably detectable),
+// whatever remains is treated as Name on line 1 and Other notes after.
+function _compParsePOC(raw) {
+  var s = String(raw == null ? '' : raw);
+  if (!s.trim()) return { name:'', phone:'', email:'', notes:'' };
+  var email = '', phone = '';
+  var emailRe = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/;
+  var mE = s.match(emailRe);
+  if (mE) { email = mE[0]; s = s.replace(mE[0], ' '); }
+  // Phone: 7+ digits, allowing separators and leading + / country code.
+  var phoneRe = /(\+?\d[\d\-.\s()]{6,}\d)(?:\s*(?:ext\.?|x)\s*\d+)?/i;
+  var mP = s.match(phoneRe);
+  if (mP) { phone = mP[0].trim(); s = s.replace(mP[0], ' '); }
+  // Collapse separator junk, split on newlines, take first non-empty as name.
+  var lines = s.split(/[\n\r]+/).map(function(x){ return x.replace(/[\s|,;]+/g,' ').trim(); }).filter(Boolean);
+  var name = (lines[0] || '').replace(/^-+\s*|\s*-+$/g, '').trim();
+  var notes = lines.slice(1).join(' · ').trim();
+  return { name:name, phone:phone, email:email, notes:notes };
+}
+
+function _compHydratePOC(raw) {
+  var parts = _compParsePOC(raw);
+  document.getElementById('comp-f-contact-name').value  = parts.name;
+  document.getElementById('comp-f-contact-phone').value = parts.phone;
+  document.getElementById('comp-f-contact-email').value = parts.email;
+  document.getElementById('comp-f-contact-notes').value = parts.notes;
+  document.getElementById('comp-f-contact').value       = raw || '';
+}
+
+// Rejoin the four subfields into a single readable multi-line string so the
+// one sheet column still works everywhere (reminders, calendar event body,
+// digest emails). Empty subfields are skipped.
+function _compJoinPOC() {
+  var n = document.getElementById('comp-f-contact-name').value.trim();
+  var p = document.getElementById('comp-f-contact-phone').value.trim();
+  var e = document.getElementById('comp-f-contact-email').value.trim();
+  var o = document.getElementById('comp-f-contact-notes').value.trim();
+  var parts = [];
+  if (n) parts.push(n);
+  if (e) parts.push(e);
+  if (p) parts.push(p);
+  if (o) parts.push(o);
+  return parts.join('\n');
 }
 
 function _compSave() {
@@ -11188,7 +11252,7 @@ function _compSave() {
     'Link to Docs':       document.getElementById('comp-f-link').value,
     'Payment Method':     document.getElementById('comp-f-paymethod').value,
     'Account Number':     document.getElementById('comp-f-acctnum').value,
-    'Point of Contact':   document.getElementById('comp-f-contact').value,
+    'Point of Contact':   _compJoinPOC(),
     'Notes':              document.getElementById('comp-f-notes').value
   };
   if (!data.Obligation.trim()) { toast('Obligation required', 'error'); return; }
