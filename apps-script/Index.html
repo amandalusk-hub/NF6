@@ -831,8 +831,13 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
           <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Entity</label>
             <input id="comp-f-entity" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Person Responsible</label>
-            <input id="comp-f-responsible" type="text" placeholder="Amanda/Brandon" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Person Responsible</label>
+            <div style="display:flex;gap:4px">
+              <input id="comp-f-responsible" type="text" placeholder="Amanda/Brandon" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
+              <button type="button" onclick="_compToggleResponsiblePicker(event)" style="padding:0 10px;border:1px solid #c0ccd8;border-left:none;border-radius:0 4px 4px 0;background:#faf7f1;color:#0d0f12;font-size:13px;cursor:pointer" title="Pick from people list">▾</button>
+            </div>
+            <div id="comp-responsible-picker" style="display:none;position:absolute;z-index:1001;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #eae4d6;border-radius:5px;padding:8px;box-shadow:0 4px 16px rgba(13,15,18,.1);max-height:220px;overflow-y:auto"></div>
+          </div>
           <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Frequency</label>
             <select id="comp-f-frequency" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
               <option value="">—</option><option>Monthly</option><option>Quarterly</option><option>bi-yearly</option><option selected>Yearly</option><option>One-time</option><option>Other</option>
@@ -947,6 +952,24 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
           <div style="display:flex;gap:8px;align-items:center">
             <input id="comp-cc-list" type="text" placeholder="amanda@example.com, brandon@example.com" style="flex:1;padding:6px 10px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px">
             <button class="btn btn-secondary" onclick="_compSaveCc()" style="padding:5px 10px;font-size:11px">Save CC</button>
+          </div>
+        </div>
+        <!-- Add new person form — collapses to a single button until clicked. -->
+        <div style="margin-bottom:10px">
+          <button id="comp-add-person-btn" onclick="_compShowAddPersonForm()" style="background:#0d0f12;color:#fff;border:none;padding:8px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:500">+ Add person</button>
+          <div id="comp-add-person-form" style="display:none;margin-top:8px;padding:10px 12px;background:#faf7f1;border:1px solid #eae4d6;border-radius:5px">
+            <div style="display:grid;grid-template-columns:1fr 1.4fr auto auto;gap:8px;align-items:end">
+              <div>
+                <label style="display:block;font-size:11px;color:#5f6368;font-weight:600;margin-bottom:3px">Name</label>
+                <input id="comp-new-person-name" type="text" placeholder="e.g. Mint" style="width:100%;padding:6px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:#5f6368;font-weight:600;margin-bottom:3px">Email</label>
+                <input id="comp-new-person-email" type="email" placeholder="mint@nf6.com" style="width:100%;padding:6px 8px;border:1px solid #c0ccd8;border-radius:4px;font-size:12px;box-sizing:border-box">
+              </div>
+              <button class="btn btn-primary" onclick="_compSaveNewPerson()" style="padding:6px 12px;font-size:12px;background:#0d0f12">Save</button>
+              <button class="btn btn-secondary" onclick="_compHideAddPersonForm()" style="padding:6px 12px;font-size:12px">Cancel</button>
+            </div>
           </div>
         </div>
         <div id="comp-people-list"></div>
@@ -11489,6 +11512,88 @@ function _compMarkDone(id) {
   openModal('comp-markdone-modal');
 }
 
+// Person Responsible picker — opens a popover with every known person as
+// a checkbox. Current selections (parsed from the free-text "Amanda/
+// Brandon" input) are pre-checked. Checking/unchecking rebuilds the
+// text value as "A/B/C" joined with slashes, matching the format the
+// reminder engine already splits on. Still allows free-text in the input
+// directly for one-off names not in the people list.
+function _compToggleResponsiblePicker(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  var pop = document.getElementById('comp-responsible-picker');
+  if (!pop) return;
+  if (pop.style.display !== 'none') { pop.style.display = 'none'; return; }
+
+  // Ensure we have a cached people list; fetch if not.
+  if (!_compState.people || !_compState.people.length) {
+    pop.innerHTML = '<div style="color:#6b6b73;font-size:12px;padding:6px">Loading people…</div>';
+    pop.style.display = '';
+    google.script.run
+      .withSuccessHandler(function(ppl) {
+        _compState.people = ppl || [];
+        _compRenderResponsiblePicker();
+      })
+      .withFailureHandler(function(e) {
+        pop.innerHTML = '<div style="color:#8a2a2a;font-size:12px;padding:6px">Load failed: ' + esc(e.message || String(e)) + '</div>';
+      })
+      .getCompliancePeople();
+    return;
+  }
+  _compRenderResponsiblePicker();
+}
+
+function _compRenderResponsiblePicker() {
+  var pop = document.getElementById('comp-responsible-picker');
+  if (!pop) return;
+  var currentRaw = String((document.getElementById('comp-f-responsible') || {}).value || '');
+  var selected = {};
+  currentRaw.split(/[\/,&]+/).map(function(s) { return s.trim(); }).filter(Boolean).forEach(function(n) {
+    selected[n.toLowerCase()] = true;
+  });
+  var people = (_compState.people || []).slice().sort(function(a, b) {
+    return (a.Name || '').toLowerCase() < (b.Name || '').toLowerCase() ? -1 : 1;
+  });
+  if (!people.length) {
+    pop.innerHTML = '<div style="color:#6b6b73;font-size:12px;padding:6px">No people on file yet. Click the People button at the top of the Compliance tab to add some.</div>';
+    pop.style.display = '';
+    return;
+  }
+  pop.innerHTML = people.map(function(p) {
+    var checked = selected[String(p.Name || '').toLowerCase()] ? 'checked' : '';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 4px;cursor:pointer;font-size:12.5px;color:#0d0f12">' +
+      '<input type="checkbox" value="' + esc(p.Name || '') + '" ' + checked + ' onchange="_compResponsiblePickerChanged()">' +
+      esc(p.Name || '') + (p.Email ? ' <span style="color:#9aa5b1;font-size:11px">(' + esc(p.Email) + ')</span>' : '') +
+    '</label>';
+  }).join('') +
+  '<div style="margin-top:6px;padding-top:6px;border-top:1px solid #eae4d6;font-size:10.5px;color:#6b6b73;line-height:1.4">' +
+    'Multiple selections join as "Name1/Name2". You can still type freely in the input for one-off names.' +
+  '</div>';
+  pop.style.display = '';
+  // Click-outside closes it.
+  setTimeout(function() {
+    document.addEventListener('click', _compResponsibleClickOutside, true);
+  }, 0);
+}
+
+function _compResponsiblePickerChanged() {
+  var pop = document.getElementById('comp-responsible-picker');
+  if (!pop) return;
+  var names = Array.prototype.slice.call(pop.querySelectorAll('input[type=checkbox]:checked'))
+    .map(function(cb) { return cb.value; });
+  document.getElementById('comp-f-responsible').value = names.join('/');
+}
+
+function _compResponsibleClickOutside(e) {
+  var pop = document.getElementById('comp-responsible-picker');
+  if (!pop || pop.style.display === 'none') { document.removeEventListener('click', _compResponsibleClickOutside, true); return; }
+  if (pop.contains(e.target)) return;
+  // Don't close if the user clicked the ▾ toggle itself.
+  var toggle = pop.previousElementSibling && pop.previousElementSibling.querySelector && pop.previousElementSibling.querySelector('button');
+  if (toggle && toggle.contains(e.target)) return;
+  pop.style.display = 'none';
+  document.removeEventListener('click', _compResponsibleClickOutside, true);
+}
+
 // Open Mark Done from inside the item-edit modal. Just delegates to the
 // same dialog opener; on confirm, both modals close.
 function _compMarkDoneFromModal() {
@@ -11560,6 +11665,38 @@ function _compSavePerson(name, idx) {
   var email = document.getElementById('comp-ppl-email-' + idx).value.trim();
   google.script.run
     .withSuccessHandler(function() { toast('Saved ' + name); })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .upsertCompliancePerson(name, email, true);
+}
+
+function _compShowAddPersonForm() {
+  document.getElementById('comp-add-person-form').style.display = '';
+  document.getElementById('comp-add-person-btn').style.display  = 'none';
+  document.getElementById('comp-new-person-name').value = '';
+  document.getElementById('comp-new-person-email').value = '';
+  document.getElementById('comp-new-person-name').focus();
+}
+function _compHideAddPersonForm() {
+  document.getElementById('comp-add-person-form').style.display = 'none';
+  document.getElementById('comp-add-person-btn').style.display  = '';
+}
+function _compSaveNewPerson() {
+  var name  = document.getElementById('comp-new-person-name').value.trim();
+  var email = document.getElementById('comp-new-person-email').value.trim();
+  if (!name) { toast('Name is required', 'error'); return; }
+  google.script.run
+    .withSuccessHandler(function() {
+      toast('Added ' + name);
+      _compHideAddPersonForm();
+      // Reload the people list so the new row + their email appear immediately,
+      // and the Person Responsible dropdown picks them up on next open.
+      google.script.run
+        .withSuccessHandler(function(ppl) {
+          _compState.people = ppl || [];
+          _compRenderPeople();
+        })
+        .getCompliancePeople();
+    })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .upsertCompliancePerson(name, email, true);
 }
