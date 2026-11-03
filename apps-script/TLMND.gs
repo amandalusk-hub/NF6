@@ -663,7 +663,10 @@ function seedTLMNDRules() { _requireEditor_();
     // "contains WASICA" catches both; nothing else in the TLMND feed
     // references WASICA so there's no false-positive risk.
     [10, 'Name', 'contains', 'WASICA',                            '', '', 'Wasica Holdings Loan Repayment',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound — catches both book-transfer wire and ACH'],
-    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction, typical monthly $2,100', '', 2100],
+    // No Expected Monthly Override — let the forecast auto-average from
+    // actual history. MacDonald flexes between ~$2,083 and ~$2,100 per
+    // payment, so a hardcoded number would always be slightly off.
+    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — Cherry Valley Construction; forecast auto-averages from history ($2,083–$2,100 range)'],
     // ASC rental income: lands under different sender names depending on
     // the month and rail (originally "SA NJ REALTY", now also arriving as
     // FEDWIRE from "WOODLAND PARK MEDICAL SUITES LLC"). Regex catches both.
@@ -2206,10 +2209,11 @@ function fixASCRentalCategoryAndRecategorize() {
 }
 
 
-// One-shot: bump the MacDonald Loan Repayment forecast from $2,083.33
-// to $2,100 to match the actual recurring amount Amanda confirmed.
-// Only touches the Expected Monthly Override column on the matching
-// rule; everything else is left as-is.
+// One-shot: clear the MacDonald Loan Repayment forecast override so the
+// forecast auto-averages from real historical payments instead of being
+// pinned to a single hardcoded number. MacDonald flexes between ~$2,083
+// and ~$2,100 per month, so the override would always be slightly off
+// in one direction or the other.
 function fixMacDonaldExpectedMonthly() {
   _requireEditor_();
   var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -2225,11 +2229,11 @@ function fixMacDonaldExpectedMonthly() {
   var touched = 0;
   data.forEach(function(row, i) {
     if (String(row[iCat] || '').trim() === 'MacDonald Loan Repayment') {
-      rulesSheet.getRange(i + 2, iOverride + 1).setValue(2100);
+      rulesSheet.getRange(i + 2, iOverride + 1).setValue('');
       touched++;
     }
   });
   if (ui) ui.alert(touched
-    ? 'MacDonald Expected Monthly bumped to $2,100 (' + touched + ' rule row updated).\nThe "Next 30 Days Expected" forecast will reflect this on the next TLMND tab render.'
+    ? 'MacDonald Expected Monthly cleared (' + touched + ' rule row updated).\n\nThe forecast will now auto-average from the last few months of real payments, so when he flexes between $2,083 and $2,100 the expected number tracks naturally.'
     : 'No MacDonald Loan Repayment rule found to update. Check TLMND_CATEGORY_RULES.');
 }
