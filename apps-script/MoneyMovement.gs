@@ -556,14 +556,18 @@ function seedMovementTemplates() {
       { order: 20, chain:'Siblings branch (1%)',    from:'NF6 Family Holdings (7932)',   to:'NF6 Joint Mgmt LLC (8972)',             responsible:'Amanda', pct:  1.00, notes:'' },
       // Rev Trust → Mike
       { order: 30, chain:'Mike final leg',          from:'2019 MN Family Revocable Trust (3333)', to:'Michael Nguyen Personal (1319)', responsible:'Amanda', pct: 99.00, notes:'' },
-      // Joint Mgmt → each sibling (1/3 of 1%, using 0.333333% precision so
-      // $100k × 0.333333% = $333.33 rather than $333.00). Third sibling
-      // absorbs the rounding to preserve the sum. These are money-OUT from
-      // the family LLC to sibling personal accounts — Amanda dispatches from
-      // Joint Mgmt, so Amanda (not Ben) is responsible on the down direction.
-      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Amanda',  pct: 0.333333, notes:'' },
-      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Amanda',  pct: 0.333333, notes:'' },
-      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Amanda',  pct: 0.333334, notes:'' }
+      // Joint Mgmt → each sibling. Per Amanda (Nov 2026), Nancy absorbs
+      // the 0.001% rounding so the three sibling shares add to EXACTLY
+      // 1.000% of the distribution. Keeps 3 decimals of precision so
+      // pennies carry on amounts in the thousands:
+      //   David 0.333%, Michelle 0.333%, Nancy 0.334% → sum 1.000%
+      // Example on $10,000: $33.30 / $33.30 / $33.40 = $100.00 exactly.
+      // (These are money-OUT from the family LLC to sibling personal
+      // accounts — Amanda dispatches from Joint Mgmt, so Amanda, not
+      // Ben, is responsible on the down direction.)
+      { order: 30, chain:'Michelle final leg',      from:'NF6 Joint Mgmt LLC (8972)',    to:'Michelle Personal',               responsible:'Amanda',  pct: 0.333, notes:'' },
+      { order: 30, chain:'David final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'David Personal',                  responsible:'Amanda',  pct: 0.333, notes:'' },
+      { order: 30, chain:'Nancy final leg',         from:'NF6 Joint Mgmt LLC (8972)',    to:'Nancy Personal',                  responsible:'Amanda',  pct: 0.334, notes:'Nancy absorbs the sibling-share rounding so 33.3+33.3+33.4 = 100% exactly.' }
     ]
   }, haveByName));
 
@@ -619,12 +623,14 @@ function seedMovementTemplates() {
       // Mike chain (99%)
       { order: 10, chain:'Mike (via Rev Trust)',    from:'Michael Nguyen Personal (1319)',       to:'2019 MN Family Revocable Trust (3333)', responsible:'Amanda', pct: 99.00, notes:'' },
       { order: 20, chain:'Mike (via Rev Trust)',    from:'2019 MN Family Revocable Trust (3333)', to:'NF6 Family Holdings (7932)',            responsible:'Amanda', pct: 99.00, notes:'' },
-      // Sibling chains (0.333333% each — precise 1/3 of 1% so amounts round
-      // to $333.33 rather than $333.00 on a $100k movement). Third sibling
-      // absorbs the rounding. Sibling personal-account wires are Ben's.
-      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
-      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333333, notes:'' },
-      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333334, notes:'' },
+      // Sibling chains — Nancy absorbs the rounding per Amanda (Nov 2026):
+      //   David 0.333%, Michelle 0.333%, Nancy 0.334% → sum 1.000% exact.
+      // Example on $10,000 contribution: $33.30 / $33.30 / $33.40 = $100.00.
+      // Sibling personal-account wires are Ben's responsibility on the
+      // up/contribution direction.
+      { order: 10, chain:'Michelle (via Joint Mgmt)', from:'Michelle Personal', to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 10, chain:'David (via Joint Mgmt)',    from:'David Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.333, notes:'' },
+      { order: 10, chain:'Nancy (via Joint Mgmt)',    from:'Nancy Personal',    to:'NF6 Joint Mgmt LLC (8972)', responsible:'Ben', pct: 0.334, notes:'Nancy absorbs the sibling-share rounding so 33.3+33.3+33.4 = 100% exactly.' },
       // Joint Mgmt consolidation → Family Holdings (1% total)
       { order: 20, chain:'Joint Mgmt consolidation', from:'NF6 Joint Mgmt LLC (8972)', to:'NF6 Family Holdings (7932)', responsible:'Amanda', pct: 1.00, notes:'After 3 sibling contributions merge.' },
       // Family Holdings → Tiger Capital (100% total)
@@ -1671,4 +1677,80 @@ function debugMovementTemplates() {
   Logger.log(lines.join('\n'));
   try { SpreadsheetApp.getUi().alert('Movement Templates', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK); }
   catch(e) { Logger.log('(No UI — output above is in execution log.)'); }
+}
+
+
+// ── One-shot: fix NF6 Tiger Capital sibling percentages (Nov 2026) ────────
+//
+// Amanda asked for Tiger distributions to use 33.3 / 33.3 / 33.4 for the
+// three siblings (Nancy absorbing the rounding), with pennies carried,
+// so the three shares add to exactly 1.000% of the distribution amount.
+//
+// Scoped to the NF6 Tiger Capital templates only (Up + Down). Does not
+// touch NF PR SJ or Blue Panda hops — those have their own ownership
+// math and Amanda hasn't asked to change them.
+function fixTigerSiblingPercentages() {
+  _requireEditor_();
+  ensureMoneyMovementSheets_();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // 1. Find the two Tiger template IDs.
+  var tSheet = ss.getSheetByName('MOVEMENT_TEMPLATES');
+  if (!tSheet || tSheet.getLastRow() < 2) { SpreadsheetApp.getUi().alert('No MOVEMENT_TEMPLATES sheet.'); return; }
+  var tHdr = tSheet.getRange(1, 1, 1, tSheet.getLastColumn()).getValues()[0];
+  var tiId = tHdr.indexOf('ID');
+  var tiName = tHdr.indexOf('Name');
+  var tData = tSheet.getRange(2, 1, tSheet.getLastRow() - 1, tHdr.length).getValues();
+  var tigerIds = {};
+  tData.forEach(function(row) {
+    var name = String(row[tiName] || '').toLowerCase();
+    if (name.indexOf('nf6 tiger capital') >= 0) {
+      tigerIds[String(row[tiId])] = String(row[tiName]);
+    }
+  });
+  if (!Object.keys(tigerIds).length) { SpreadsheetApp.getUi().alert('No NF6 Tiger Capital templates found.'); return; }
+
+  // 2. Scan MOVEMENT_HOPS for sibling ↔ Joint Mgmt rows under those templates.
+  var hSheet = ss.getSheetByName('MOVEMENT_HOPS');
+  if (!hSheet || hSheet.getLastRow() < 2) { SpreadsheetApp.getUi().alert('No MOVEMENT_HOPS sheet.'); return; }
+  var hHdr = hSheet.getRange(1, 1, 1, hSheet.getLastColumn()).getValues()[0];
+  var iTpl = hHdr.indexOf('Template ID');
+  var iFrom = hHdr.indexOf('From Account');
+  var iTo = hHdr.indexOf('To Account');
+  var iPct = hHdr.indexOf('Amount % of Total');
+  var iChain = hHdr.indexOf('Chain');
+  var iNotes = hHdr.indexOf('Notes');
+  if (iTpl < 0 || iPct < 0) { SpreadsheetApp.getUi().alert('MOVEMENT_HOPS missing Template ID or Amount % of Total.'); return; }
+  var hData = hSheet.getRange(2, 1, hSheet.getLastRow() - 1, hHdr.length).getValues();
+
+  var SIBLING_RE = /\b(david|michelle|nancy)\b[\s\w()]*personal/i;
+  var JOINT_RE   = /nf6 joint mgmt/i;
+  var touched = 0;
+  var changes = [];
+  hData.forEach(function(row, i) {
+    var tplId = String(row[iTpl] || '');
+    if (!tigerIds[tplId]) return;
+    var from = String(row[iFrom] || '');
+    var to   = String(row[iTo] || '');
+    var isSiblingLeg = (SIBLING_RE.test(from) || SIBLING_RE.test(to)) &&
+                      (JOINT_RE.test(from)    || JOINT_RE.test(to));
+    if (!isSiblingLeg) return;
+    var sibText = (from + ' ' + to).toLowerCase();
+    var targetPct = /\bnancy\b/.test(sibText) ? 0.334 : 0.333;
+    var oldPct = Number(row[iPct]) || 0;
+    if (Math.abs(oldPct - targetPct) < 0.00001) return;
+    hSheet.getRange(i + 2, iPct + 1).setValue(targetPct);
+    if (iNotes >= 0 && /\bnancy\b/.test(sibText)) {
+      hSheet.getRange(i + 2, iNotes + 1).setValue('Nancy absorbs the sibling-share rounding so 33.3+33.3+33.4 = 100% exactly.');
+    }
+    changes.push('  ' + tigerIds[tplId] + ' · ' + String(row[iChain] || '') + ': ' + oldPct + ' → ' + targetPct);
+    touched++;
+  });
+
+  var msg = 'NF6 Tiger sibling percentages updated: ' + touched + ' hop(s).\n\n' +
+            (changes.length ? changes.join('\n') : '(already set correctly)') +
+            '\n\nNancy: 0.334% · Michelle: 0.333% · David: 0.333%\n' +
+            'Sum = 1.000% exactly. Pennies carry on distribution amounts.';
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert('NF6 Tiger Sibling Percentages', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch(e) {}
 }
