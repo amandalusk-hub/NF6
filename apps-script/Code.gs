@@ -380,6 +380,7 @@ function onOpen() {
     .addItem('Apply TLMND Rules (recategorize)', 'applyTLMNDRulesMenu')
     .addItem('TLMND → Fix Wasica ACH (route Oct 27 payment to loan line)', 'fixWasicaCategoryAndRecategorize')
     .addItem('TLMND → Fix ASC Rental (route Woodland Park Medical FEDWIRE to ASC Rental line)', 'fixASCRentalCategoryAndRecategorize')
+    .addItem('TLMND → Bump MacDonald expected monthly to $2,100', 'fixMacDonaldExpectedMonthly')
     .addItem('TLMND → Debug: show uncategorized inflows > $500 (last 90 days)', 'debugTLMNDUncategorizedInflows')
     .addItem('Clear & Resync TLMND (flush duplicates)', 'clearAndResyncTLMND')
     .addItem('Diagnose TLMND Cash Flow Config', 'diagnoseTLMNDConfig')

@@ -663,7 +663,7 @@ function seedTLMNDRules() { _requireEditor_();
     // "contains WASICA" catches both; nothing else in the TLMND feed
     // references WASICA so there's no false-positive risk.
     [10, 'Name', 'contains', 'WASICA',                            '', '', 'Wasica Holdings Loan Repayment',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound — catches both book-transfer wire and ACH'],
-    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction', '', 2083.33],
+    [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction, typical monthly $2,100', '', 2100],
     // ASC rental income: lands under different sender names depending on
     // the month and rail (originally "SA NJ REALTY", now also arriving as
     // FEDWIRE from "WOODLAND PARK MEDICAL SUITES LLC"). Regex catches both.
@@ -2203,4 +2203,33 @@ function fixASCRentalCategoryAndRecategorize() {
             'under Customers & Loan Repayments.';
   Logger.log(msg);
   if (ui) ui.alert(msg);
+}
+
+
+// One-shot: bump the MacDonald Loan Repayment forecast from $2,083.33
+// to $2,100 to match the actual recurring amount Amanda confirmed.
+// Only touches the Expected Monthly Override column on the matching
+// rule; everything else is left as-is.
+function fixMacDonaldExpectedMonthly() {
+  _requireEditor_();
+  var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var rulesSheet = ss.getSheetByName('TLMND_CATEGORY_RULES');
+  if (!rulesSheet || rulesSheet.getLastRow() < 2) { if (ui) ui.alert('No TLMND_CATEGORY_RULES sheet.'); return; }
+  var lastCol = Math.max(rulesSheet.getLastColumn(), TLMND_RULES_HEADERS.length);
+  var hdr = rulesSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var iCat = hdr.indexOf('Category');
+  var iOverride = hdr.indexOf('Expected Monthly Override');
+  if (iCat < 0 || iOverride < 0) { if (ui) ui.alert('Required columns missing.'); return; }
+  var data = rulesSheet.getRange(2, 1, rulesSheet.getLastRow() - 1, lastCol).getValues();
+  var touched = 0;
+  data.forEach(function(row, i) {
+    if (String(row[iCat] || '').trim() === 'MacDonald Loan Repayment') {
+      rulesSheet.getRange(i + 2, iOverride + 1).setValue(2100);
+      touched++;
+    }
+  });
+  if (ui) ui.alert(touched
+    ? 'MacDonald Expected Monthly bumped to $2,100 (' + touched + ' rule row updated).\nThe "Next 30 Days Expected" forecast will reflect this on the next TLMND tab render.'
+    : 'No MacDonald Loan Repayment rule found to update. Check TLMND_CATEGORY_RULES.');
 }
