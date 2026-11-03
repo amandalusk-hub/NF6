@@ -664,7 +664,10 @@ function seedTLMNDRules() { _requireEditor_();
     // references WASICA so there's no false-positive risk.
     [10, 'Name', 'contains', 'WASICA',                            '', '', 'Wasica Holdings Loan Repayment',                 'Yes', 'TLMND',      '', 'Yes', 'Recurring inbound — catches both book-transfer wire and ACH'],
     [10, 'Name', 'contains', 'CHERRY VALLEY',                     '', '', 'MacDonald Loan Repayment',                     'Yes', 'TLMND',      '', 'Yes', 'Recurring — from Cherry Valley Construction', '', 2083.33],
-    [10, 'Name', 'contains', 'SA NJ REALTY',                      '', '', 'ASC Rental Income - TLMND Share (SA NJ Realty)', 'Yes', 'TLMND',   '', 'Yes', 'Recurring — Mike\'s real estate rent (comes in every so often)'],
+    // ASC rental income: lands under different sender names depending on
+    // the month and rail (originally "SA NJ REALTY", now also arriving as
+    // FEDWIRE from "WOODLAND PARK MEDICAL SUITES LLC"). Regex catches both.
+    [10, 'Name', 'regex',    'SA NJ REALTY|WOODLAND PARK MEDICAL',    '', '', 'ASC Rental Income - TLMND Share', 'Yes', 'TLMND', '', 'Yes', 'Recurring — Mike\'s ASC rental (Woodland Park Medical Suites, formerly SA NJ Realty)'],
     // WASKAR TEJEDA payments (CHIPS credits, wires) — categorize with Wasica
     // Holdings per user. Priority 15 keeps Penn Mutual Life Insurance
     // (priority 10) winning first for its specific pattern even though
@@ -2094,4 +2097,110 @@ function debugTLMNDUncategorizedInflows() {
   // Log for the Apps Script executions panel too.
   Logger.log(msg);
   SpreadsheetApp.getUi().alert('Uncategorized Inflows', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+
+// ── One-shot: fix ASC Rental Income rule (Nov 2026) ───────────────────────
+//
+// Context: ASC rental income originally came as "SA NJ REALTY", but the
+// Nov 2, 2026 payment arrived as a FEDWIRE from "WOODLAND PARK MEDICAL
+// SUITES LLC" — same income, different sender name. The old rule missed
+// it and the $9,350 landed in Non-Recurring Uncategorized, making the
+// ASC Rental row disappear from the matrix.
+//
+// This function:
+//   1. Patches TLMND_CATEGORY_RULES in place:
+//      - Changes the SA NJ REALTY rule's pattern to a regex matching
+//        BOTH "SA NJ REALTY" AND "WOODLAND PARK MEDICAL", match type
+//        to "regex".
+//      - Renames the category from the long "ASC Rental Income - TLMND
+//        Share (SA NJ Realty)" to the cleaner "ASC Rental Income - TLMND
+//        Share".
+//   2. Renames any existing TLMND_TRANSACTIONS rows to the new category
+//      name (so history stays grouped).
+//   3. Reapplies rules so the Nov 2 FEDWIRE moves into the ASC Rental
+//      category.
+// Idempotent — safe to re-run.
+
+function fixASCRentalCategoryAndRecategorize() {
+  _requireEditor_();
+  var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var OLD_CAT = 'ASC Rental Income - TLMND Share (SA NJ Realty)';
+  var NEW_CAT = 'ASC Rental Income - TLMND Share';
+  var NEW_PATTERN = 'SA NJ REALTY|WOODLAND PARK MEDICAL';
+
+  var report = [];
+
+  // 1. Patch the rules sheet in place.
+  var rulesSheet = ss.getSheetByName('TLMND_CATEGORY_RULES');
+  var rulesTouched = 0;
+  if (rulesSheet && rulesSheet.getLastRow() > 1) {
+    var lastCol = Math.max(rulesSheet.getLastColumn(), TLMND_RULES_HEADERS.length);
+    var hdr = rulesSheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var iPattern = hdr.indexOf('Pattern');
+    var iMatchType = hdr.indexOf('Match Type');
+    var iCategory = hdr.indexOf('Category');
+    var iNotes = hdr.indexOf('Notes');
+    var data = rulesSheet.getRange(2, 1, rulesSheet.getLastRow() - 1, lastCol).getValues();
+    data.forEach(function(row, i) {
+      var sheetRow = i + 2;
+      var dirty = false;
+      var pat = String(row[iPattern] || '');
+      var cat = String(row[iCategory] || '').trim();
+      // Target: the rule whose pattern was just "SA NJ REALTY" OR whose
+      // category is the old ASC Rental name.
+      var isASCRule = (pat === 'SA NJ REALTY') || (cat === OLD_CAT) || (cat === NEW_CAT && pat.indexOf('WOODLAND') < 0);
+      if (!isASCRule) return;
+      if (iPattern >= 0)   { rulesSheet.getRange(sheetRow, iPattern + 1).setValue(NEW_PATTERN); dirty = true; }
+      if (iMatchType >= 0) { rulesSheet.getRange(sheetRow, iMatchType + 1).setValue('regex'); dirty = true; }
+      if (iCategory >= 0)  { rulesSheet.getRange(sheetRow, iCategory + 1).setValue(NEW_CAT); dirty = true; }
+      if (iNotes >= 0)     { rulesSheet.getRange(sheetRow, iNotes + 1).setValue('Catches SA NJ Realty AND Woodland Park Medical Suites (ASC rental)'); }
+      if (dirty) rulesTouched++;
+    });
+  }
+  report.push('Rules sheet rows updated: ' + rulesTouched);
+
+  // 2. Rename existing TLMND_TRANSACTIONS Category values.
+  var txnSheet = ss.getSheetByName('TLMND_TRANSACTIONS');
+  var renamedTxns = 0;
+  if (txnSheet && txnSheet.getLastRow() > 1) {
+    var tLastCol = txnSheet.getLastColumn();
+    var tHdr = txnSheet.getRange(1, 1, 1, tLastCol).getValues()[0];
+    var iCat = tHdr.indexOf('Category');
+    if (iCat >= 0) {
+      var tData = txnSheet.getRange(2, iCat + 1, txnSheet.getLastRow() - 1, 1).getValues();
+      tData.forEach(function(r, i) {
+        if (String(r[0] || '').trim() === OLD_CAT) {
+          txnSheet.getRange(i + 2, iCat + 1).setValue(NEW_CAT);
+          renamedTxns++;
+        }
+      });
+    }
+  }
+  report.push('Transaction rows renamed to new category: ' + renamedTxns);
+
+  // 3. Reapply rules so the Nov 2 FEDWIRE gets categorized.
+  var reapplyResult = {};
+  try {
+    reapplyResult = applyTLMNDRules() || {};
+  } catch (e) {
+    reapplyResult = { success: false, error: String(e) };
+  }
+  if (reapplyResult.success === false) {
+    report.push('applyTLMNDRules failed: ' + (reapplyResult.error || 'unknown'));
+  } else {
+    report.push('Categorization pass complete: ' +
+                (reapplyResult.categorized || 0) + ' categorized, ' +
+                (reapplyResult.uncategorized || 0) + ' still uncategorized, ' +
+                (reapplyResult.skippedManual || 0) + ' manual overrides preserved.');
+  }
+
+  var msg = 'ASC Rental categorization fix complete.\n\n  • ' + report.join('\n  • ') +
+            '\n\nThe Nov 2 FEDWIRE from Woodland Park Medical Suites ($9,350) should now ' +
+            'appear under "ASC Rental Income - TLMND Share" in the TLMND Cash Flow matrix ' +
+            'under Customers & Loan Repayments.';
+  Logger.log(msg);
+  if (ui) ui.alert(msg);
 }
