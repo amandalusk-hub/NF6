@@ -2044,3 +2044,54 @@ function fixWasicaCategoryAndRecategorize() {
   Logger.log(msg);
   if (ui) ui.alert(msg);
 }
+
+
+// Diagnostic: dump every uncategorized inflow > $500 in the last 90 days
+// so we can see the exact Plaid Name field and build the right rule. Prints
+// to a UI alert — Amanda can copy the output and paste it so I can see
+// what the $9,350 ASC-rental transaction looks like.
+function debugTLMNDUncategorizedInflows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('TLMND_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('No TLMND_TRANSACTIONS data.');
+    return;
+  }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iDate = hdr.indexOf('Date');
+  var iName = hdr.indexOf('Name');
+  var iAmt  = hdr.indexOf('Amount USD');
+  var iCat  = hdr.indexOf('Category');
+  var iAcct = hdr.indexOf('Account');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+  var cutoffISO = Utilities.formatDate(cutoff, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var matches = [];
+  data.forEach(function(row) {
+    var d = row[iDate];
+    var dISO = d instanceof Date ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(d || '').substring(0, 10);
+    if (dISO < cutoffISO) return;
+    var amt = Number(row[iAmt] || 0);
+    if (amt <= 500) return; // only inflows > $500
+    var cat = String(row[iCat] || '').trim();
+    if (cat && cat !== '(Uncategorized)') return;
+    matches.push({
+      date: dISO,
+      amt:  amt,
+      name: String(row[iName] || ''),
+      acct: String(row[iAcct] || '')
+    });
+  });
+  if (!matches.length) {
+    SpreadsheetApp.getUi().alert('No uncategorized inflows > $500 in the last 90 days.');
+    return;
+  }
+  matches.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+  var lines = matches.map(function(m) {
+    return m.date + '  $' + m.amt.toFixed(2).padStart(10, ' ') + '  [' + m.acct + ']\n  NAME: "' + m.name + '"';
+  });
+  var msg = 'Uncategorized inflows > $500 in last 90 days (' + matches.length + '):\n\n' + lines.join('\n\n');
+  // Log for the Apps Script executions panel too.
+  Logger.log(msg);
+  SpreadsheetApp.getUi().alert('Uncategorized Inflows', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+}

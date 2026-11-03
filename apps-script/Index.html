@@ -4016,6 +4016,29 @@ function _tlHtmlHero(d) {
   var heroCls = actCur.netAll >= 0 ? 'pos' : 'neg';
   var heroVal = (actCur.netAll < 0 ? '−$' : '+$') + Math.abs(Math.round(actCur.netAll)).toLocaleString();
 
+  // Split the hero into operational vs inter-entity so the number reconciles
+  // with the "Are We On Track" / rolling-comparison tables below (those
+  // exclude inter-entity transfers on purpose — IE moves money between
+  // Mike's own entities and isn't a real inflow/outflow of the family's
+  // cash position). Same IE regex used elsewhere.
+  var isIE_hero = function(c) { return /blue panda|nf europe|nf mde co|nf texas|nf6 tiger|inter-entity/i.test(c || ''); };
+  var ieIn = 0, ieOut = 0;
+  (txns || []).forEach(function(t) {
+    if (t.excluded || !t.date) return;
+    if (t.date < start30 || t.date > yesterdayISO) return;
+    if (!isIE_hero(t.category)) return;
+    if (t.amount >= 0) ieIn += t.amount; else ieOut += t.amount;
+  });
+  var ieNet = ieIn + ieOut;
+  var opNet = actCur.netAll - ieNet;
+  var showIE = Math.abs(ieNet) >= 500;  // suppress noise if IE is negligible
+  var heroBreakdown = showIE
+    ? ('<div class="tl-hero-breakdown" style="margin-top:6px;font-size:11px;color:#8a97a7;line-height:1.5">' +
+         'Operational <span style="color:' + (opNet >= 0 ? '#137333' : '#a50e0e') + ';font-weight:600">' + (opNet < 0 ? '−$' : '+$') + Math.abs(Math.round(opNet)).toLocaleString() + '</span>' +
+         ' · Inter-entity <span style="color:' + (ieNet >= 0 ? '#137333' : '#a50e0e') + ';font-weight:600">' + (ieNet < 0 ? '−$' : '+$') + Math.abs(Math.round(ieNet)).toLocaleString() + '</span>' +
+       '</div>')
+    : '';
+
   var dir, deltaTxt;
   if (Math.abs(actDelta) < 500) { dir = 'arrow-flat'; deltaTxt = 'about the same as the prior 30 days'; }
   else if (actDelta > 0) { dir = 'arrow-up';   deltaTxt = '$' + Math.round(Math.abs(actDelta)).toLocaleString() + ' <strong>better</strong> than prior 30 days'; }
@@ -4032,6 +4055,7 @@ function _tlHtmlHero(d) {
         '<div class="tl-hero-label">Net Cash Flow · Last 30 Days (' + _tlDateShort(start30) + ' – ' + _tlDateShort(yesterdayISO) + ')</div>' +
         '<div class="tl-hero-value ' + heroCls + '">' + heroVal + '</div>' +
         '<div class="tl-hero-trend"><span class="arrow">' + _tlArrowGlyph(dir) + '</span> ' + deltaTxt + '</div>' +
+        heroBreakdown +
       '</div>' +
       '<div class="tl-hero-mtd">' +
         '<div class="tl-hero-mtd-label">Next 30 Days · Expected (based on recurring items)</div>' +
