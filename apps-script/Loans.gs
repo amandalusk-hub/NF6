@@ -2230,3 +2230,129 @@ function listPausedAssetLoans() {
     list + '\n\nTo unpause any of these, use Tracker → Loans → Pause / Resume overdue alerts for an asset-based loan — same menu, pick the row, it toggles back to active.',
     ui.ButtonSet.OK);
 }
+
+
+// ── "Link Plaid transaction" picker: find candidates + link one ───────────
+//
+// When the auto-matcher misses a payment (e.g. a check deposit that Plaid
+// logs as just "DEPOSIT" with no identifying detail), Amanda can click
+// "Link Plaid txn" on the Pending/Overdue schedule row, see a list of
+// candidate Plaid rows, and pick the one that satisfied that payment.
+// The pick flows through the existing addManualLoanPayment path so it
+// shows up as a Manual payment on the schedule — just with notes that
+// record which Plaid row it came from.
+
+// Returns up to 25 candidate inflow rows from TLMND_TRANSACTIONS that
+// could plausibly be the missing payment:
+//   - Direction matches the loan (Receivable → positive amounts;
+//     Payable → negative amounts, converted to positive for display)
+//   - Amount within ±$500 of expectedAmount (loose so slight
+//     under/overpayments still show up)
+//   - Not already matched by any LOANS row's Plaid Match Pattern (so we
+//     don't suggest the same transaction for two different loans)
+//   - Not already linked to a manual payment on this same loan on the
+//     same date + amount (avoid obvious duplicates)
+//   - Sorted by how close the date is to dueDateIso (nearest first)
+function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso) {
+  if (!loanId) return [];
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var loansSheet = ss.getSheetByName('LOANS');
+  if (!loansSheet || loansSheet.getLastRow() < 2) return [];
+  var txnSheet = ss.getSheetByName('TLMND_TRANSACTIONS');
+  if (!txnSheet || txnSheet.getLastRow() < 2) return [];
+
+  // Resolve the requesting loan's direction.
+  var lHdr = loansSheet.getRange(1, 1, 1, loansSheet.getLastColumn()).getValues()[0];
+  var lData = loansSheet.getRange(2, 1, loansSheet.getLastRow() - 1, lHdr.length).getValues();
+  var iLId  = lHdr.indexOf('ID');
+  var iDir  = lHdr.indexOf('Direction');
+  var iPat  = lHdr.indexOf('Plaid Match Pattern');
+  var thisLoan = null;
+  var allPatterns = []; // flat list of every pattern across all loans
+  lData.forEach(function(row) {
+    var pat = String(row[iPat] || '').trim();
+    if (pat) {
+      pat.split('|').map(function(p){ return p.toLowerCase().trim(); }).filter(Boolean).forEach(function(p) {
+        allPatterns.push(p);
+      });
+    }
+    if (String(row[iLId]) === String(loanId)) thisLoan = row;
+  });
+  if (!thisLoan) return [];
+  var direction = String(thisLoan[iDir] || 'Receivable').toLowerCase();
+  var isPayable = direction === 'payable';
+
+  // Already-linked rows (same loan, same date, same amount — avoid obvious
+  // duplicates when Amanda re-opens the picker after linking one).
+  var manualSheet = ss.getSheetByName('LOAN_MANUAL_PAYMENTS');
+  var linkedKeys = {};
+  if (manualSheet && manualSheet.getLastRow() >= 2) {
+    var mHdr = manualSheet.getRange(1, 1, 1, manualSheet.getLastColumn()).getValues()[0];
+    var mData = manualSheet.getRange(2, 1, manualSheet.getLastRow() - 1, mHdr.length).getValues();
+    var mLoan = mHdr.indexOf('Loan ID');
+    var mDate = mHdr.indexOf('Date');
+    var mAmt  = mHdr.indexOf('Amount');
+    mData.forEach(function(r) {
+      if (String(r[mLoan]) !== String(loanId)) return;
+      var d = r[mDate] instanceof Date ? Utilities.formatDate(r[mDate], 'UTC', 'yyyy-MM-dd') : String(r[mDate] || '').substring(0, 10);
+      linkedKeys[d + '|' + Number(r[mAmt] || 0).toFixed(2)] = true;
+    });
+  }
+
+  // Scan TLMND_TRANSACTIONS for candidates.
+  var tHdr = txnSheet.getRange(1, 1, 1, txnSheet.getLastColumn()).getValues()[0];
+  var tData = txnSheet.getRange(2, 1, txnSheet.getLastRow() - 1, tHdr.length).getValues();
+  var iDate  = tHdr.indexOf('Date');
+  var iAcct  = tHdr.indexOf('Account');
+  var iName  = tHdr.indexOf('Name');
+  var iMerch = tHdr.indexOf('Merchant');
+  var iAmt   = tHdr.indexOf('Amount USD');
+  var iCat   = tHdr.indexOf('Category');
+  var expected = Number(expectedAmount) || 0;
+  var dueDate = dueDateIso ? new Date(dueDateIso + 'T12:00:00') : null;
+  var tol = Math.max(500, expected * 0.1);   // ±$500 or ±10%, whichever larger
+
+  var candidates = [];
+  tData.forEach(function(r) {
+    var amount = Number(r[iAmt] || 0);
+    if (isPayable) { if (amount >= 0) return; } else { if (amount <= 0) return; }
+    var absAmt = Math.abs(amount);
+    if (Math.abs(absAmt - expected) > tol) return;
+
+    var name = String(r[iName] || '');
+    var merch = iMerch >= 0 ? String(r[iMerch] || '') : '';
+    var haystack = (name + ' ' + merch).toLowerCase();
+    // Skip if already matched by any loan's pattern — don't poach.
+    var alreadyMatched = false;
+    for (var pi = 0; pi < allPatterns.length; pi++) {
+      if (haystack.indexOf(allPatterns[pi]) >= 0) { alreadyMatched = true; break; }
+    }
+    if (alreadyMatched) return;
+
+    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+    if (isNaN(d.getTime())) return;
+    var dISO = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+    var key = dISO + '|' + absAmt.toFixed(2);
+    if (linkedKeys[key]) return;
+
+    var daysFromDue = dueDate ? Math.round((d.getTime() - dueDate.getTime()) / 86400000) : 0;
+    candidates.push({
+      date:         dISO,
+      amount:       absAmt,
+      name:         name,
+      merchant:     merch,
+      account:      String(r[iAcct] || ''),
+      category:     String(r[iCat] || ''),
+      daysFromDue:  daysFromDue,
+      amountDelta:  absAmt - expected
+    });
+  });
+
+  // Sort by date-proximity to due date (nearest first), then by amount-match.
+  candidates.sort(function(a, b) {
+    var da = Math.abs(a.daysFromDue), db = Math.abs(b.daysFromDue);
+    if (da !== db) return da - db;
+    return Math.abs(a.amountDelta) - Math.abs(b.amountDelta);
+  });
+  return candidates.slice(0, 25);
+}

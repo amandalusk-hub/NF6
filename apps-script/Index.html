@@ -2995,6 +2995,12 @@ function _renderLoanSchedule(status) {
     var rowClick = 'onclick="openLoanTxnDrilldown(\''+loanId+'\','+idx+')"';
     var rowHover = 'onmouseover="this.style.background=\'#f4f8fc\'" onmouseout="this.style.background=\'\'"';
     var rowTitle = received ? 'Click to see the payment details' : 'Click to mark this payment as received';
+    // For Pending/Overdue rows, offer a "Link Plaid txn" shortcut that
+    // opens a picker of recent unmatched inflows near this payment's
+    // expected amount. Clicking a candidate records it via the existing
+    // manual-payment path. Received rows don't need this — they're done.
+    var linkBtn = received ? '' :
+      '<button onclick="event.stopPropagation();openLinkPlaidTxnModal(\''+loanId+'\','+idx+')" style="padding:2px 7px;font-size:10px;border:1px solid #c0ccd8;background:#fff;color:#1e5fa8;border-radius:3px;cursor:pointer;margin-left:4px" title="Pick a Plaid transaction to satisfy this payment">Link Plaid</button>';
     return '<tr style="'+rowStyle+'" '+rowClick+' '+rowHover+' title="'+rowTitle+'">' +
       '<td style="padding:5px 8px;color:#5f7791;text-align:center">'+r.n+'</td>' +
       '<td style="padding:5px 8px;color:'+color+'">'+new Date(r.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</td>' +
@@ -3004,7 +3010,7 @@ function _renderLoanSchedule(status) {
       '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums;color:#5f7791">'+fmtUSD(r.balanceAfter)+'</td>' +
       '<td style="padding:5px 8px;text-align:right;color:#5f7791">'+actualDateCell+'</td>' +
       '<td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">'+actualCell+'</td>' +
-      '<td style="padding:5px 8px;text-align:center">'+badge+'</td>' +
+      '<td style="padding:5px 8px;text-align:center">'+badge+linkBtn+'</td>' +
     '</tr>';
   }).join('');
   return '<div style="padding:0 18px 18px;max-height:520px;overflow-y:auto">' +
@@ -3204,6 +3210,115 @@ function _setPaymentType(t) {
     ? '<strong>Missed:</strong> the borrower did not pay for this period. The row stays at $0 received, balance is unchanged, and the schedule flags this month as ⚠ Missed.'
     : 'Use <strong>Received</strong> for payments Plaid doesn\'t have (predates connection, wrong account, etc.). Use <strong>Missed</strong> to mark a period as unpaid (borrower defaulted) — doesn\'t reduce the loan balance.';
 }
+// ── Link Plaid Transaction modal ────────────────────────────────────────
+// Opens a picker showing recent unmatched Plaid inflows that could be the
+// missing payment. Clicking a candidate records it as a manual payment
+// with a note linking back to the Plaid row (date, amount, Name, Merchant).
+// The row then flips from Pending/Overdue to ✓ Manual on the schedule.
+function openLinkPlaidTxnModal(loanId, scheduleIdx) {
+  if (state.access && state.access.isEditor === false) {
+    toast('Read-only — you can\'t link transactions','error'); return;
+  }
+  var status = (state.loans || []).find(function(s){ return String((s.loan||{}).ID) === String(loanId); });
+  if (!status || !status.schedule || !status.schedule[scheduleIdx]) { toast('Payment row not found','error'); return; }
+  var row = status.schedule[scheduleIdx];
+  var loan = status.loan;
+  _linkPlaidState = { loanId: loanId, scheduleIdx: scheduleIdx, row: row, loan: loan };
+
+  var m = document.getElementById('loan-linkplaid-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'loan-linkplaid-modal';
+    m.className = 'modal-overlay';
+    m.innerHTML = '<div class="modal" style="max-width:720px"><div class="modal-header"><div class="modal-title">Link Plaid Transaction</div><button class="modal-close" onclick="closeModal(\'loan-linkplaid-modal\')">x</button></div><div class="modal-body" id="loan-linkplaid-body"></div></div>';
+    document.body.appendChild(m);
+  }
+
+  var header =
+    '<div style="padding:14px 20px 0">' +
+      '<div style="background:#eef4fb;border-left:4px solid #1e5fa8;padding:10px 14px;border-radius:4px;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#5f7791;text-transform:uppercase;letter-spacing:0.5px">Payment #'+row.n+'</div>' +
+        '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(loan.Name||'')+'</div>' +
+        '<div style="font-size:11px;color:#5f7791;margin-top:4px">Expected '+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:#5f7791;margin-bottom:8px">Showing unmatched Plaid inflows within ±$500 (or 10%) of the expected amount, sorted by date-closeness to the due date. Click one to link it as this payment.</div>' +
+    '</div>' +
+    '<div id="loan-linkplaid-list" style="padding:0 20px 18px;max-height:420px;overflow-y:auto">' +
+      '<div style="padding:40px;text-align:center;color:#8091a8;font-size:12px">Loading candidates…</div>' +
+    '</div>';
+  document.getElementById('loan-linkplaid-body').innerHTML = header;
+  openModal('loan-linkplaid-modal');
+
+  google.script.run
+    .withSuccessHandler(_renderLinkPlaidCandidates)
+    .withFailureHandler(function(e){
+      document.getElementById('loan-linkplaid-list').innerHTML =
+        '<div style="padding:40px;text-align:center;color:#c5221f;font-size:12px">Load failed: '+esc(e.message||String(e))+'</div>';
+    })
+    .getUnmatchedTLMNDInflowCandidates(loanId, row.payment, row.dueDate);
+}
+var _linkPlaidState = null;
+function _renderLinkPlaidCandidates(cands) {
+  var list = document.getElementById('loan-linkplaid-list');
+  if (!list) return;
+  cands = cands || [];
+  if (!cands.length) {
+    list.innerHTML =
+      '<div style="padding:30px;text-align:center;color:#5f7791;font-size:12.5px;background:#f7fafd;border:1px dashed #d0dae5;border-radius:6px">' +
+        'No unmatched inflows found within ±$500 of the expected amount in the last 90 days.<br><br>' +
+        'If the payment is older, broader, or already matched by a different loan\'s pattern, try the "Mark as received" flow on the row instead.' +
+      '</div>';
+    return;
+  }
+  var rows = cands.map(function(c, i) {
+    var dayLabel = c.daysFromDue === 0 ? 'on due date'
+                 : (c.daysFromDue > 0 ? '+' + c.daysFromDue + 'd after due' : (Math.abs(c.daysFromDue)) + 'd before due');
+    var deltaLabel = c.amountDelta === 0 ? 'exact'
+                   : (c.amountDelta > 0 ? '+' + fmtUSD(c.amountDelta) + ' over' : fmtUSD(c.amountDelta) + ' short');
+    var dayColor = Math.abs(c.daysFromDue) <= 5 ? '#1e8e3e' : (Math.abs(c.daysFromDue) <= 15 ? '#e07b30' : '#5f7791');
+    return '<div onclick="_pickLinkPlaidCandidate('+i+')" style="padding:10px 12px;border:1px solid #e0e6ee;border-radius:6px;margin-bottom:8px;cursor:pointer;background:#fff" ' +
+      'onmouseover="this.style.background=\'#f4f8fc\';this.style.borderColor=\'#c0d4e8\'" ' +
+      'onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#e0e6ee\'">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;color:#0d0f12;font-size:13px">'+new Date(c.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+fmtUSD(c.amount)+'</div>' +
+          '<div style="font-size:11px;color:#5f7791;margin-top:3px">'+esc(c.name)+(c.merchant && c.merchant !== c.name ? ' · '+esc(c.merchant) : '')+'</div>' +
+          '<div style="font-size:10.5px;color:#9aa5b1;margin-top:2px">'+esc(c.account)+'</div>' +
+        '</div>' +
+        '<div style="text-align:right;font-size:11px;color:'+dayColor+';font-weight:600;white-space:nowrap">'+dayLabel+'<div style="color:#5f7791;font-weight:400;margin-top:2px">'+deltaLabel+'</div></div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+  _linkPlaidState.candidates = cands;
+  list.innerHTML = rows;
+}
+function _pickLinkPlaidCandidate(idx) {
+  var s = _linkPlaidState;
+  if (!s || !s.candidates || !s.candidates[idx]) return;
+  var c = s.candidates[idx];
+  if (!confirm('Link this Plaid transaction to payment #' + s.row.n + '?\n\n' +
+               c.date + '  ' + fmtUSD(c.amount) + '\n' +
+               (c.name || '') + (c.merchant ? ' · ' + c.merchant : '') + '\n\n' +
+               'This records it as a manual payment with a note linking back to the Plaid row.')) return;
+  var notes = 'Linked from Plaid: ' + (c.name || '') +
+              (c.merchant && c.merchant !== c.name ? ' · ' + c.merchant : '') +
+              ' [' + c.account + ']';
+  showLoading(true);
+  google.script.run
+    .withSuccessHandler(function(res) {
+      showLoading(false);
+      if (res && res.success) {
+        toast('Linked — payment #' + s.row.n + ' recorded');
+        closeModal('loan-linkplaid-modal');
+        loadLoans();
+      } else {
+        toast((res && res.error) || 'Link failed', 'error');
+      }
+    })
+    .withFailureHandler(function(e){ showLoading(false); toast(e.message || 'Failed', 'error'); })
+    .addManualLoanPayment(s.loanId, c.date, c.amount, notes, null, null, 'received');
+}
+
 function saveManualPaymentClick(loanId) {
   var dateStr = document.getElementById('mp-date').value;
   var amount = Number(document.getElementById('mp-amount').value) || 0;
