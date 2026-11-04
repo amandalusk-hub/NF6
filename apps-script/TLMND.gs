@@ -2066,6 +2066,7 @@ function debugTLMNDUncategorizedInflows() {
   var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var iDate = hdr.indexOf('Date');
   var iName = hdr.indexOf('Name');
+  var iMerch = hdr.indexOf('Merchant');
   var iAmt  = hdr.indexOf('Amount USD');
   var iCat  = hdr.indexOf('Category');
   var iAcct = hdr.indexOf('Account');
@@ -2085,6 +2086,7 @@ function debugTLMNDUncategorizedInflows() {
       date: dISO,
       amt:  amt,
       name: String(row[iName] || ''),
+      merch: iMerch >= 0 ? String(row[iMerch] || '') : '',
       acct: String(row[iAcct] || '')
     });
   });
@@ -2094,7 +2096,9 @@ function debugTLMNDUncategorizedInflows() {
   }
   matches.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
   var lines = matches.map(function(m) {
-    return m.date + '  $' + m.amt.toFixed(2).padStart(10, ' ') + '  [' + m.acct + ']\n  NAME: "' + m.name + '"';
+    return m.date + '  $' + m.amt.toFixed(2).padStart(10, ' ') + '  [' + m.acct + ']\n' +
+           '  NAME:     "' + m.name + '"\n' +
+           '  MERCHANT: "' + m.merch + '"';
   });
   var msg = 'Uncategorized inflows > $500 in last 90 days (' + matches.length + '):\n\n' + lines.join('\n\n');
   // Log for the Apps Script executions panel too.

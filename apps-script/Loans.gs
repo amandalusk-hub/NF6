@@ -925,15 +925,22 @@ function _matchLoanPayments_(loan) {
     var iDate = headers.indexOf('Date');
     var iAccount = headers.indexOf('Account');
     var iName = headers.indexOf('Name');
+    var iMerchant = headers.indexOf('Merchant');
     var iAmount = headers.indexOf('Amount USD');
     if (iDate >= 0 && iAmount >= 0 && iName >= 0) {
       var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
       rows.forEach(function(r) {
-        var name = String(r[iName] || '').toLowerCase();
+        // Check pattern against Name AND Merchant together. Plaid sometimes
+        // puts identifying detail (e.g. "DEPOSIT ID NUMBER 553083") in
+        // Merchant rather than Name — Name may just read "DEPOSIT".
+        // Concatenating both fields means a pattern matches no matter
+        // which field Plaid filed it under.
+        var haystack = (String(r[iName] || '') + ' ' +
+                        (iMerchant >= 0 ? String(r[iMerchant] || '') : '')).toLowerCase();
         // ANY of the patterns matches → match.
         var hit = false;
         for (var pi = 0; pi < patterns.length; pi++) {
-          if (name.indexOf(patterns[pi]) >= 0) { hit = true; break; }
+          if (haystack.indexOf(patterns[pi]) >= 0) { hit = true; break; }
         }
         if (!hit) return;
         var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
