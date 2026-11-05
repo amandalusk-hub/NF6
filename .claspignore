@@ -1,0 +1,5 @@
+# clasp uploads everything in rootDir (apps-script/) by default.
+# Exclude non-Apps-Script files here.
+**/*.md
+**/.DS_Store
+**/*.bak
