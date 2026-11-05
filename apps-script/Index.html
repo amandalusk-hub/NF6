@@ -829,8 +829,13 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
             <input id="comp-f-location" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Entity</label>
-            <input id="comp-f-entity" type="text" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px"></div>
+          <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Entity</label>
+            <div style="display:flex;gap:4px">
+              <input id="comp-f-entity" type="text" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
+              <button type="button" onclick="_compToggleEntityPicker(event)" style="padding:0 10px;border:1px solid #c0ccd8;border-left:none;border-radius:0 4px 4px 0;background:#faf7f1;color:#0d0f12;font-size:13px;cursor:pointer" title="Pick from existing entities">▾</button>
+            </div>
+            <div id="comp-entity-picker" style="display:none;position:absolute;z-index:1001;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #eae4d6;border-radius:5px;padding:6px;box-shadow:0 4px 16px rgba(13,15,18,.1);max-height:220px;overflow-y:auto"></div>
+          </div>
           <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Person Responsible</label>
             <div style="display:flex;gap:4px">
               <input id="comp-f-responsible" type="text" placeholder="Amanda/Brandon" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
@@ -11649,6 +11654,59 @@ function _compMarkDone(id) {
   }
   document.getElementById('comp-md-next-hint').textContent = nextHint;
   openModal('comp-markdone-modal');
+}
+
+// Entity picker — single-select dropdown populated from the unique Entity
+// values in the loaded compliance items. Freetext in the input still works
+// for ad-hoc entities not in the list (new entity you haven't tagged
+// anything against yet).
+function _compToggleEntityPicker(ev) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  var pop = document.getElementById('comp-entity-picker');
+  if (!pop) return;
+  if (pop.style.display !== 'none') { pop.style.display = 'none'; return; }
+  var seen = {};
+  (_compState.items || []).forEach(function(it) {
+    var e = String(it.Entity || '').trim();
+    if (e) seen[e] = true;
+  });
+  var entities = Object.keys(seen).sort(function(a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+  if (!entities.length) {
+    pop.innerHTML = '<div style="color:#6b6b73;font-size:12px;padding:6px">No entities on file yet — type one in the field above to create it.</div>';
+    pop.style.display = '';
+    return;
+  }
+  var current = String((document.getElementById('comp-f-entity') || {}).value || '').trim().toLowerCase();
+  pop.innerHTML = entities.map(function(e) {
+    var active = e.toLowerCase() === current;
+    return '<div onclick="_compPickEntity(\'' + e.replace(/'/g, "\\'") + '\')" ' +
+      'style="padding:7px 10px;cursor:pointer;font-size:12.5px;color:#0d0f12;border-radius:3px;' +
+      (active ? 'background:#faf7f1;font-weight:600;' : '') + '" ' +
+      'onmouseover="this.style.background=\'#f4f8fc\'" ' +
+      'onmouseout="this.style.background=\'' + (active ? '#faf7f1' : 'transparent') + '\'">' +
+      esc(e) +
+    '</div>';
+  }).join('') +
+  '<div style="margin-top:4px;padding:5px 10px;border-top:1px solid #eae4d6;font-size:10.5px;color:#6b6b73;line-height:1.4">' +
+    'Click to select. You can also type a new entity name directly in the field above.' +
+  '</div>';
+  pop.style.display = '';
+  setTimeout(function() { document.addEventListener('click', _compEntityClickOutside, true); }, 0);
+}
+function _compPickEntity(val) {
+  document.getElementById('comp-f-entity').value = val;
+  var pop = document.getElementById('comp-entity-picker');
+  if (pop) pop.style.display = 'none';
+  document.removeEventListener('click', _compEntityClickOutside, true);
+}
+function _compEntityClickOutside(e) {
+  var pop = document.getElementById('comp-entity-picker');
+  if (!pop || pop.style.display === 'none') { document.removeEventListener('click', _compEntityClickOutside, true); return; }
+  if (pop.contains(e.target)) return;
+  var toggle = pop.previousElementSibling && pop.previousElementSibling.querySelector && pop.previousElementSibling.querySelector('button');
+  if (toggle && toggle.contains(e.target)) return;
+  pop.style.display = 'none';
+  document.removeEventListener('click', _compEntityClickOutside, true);
 }
 
 // Person Responsible picker — opens a popover with every known person as
