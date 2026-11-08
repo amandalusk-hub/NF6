@@ -3224,7 +3224,8 @@ function openLinkPlaidTxnModal(loanId, scheduleIdx) {
   if (state.access && state.access.isEditor === false) {
     toast('Read-only — you can\'t link transactions','error'); return;
   }
-  var status = (state.loans || []).find(function(s){ return String((s.loan||{}).ID) === String(loanId); });
+  var loans = (_loansState && _loansState.data) || [];
+  var status = loans.find(function(s){ return String((s.loan||{}).ID) === String(loanId); });
   if (!status || !status.schedule || !status.schedule[scheduleIdx]) { toast('Payment row not found','error'); return; }
   var row = status.schedule[scheduleIdx];
   var loan = status.loan;
