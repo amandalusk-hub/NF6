@@ -356,18 +356,29 @@ function markComplianceItemDone(id, proof) {
       : new Date();
     if (isNaN(dateCompleted.getTime())) dateCompleted = new Date();
     vals[r][iLastDone] = dateCompleted;
+    // "Permanently done" overrides the recurring-advancement logic — the
+    // item gets Status=Done regardless of its Frequency and no next-due
+    // date is scheduled. Use when the obligation no longer applies (sold
+    // the asset, closed the account, etc.). Reversible by editing Status
+    // back to Up to Date or whatever.
+    var permanentlyDone = !!(proof && proof.permanentlyDone);
     var freq = String(vals[r][iFreq] || '').toLowerCase();
-    var next = _complianceNextDue_(dateCompleted, freq);
+    var next = permanentlyDone ? null : _complianceNextDue_(dateCompleted, freq);
     if (next) {
       vals[r][iNextDue] = next;
       vals[r][iStatus] = 'Up to Date';
     } else {
       vals[r][iStatus] = 'Done';
+      if (permanentlyDone) vals[r][iNextDue] = '';   // clear any stale Next Due
     }
     if (iUpd >= 0) vals[r][iUpd] = new Date();
     block.setValues(vals);
     // Append to COMPLIANCE_HISTORY (non-fatal on failure).
     try {
+      var histNotes = proof && proof.notes || '';
+      if (permanentlyDone) {
+        histNotes = (histNotes ? histNotes + ' · ' : '') + '[Marked permanently done — no recurrence]';
+      }
       _appendComplianceHistory_({
         itemId:               id,
         itemObligation:       iObligation >= 0 ? String(vals[r][iObligation] || '') : '',
@@ -375,7 +386,7 @@ function markComplianceItemDone(id, proof) {
         amountPaid:           proof && proof.amountPaid != null ? proof.amountPaid : '',
         confirmationNumber:   proof && proof.confirmationNumber || '',
         receiptLink:          proof && proof.receiptLink || '',
-        notes:                proof && proof.notes || ''
+        notes:                histNotes
       });
     } catch (e) { Logger.log('Compliance history append failed: ' + e.message); }
     // Advance the calendar event to the new Next Due Date (or delete it if

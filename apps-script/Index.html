@@ -934,6 +934,13 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </div>
         <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Notes</label>
           <textarea id="comp-md-notes" rows="2" placeholder="optional — any context worth remembering next time" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
+        <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;padding:10px 12px;background:#faf7f1;border:1px solid #eae4d6;border-radius:5px;cursor:pointer">
+          <input type="checkbox" id="comp-md-final" onchange="_compMarkDoneUpdateHint()" style="margin-top:2px">
+          <span>
+            <strong style="color:#0d0f12;font-size:12.5px">Permanently done — do not schedule next occurrence</strong>
+            <div style="color:#6b6b73;font-size:11px;margin-top:2px;line-height:1.4">Use this when the item no longer applies (sold the car, closed the account, trust wound down). The item gets Status = Done and stops appearing in active views and reminders. You can always re-activate it later by editing the status.</div>
+          </span>
+        </label>
         <div id="comp-md-next-hint" style="margin-top:10px;font-size:11.5px;color:#6b6b73;font-style:italic">—</div>
       </div>
       <div class="modal-footer">
@@ -11645,16 +11652,32 @@ function _compMarkDone(id) {
   document.getElementById('comp-md-conf').value = '';
   document.getElementById('comp-md-receipt').value = '';
   document.getElementById('comp-md-notes').value = '';
-  // Hint showing what will happen when they confirm.
-  var freq = String(it.Frequency || '').toLowerCase();
-  var nextHint = '';
-  if (freq && freq !== 'one-time' && freq !== 'other') {
-    nextHint = 'Will advance Next Due Date by ' + freq + ' from the Date completed above.';
-  } else {
-    nextHint = 'Will mark Status = Done (no recurrence).';
-  }
-  document.getElementById('comp-md-next-hint').textContent = nextHint;
+  // Remember the item's frequency so the hint can switch based on the
+  // "Permanently done" checkbox below.
+  _compState.markDoneFreq = String(it.Frequency || '').toLowerCase();
+  var finalCk = document.getElementById('comp-md-final');
+  if (finalCk) finalCk.checked = false;
+  _compMarkDoneUpdateHint();
   openModal('comp-markdone-modal');
+}
+
+// Recompute the hint under the Mark Done dialog whenever the
+// "Permanently done" toggle changes (or on open).
+function _compMarkDoneUpdateHint() {
+  var hintEl = document.getElementById('comp-md-next-hint');
+  if (!hintEl) return;
+  var finalCk = document.getElementById('comp-md-final');
+  var isFinal = finalCk && finalCk.checked;
+  var freq = _compState.markDoneFreq || '';
+  var msg;
+  if (isFinal) {
+    msg = 'Will mark Status = Done permanently. No next-due date; the item will no longer appear in active views or trigger reminders.';
+  } else if (freq && freq !== 'one-time' && freq !== 'other') {
+    msg = 'Will advance Next Due Date by ' + freq + ' from the Date completed above.';
+  } else {
+    msg = 'Will mark Status = Done (no recurrence).';
+  }
+  hintEl.textContent = msg;
 }
 
 // Entity picker — single-select dropdown populated from the unique Entity
@@ -11802,18 +11825,23 @@ function _compMarkDoneFromModal() {
 function _compMarkDoneConfirm() {
   var id = _compState.markDoneId;
   if (!id) return;
+  var finalCk = document.getElementById('comp-md-final');
+  var isFinal = finalCk && finalCk.checked;
   var proof = {
     dateCompleted:      document.getElementById('comp-md-date').value || '',
     amountPaid:         document.getElementById('comp-md-amount').value || '',
     confirmationNumber: document.getElementById('comp-md-conf').value || '',
     receiptLink:        document.getElementById('comp-md-receipt').value || '',
-    notes:              document.getElementById('comp-md-notes').value || ''
+    notes:              document.getElementById('comp-md-notes').value || '',
+    permanentlyDone:    isFinal
   };
   google.script.run
     .withSuccessHandler(function(r) {
       closeModal('comp-markdone-modal');
       closeModal('comp-item-modal');   // close the parent edit modal if open
-      toast(r.nextDue ? ('✓ Done — next due ' + r.nextDue) : '✓ Done');
+      toast(isFinal
+        ? '✓ Marked permanently done'
+        : (r.nextDue ? ('✓ Done — next due ' + r.nextDue) : '✓ Done'));
       loadCompliance();
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
