@@ -1198,7 +1198,21 @@ function saveAssetDetails(id, detailsJson) { _requireEditor_();
 
 // Combined save: updates core fields + details in one GAS call (half the round-trips).
 // coreData mirrors the updateAsset() payload; detailsJson is the JSON string for Details.
-function saveFullAsset(coreData, id, detailsJson) { _requireEditor_();
+// Wraps the real implementation so any thrown error comes back as a
+// structured {success:false, error} — the frontend otherwise sees a bare
+// Error with no .message property and shows "undefined" to the user.
+function saveFullAsset(coreData, id, detailsJson) {
+  try {
+    return _saveFullAssetImpl_(coreData, id, detailsJson);
+  } catch (e) {
+    var msg = (e && e.message) ? e.message
+            : (e && e.name)    ? e.name
+            : (typeof e === 'string' ? e : 'unknown error');
+    Logger.log('saveFullAsset threw: ' + msg + '\n' + ((e && e.stack) || ''));
+    return { success: false, error: msg };
+  }
+}
+function _saveFullAssetImpl_(coreData, id, detailsJson) { _requireEditor_();
   _logAudit_('saveFullAsset', 'asset', id, coreData && coreData.name, 'Updated asset (name/value/details)');
   var det = {};
   try { det = JSON.parse(detailsJson || '{}'); } catch(e) {}

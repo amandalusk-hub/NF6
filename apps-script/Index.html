@@ -7081,9 +7081,18 @@ function saveAssetDetails(keepOpen){
     })
     .withFailureHandler(function(e){
       document.querySelectorAll('#detail-modal .btn-primary').forEach(function(b){ b.disabled=false; });
-      // Keep modal open — error is shown in footer so user can't miss it
-      _showSaveError('detail-save-status', 'Save FAILED — data not saved to spreadsheet. ' + e.message);
-      toast('Save failed: ' + e.message, 'error');
+      // Build a useful error string — Apps Script sometimes passes an error
+      // object without a .message property (e.g. when server code throws a
+      // non-Error value), which was showing as literal "undefined". Fall back
+      // to the error's name, then to a stringified representation, so Amanda
+      // always sees something actionable.
+      var errMsg = (e && e.message) ||
+                   (e && e.name) ||
+                   (e && (typeof e === 'string' ? e : (function(){ try { return JSON.stringify(e); } catch(_){ return String(e); }})())) ||
+                   'unknown error (check Apps Script execution log)';
+      try { console.error('saveFullAsset failed:', e); } catch(_) {}
+      _showSaveError('detail-save-status', 'Save FAILED — data not saved to spreadsheet. ' + errMsg);
+      toast('Save failed: ' + errMsg, 'error');
       loadData();
     })
     .saveFullAsset(coreData, id, JSON.stringify(details));
