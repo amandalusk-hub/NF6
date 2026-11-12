@@ -2716,7 +2716,12 @@ function backfillOrientalFidelityPayments() {
   });
   if (!loanId) { ui.alert('Oriental Dorado loan not found. Seed it first.'); return; }
 
-  // Hard-coded Fidelity 9007 payments from Amanda's statement screenshot.
+  // Hard-coded Fidelity 9007 payments from Amanda's statement screenshots.
+  // Covers Oct 2025 → Nov 2026 (14 months total). Per her Fidelity view,
+  // the escrow amount changes twice — initial $21,848.23 for the first
+  // two payments (Oct/Nov 2025) while the first escrow cycle settled,
+  // then $21,668.72 from Dec 2025 through Aug 2026, then $21,683.30
+  // from Sep 2026 onward (current).
   var payments = [
     { date: '2026-11-05', amount: 21683.30, desc: 'DIRECT DEBIT Oriental PrestOriental P (Cash)' },
     { date: '2026-10-05', amount: 21683.30, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
@@ -2726,18 +2731,23 @@ function backfillOrientalFidelityPayments() {
     { date: '2026-06-05', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
     { date: '2026-05-05', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
     { date: '2026-04-06', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER as of 2026-04-03 (Cash)' },
-    { date: '2026-03-03', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' }
+    { date: '2026-03-03', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-02-03', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-01-09', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2025-12-03', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2025-11-04', amount: 21848.23, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2025-10-03', amount: 21848.23, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' }
   ];
 
   var resp = ui.alert('Backfill Oriental Fidelity payments?',
     'Create ' + payments.length + ' manual payment entries for the Oriental Dorado loan — ' +
-    'one for each Mar 2026 – Nov 2026 Fidelity ···9007 debit:\n\n' +
+    'one for each Oct 2025 – Nov 2026 Fidelity ···9007 debit:\n\n' +
     '  • 3 × $21,683.30 (Sep–Nov 2026)\n' +
-    '  • 6 × $21,668.72 (Mar–Aug 2026)\n' +
+    '  • 9 × $21,668.72 (Dec 2025–Aug 2026)\n' +
+    '  • 2 × $21,848.23 (Oct–Nov 2025)\n' +
     '  Total: $' + payments.reduce(function(s, p){ return s + p.amount; }, 0).toLocaleString() + '\n\n' +
-    'Each entry will say "Fidelity ···9007 ACH — SnapTrade doesn\'t export cash debits, ' +
-    'manual backfill". Earlier months (Aug 2025 – Feb 2026, from Oriental ···0451) should ' +
-    'auto-match from PLAID_TRANSACTIONS separately.\n\nProceed?',
+    'Each entry says "Fidelity ···9007 ACH — SnapTrade doesn\'t export cash debits, ' +
+    'manual backfill". Dedupes on date+amount so it\'s safe to re-run.\n\nProceed?',
     ui.ButtonSet.OK_CANCEL);
   if (resp !== ui.Button.OK) return;
 

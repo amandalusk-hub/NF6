@@ -436,7 +436,7 @@ function onOpen() {
     .addItem('Loans → Texas: Set current monthly payment (construction loan draw)', 'setTexasLoanCurrentMonthlyPayment')
     .addItem('Loans → Oriental: Set current monthly payment (escrow adjust)', 'setOrientalLoanCurrentMonthlyPayment')
     .addItem('Loans → Oriental: Add Fidelity 9007 + Oriental 0451 as source accounts', 'fixOrientalLoanSourceAccounts')
-    .addItem('Loans → Oriental: Backfill 9 Fidelity 9007 payments (Mar–Nov 2026)', 'backfillOrientalFidelityPayments')
+    .addItem('Loans → Oriental: Backfill 14 Fidelity 9007 payments (Oct 2025–Nov 2026)', 'backfillOrientalFidelityPayments')
     .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
