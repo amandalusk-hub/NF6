@@ -2399,3 +2399,71 @@ function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso, o
   });
   return candidates.slice(0, 25);
 }
+
+
+// Diagnostic: dump every PLAID_TRANSACTIONS outflow from any NF USA TX
+// account in the last 45 days. Shows date, account, name, merchant, amount
+// so we can see EXACTLY what Plaid has and why the Link Plaid picker
+// isn't surfacing the Amegy ACH that Amanda knows cleared.
+function debugTexasAccountRecentOutflows() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var sheet = ss.getSheetByName('PLAID_TRANSACTIONS');
+  if (!sheet || sheet.getLastRow() < 2) {
+    ui.alert('PLAID_TRANSACTIONS is empty.\n\nRun Tracker → All Transactions → Sync ALL Plaid Transactions first.');
+    return;
+  }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iDate  = hdr.indexOf('Date');
+  var iAcct  = hdr.indexOf('Account');
+  var iName  = hdr.indexOf('Name');
+  var iMerch = hdr.indexOf('Merchant');
+  var iAmt   = hdr.indexOf('Amount USD');
+  if (iDate < 0 || iAcct < 0 || iAmt < 0) {
+    ui.alert('PLAID_TRANSACTIONS missing required columns (Date, Account, Amount USD).');
+    return;
+  }
+  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 45);
+  var cutoffISO = Utilities.formatDate(cutoff, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var rows = [];
+  var allAccounts = {};
+  data.forEach(function(r) {
+    var acct = String(r[iAcct] || '');
+    allAccounts[acct] = (allAccounts[acct] || 0) + 1;
+    // Only outflows from any account containing "TX" / "Texas"
+    var acctL = acct.toLowerCase();
+    if (acctL.indexOf('tx') < 0 && acctL.indexOf('texas') < 0) return;
+    var amt = Number(r[iAmt] || 0);
+    if (amt >= 0) return;
+    var d = r[iDate];
+    var dISO = d instanceof Date ? Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(d || '').substring(0, 10);
+    if (dISO < cutoffISO) return;
+    rows.push({
+      date: dISO,
+      amt:  Math.abs(amt),
+      name: String(r[iName] || ''),
+      merch: iMerch >= 0 ? String(r[iMerch] || '') : '',
+      acct: acct
+    });
+  });
+  rows.sort(function(a, b) { return a.date < b.date ? 1 : -1; });   // newest first
+  var acctList = Object.keys(allAccounts).sort().map(function(a) { return '  "' + a + '" — ' + allAccounts[a] + ' txns'; }).join('\n');
+  if (!rows.length) {
+    ui.alert('Diagnostic: no NF USA TX outflows in PLAID_TRANSACTIONS (last 45 days)',
+      'No outflow rows found where the Account label contains "tx" or "texas".\n\n' +
+      'Every distinct Account label present in PLAID_TRANSACTIONS (with txn count):\n\n' + acctList +
+      '\n\nIf none of those look like your NF USA TX ···5155 account, the Plaid sync hasn\'t pulled that account yet. Run Tracker → All Transactions → Sync ALL Plaid Transactions.',
+      ui.ButtonSet.OK);
+    return;
+  }
+  var lines = rows.map(function(r) {
+    return r.date + '  −$' + r.amt.toFixed(2).padStart(10, ' ') + '  [' + r.acct + ']\n' +
+           '  NAME:     "' + r.name + '"\n' +
+           '  MERCHANT: "' + r.merch + '"';
+  });
+  var msg = 'Diagnostic: NF USA TX outflows in PLAID_TRANSACTIONS (last 45 days, newest first)\n\n' +
+            rows.length + ' row(s) found:\n\n' + lines.join('\n\n');
+  Logger.log(msg);
+  ui.alert('NF USA TX Recent Outflows', msg, ui.ButtonSet.OK);
+}

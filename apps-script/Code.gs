@@ -431,6 +431,7 @@ function onOpen() {
     .addItem('Loans → Debug: Show What Matcher Sees', 'debugLoanMatches')
     .addItem('Loans → Send Test Alert Email (to me + Brandon)', 'sendTestLoanAlertEmail')
     .addItem('Loans → Debug: Show Raw LOANS Sheet', 'debugLoansSheet')
+    .addItem('Loans → Debug: Dump NF USA TX recent outflows (find the Amegy ACH)', 'debugTexasAccountRecentOutflows')
     .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
