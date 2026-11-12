@@ -2685,3 +2685,91 @@ function fixOrientalLoanSourceAccounts() {
     'should now auto-match to the appropriate schedule row. If some months are ' +
     'still Overdue, use the "Link Plaid" button or Mark Payment Received on each.');
 }
+
+
+// One-shot: backfill the 9 Oriental mortgage payments that came out of
+// Fidelity ···9007 (Mar 2026 – Nov 2026). These aren't in PLAID_TRANSACTIONS
+// because Fidelity is linked via SnapTrade, which only surfaces brokerage
+// holdings — not cash-account ACH debits. So we record them manually from
+// Amanda's Fidelity statement data.
+//
+// After this, the earlier Aug 2025 – Feb 2026 payments (which came from
+// Oriental ···0451) should auto-match from PLAID_TRANSACTIONS once the
+// Source Account is set to "Fidelity 9007|Oriental 0451".
+function backfillOrientalFidelityPayments() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+
+  // Find the Oriental Dorado loan.
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOANS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('LOANS sheet missing.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iId = hdr.indexOf('ID');
+  var iName = hdr.indexOf('Name');
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var loanId = null;
+  data.forEach(function(row) {
+    var n = String(row[iName] || '').toLowerCase();
+    if (n.indexOf('oriental') >= 0 && (n.indexOf('dorado') >= 0 || n.indexOf('plantation') >= 0)) {
+      loanId = String(row[iId]);
+    }
+  });
+  if (!loanId) { ui.alert('Oriental Dorado loan not found. Seed it first.'); return; }
+
+  // Hard-coded Fidelity 9007 payments from Amanda's statement screenshot.
+  var payments = [
+    { date: '2026-11-05', amount: 21683.30, desc: 'DIRECT DEBIT Oriental PrestOriental P (Cash)' },
+    { date: '2026-10-05', amount: 21683.30, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-09-03', amount: 21683.30, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-08-04', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-07-06', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER as of 2026-07-03 (Cash)' },
+    { date: '2026-06-05', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-05-05', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' },
+    { date: '2026-04-06', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER as of 2026-04-03 (Cash)' },
+    { date: '2026-03-03', amount: 21668.72, desc: 'DIRECT DEBIT ORIENTAL BANK AT TRNSFER (Cash)' }
+  ];
+
+  var resp = ui.alert('Backfill Oriental Fidelity payments?',
+    'Create ' + payments.length + ' manual payment entries for the Oriental Dorado loan — ' +
+    'one for each Mar 2026 – Nov 2026 Fidelity ···9007 debit:\n\n' +
+    '  • 3 × $21,683.30 (Sep–Nov 2026)\n' +
+    '  • 6 × $21,668.72 (Mar–Aug 2026)\n' +
+    '  Total: $' + payments.reduce(function(s, p){ return s + p.amount; }, 0).toLocaleString() + '\n\n' +
+    'Each entry will say "Fidelity ···9007 ACH — SnapTrade doesn\'t export cash debits, ' +
+    'manual backfill". Earlier months (Aug 2025 – Feb 2026, from Oriental ···0451) should ' +
+    'auto-match from PLAID_TRANSACTIONS separately.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp !== ui.Button.OK) return;
+
+  var created = 0, skipped = 0;
+  // Check for existing entries to avoid duplicates on re-run.
+  var manualSheet = ensureManualPaymentsSheet_();
+  var existing = {};
+  if (manualSheet.getLastRow() >= 2) {
+    var mHdr = manualSheet.getRange(1, 1, 1, manualSheet.getLastColumn()).getValues()[0];
+    var mData = manualSheet.getRange(2, 1, manualSheet.getLastRow() - 1, mHdr.length).getValues();
+    var mLoan = mHdr.indexOf('Loan ID');
+    var mDate = mHdr.indexOf('Date');
+    var mAmt  = mHdr.indexOf('Amount');
+    mData.forEach(function(r) {
+      if (String(r[mLoan]) !== String(loanId)) return;
+      var d = r[mDate] instanceof Date ? Utilities.formatDate(r[mDate], 'UTC', 'yyyy-MM-dd') : String(r[mDate] || '').substring(0, 10);
+      existing[d + '|' + Number(r[mAmt] || 0).toFixed(2)] = true;
+    });
+  }
+
+  payments.forEach(function(p) {
+    var key = p.date + '|' + p.amount.toFixed(2);
+    if (existing[key]) { skipped++; return; }
+    var notes = 'Fidelity ···9007 ACH — SnapTrade doesn\'t export cash debits, manual backfill. ' +
+                'Plaid descriptor: ' + p.desc;
+    var res = addManualLoanPayment(loanId, p.date, p.amount, notes, null, null, 'received');
+    if (res && res.success) created++;
+  });
+
+  ui.alert('Backfill complete.\n\n' +
+    '  • Created: ' + created + ' manual payment(s)\n' +
+    '  • Skipped (already linked): ' + skipped + '\n\n' +
+    'Reload the Loans tab — Mar 2026 through Nov 2026 rows on the Oriental Dorado ' +
+    'schedule should now show ✓ Manual with their actual amounts.');
+}
