@@ -2273,15 +2273,21 @@ function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso, o
   var iSrc   = lHdr.indexOf('Source Account');
   var iPat   = lHdr.indexOf('Plaid Match Pattern');
   var thisLoan = null;
+  // Patterns from OTHER loans — we only skip candidates that belong to a
+  // different loan. Skipping candidates that match the CURRENT loan's own
+  // pattern would hide the very transactions we're trying to link
+  // (classic bug: Texas loan pattern "AMEGY BANK|ZIONS BANC" would filter
+  // out the actual Amegy ACH we want to show in the picker).
   var allPatterns = [];
   lData.forEach(function(row) {
+    var isThisLoan = String(row[iLId]) === String(loanId);
+    if (isThisLoan) { thisLoan = row; return; }
     var pat = String(row[iPat] || '').trim();
     if (pat) {
       pat.split('|').map(function(p){ return p.toLowerCase().trim(); }).filter(Boolean).forEach(function(p) {
         allPatterns.push(p);
       });
     }
-    if (String(row[iLId]) === String(loanId)) thisLoan = row;
   });
   if (!thisLoan) return [];
   var direction = String(thisLoan[iDir] || 'Receivable').toLowerCase();
