@@ -806,7 +806,18 @@ function _generateAmortizationSchedule_(loan) {
   // principal stays untouched until the final maturity row where it balloons.
   if (loanType.toLowerCase().indexOf('interest') >= 0) {
     var monthlyRateIO = (annualRate / 100) / 12;
-    var interestPmt = principal * monthlyRateIO;   // fixed per period
+    // Monthly Payment column overrides the auto-computed principal × rate
+    // calc. This is the right behavior for construction loans where only
+    // a portion of the committed principal has been drawn (so Amegy bills
+    // interest on, say, $2.69M even though the loan is "for" $6.4M). Set
+    // Monthly Payment on the LOANS row to whatever the lender actually
+    // bills; Effective Principal stays at the full commitment so the
+    // dashboard reads "a $6.4M loan" the way Mike wants to see it.
+    // Fall back to principal × rate / 12 when Monthly Payment is blank
+    // or zero, which preserves MacDonald's behavior.
+    var interestPmt = (monthlyPayment && monthlyPayment > 0)
+      ? monthlyPayment
+      : principal * monthlyRateIO;
     var firstYmdIO = Utilities.formatDate(firstPayment, 'UTC', 'yyyy-MM-dd').split('-');
     var firstYIO = Number(firstYmdIO[0]), firstMIO = Number(firstYmdIO[1]) - 1, firstDIO = Number(firstYmdIO[2]);
     var schedule = [];
@@ -2466,4 +2477,44 @@ function debugTexasAccountRecentOutflows() {
             rows.length + ' row(s) found:\n\n' + lines.join('\n\n');
   Logger.log(msg);
   ui.alert('NF USA TX Recent Outflows', msg, ui.ButtonSet.OK);
+}
+
+
+// One-shot: set the Texas loan's Monthly Payment column to $14,857.30 so
+// the interest-only schedule reflects what Amegy is actually billing right
+// now (construction loan, only ~$2.69M of $6.4M drawn). Effective
+// Principal is left at $6.4M — Mike wants the dashboard to keep showing
+// the full loan commitment. Change the amount as new draws happen.
+function setTexasLoanCurrentMonthlyPayment() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Texas Loan — Current Monthly Payment',
+    'Enter the amount Amegy is currently billing (reflects today\'s drawn ' +
+    'balance). This updates only the Monthly Payment column on the Texas ' +
+    'loan — Effective Principal stays at $6.4M so Mike\'s dashboard view ' +
+    'of the full commitment is preserved.\n\nCurrent Amegy bill: $14,857.30',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var raw = String(resp.getResponseText() || '').trim().replace(/[$,]/g, '');
+  var amt = Number(raw);
+  if (!amt || amt <= 0) { ui.alert('Enter a valid dollar amount.'); return; }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOANS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('LOANS sheet missing.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iName = hdr.indexOf('Name');
+  var iPay  = hdr.indexOf('Monthly Payment');
+  if (iName < 0 || iPay < 0) { ui.alert('LOANS sheet missing Name or Monthly Payment column.'); return; }
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var updated = 0;
+  data.forEach(function(row, i) {
+    var n = String(row[iName] || '').toLowerCase();
+    if (n.indexOf('texas') >= 0 || n.indexOf('kuhlman') >= 0 || n.indexOf('amegy') >= 0) {
+      sheet.getRange(i + 2, iPay + 1).setValue(amt);
+      updated++;
+    }
+  });
+  if (!updated) { ui.alert('No Texas/Kuhlman/Amegy loan found on LOANS sheet.'); return; }
+  ui.alert('Texas loan Monthly Payment set to $' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
+    '\n\nReload the Loans tab — every pending schedule row should now show this as the Expected amount.');
 }
