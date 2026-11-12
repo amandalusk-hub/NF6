@@ -2253,22 +2253,27 @@ function listPausedAssetLoans() {
 //   - Not already linked to a manual payment on this same loan on the
 //     same date + amount (avoid obvious duplicates)
 //   - Sorted by how close the date is to dueDateIso (nearest first)
-function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso) {
+// loanId + expectedAmount + dueDateIso drive the query; opts is optional:
+//   { showAll: true }  → bypass the amount-tolerance filter (useful when the
+//                        actual payment is way off expected, e.g. construction
+//                        loan with only partial principal drawn)
+function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso, opts) {
   if (!loanId) return [];
+  opts = opts || {};
+  var showAll = opts.showAll === true;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var loansSheet = ss.getSheetByName('LOANS');
   if (!loansSheet || loansSheet.getLastRow() < 2) return [];
-  var txnSheet = ss.getSheetByName('TLMND_TRANSACTIONS');
-  if (!txnSheet || txnSheet.getLastRow() < 2) return [];
 
-  // Resolve the requesting loan's direction.
+  // Resolve the requesting loan's direction + source account + all patterns.
   var lHdr = loansSheet.getRange(1, 1, 1, loansSheet.getLastColumn()).getValues()[0];
   var lData = loansSheet.getRange(2, 1, loansSheet.getLastRow() - 1, lHdr.length).getValues();
-  var iLId  = lHdr.indexOf('ID');
-  var iDir  = lHdr.indexOf('Direction');
-  var iPat  = lHdr.indexOf('Plaid Match Pattern');
+  var iLId   = lHdr.indexOf('ID');
+  var iDir   = lHdr.indexOf('Direction');
+  var iSrc   = lHdr.indexOf('Source Account');
+  var iPat   = lHdr.indexOf('Plaid Match Pattern');
   var thisLoan = null;
-  var allPatterns = []; // flat list of every pattern across all loans
+  var allPatterns = [];
   lData.forEach(function(row) {
     var pat = String(row[iPat] || '').trim();
     if (pat) {
@@ -2281,9 +2286,10 @@ function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso) {
   if (!thisLoan) return [];
   var direction = String(thisLoan[iDir] || 'Receivable').toLowerCase();
   var isPayable = direction === 'payable';
+  var sourceAccount = iSrc >= 0 ? String(thisLoan[iSrc] || '').toLowerCase().trim() : '';
 
-  // Already-linked rows (same loan, same date, same amount — avoid obvious
-  // duplicates when Amanda re-opens the picker after linking one).
+  // Already-linked rows (date+amount) so re-opening the picker doesn't
+  // suggest the same transaction twice.
   var manualSheet = ss.getSheetByName('LOAN_MANUAL_PAYMENTS');
   var linkedKeys = {};
   if (manualSheet && manualSheet.getLastRow() >= 2) {
@@ -2299,53 +2305,84 @@ function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso) {
     });
   }
 
-  // Scan TLMND_TRANSACTIONS for candidates.
-  var tHdr = txnSheet.getRange(1, 1, 1, txnSheet.getLastColumn()).getValues()[0];
-  var tData = txnSheet.getRange(2, 1, txnSheet.getLastRow() - 1, tHdr.length).getValues();
-  var iDate  = tHdr.indexOf('Date');
-  var iAcct  = tHdr.indexOf('Account');
-  var iName  = tHdr.indexOf('Name');
-  var iMerch = tHdr.indexOf('Merchant');
-  var iAmt   = tHdr.indexOf('Amount USD');
-  var iCat   = tHdr.indexOf('Category');
   var expected = Number(expectedAmount) || 0;
   var dueDate = dueDateIso ? new Date(dueDateIso + 'T12:00:00') : null;
-  var tol = Math.max(500, expected * 0.1);   // ±$500 or ±10%, whichever larger
+  // Widen tolerance so construction loans (partial draws) and other
+  // large-variance cases surface the real payment. ±$500 or ±50%,
+  // whichever larger. showAll bypasses entirely.
+  var tol = Math.max(500, expected * 0.5);
 
-  var candidates = [];
-  tData.forEach(function(r) {
-    var amount = Number(r[iAmt] || 0);
-    if (isPayable) { if (amount >= 0) return; } else { if (amount <= 0) return; }
-    var absAmt = Math.abs(amount);
-    if (Math.abs(absAmt - expected) > tol) return;
-
-    var name = String(r[iName] || '');
-    var merch = iMerch >= 0 ? String(r[iMerch] || '') : '';
-    var haystack = (name + ' ' + merch).toLowerCase();
-    // Skip if already matched by any loan's pattern — don't poach.
-    var alreadyMatched = false;
-    for (var pi = 0; pi < allPatterns.length; pi++) {
-      if (haystack.indexOf(allPatterns[pi]) >= 0) { alreadyMatched = true; break; }
-    }
-    if (alreadyMatched) return;
-
-    var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
-    if (isNaN(d.getTime())) return;
-    var dISO = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
-    var key = dISO + '|' + absAmt.toFixed(2);
-    if (linkedKeys[key]) return;
-
-    var daysFromDue = dueDate ? Math.round((d.getTime() - dueDate.getTime()) / 86400000) : 0;
-    candidates.push({
-      date:         dISO,
-      amount:       absAmt,
-      name:         name,
-      merchant:     merch,
-      account:      String(r[iAcct] || ''),
-      category:     String(r[iCat] || ''),
-      daysFromDue:  daysFromDue,
-      amountDelta:  absAmt - expected
+  // Scan a given sheet and push accepted rows into results.
+  function scanSheet(sheet) {
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iDate  = hdr.indexOf('Date');
+    var iAcct  = hdr.indexOf('Account');
+    var iName  = hdr.indexOf('Name');
+    var iMerch = hdr.indexOf('Merchant');
+    var iAmt   = hdr.indexOf('Amount USD');
+    if (iDate < 0 || iAmt < 0 || iName < 0) return [];
+    var iCat = hdr.indexOf('Category');
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    var out = [];
+    data.forEach(function(r) {
+      var amount = Number(r[iAmt] || 0);
+      if (isPayable) { if (amount >= 0) return; } else { if (amount <= 0) return; }
+      var absAmt = Math.abs(amount);
+      if (!showAll && Math.abs(absAmt - expected) > tol) return;
+      var acct = String(r[iAcct] || '');
+      // Payable loans with a Source Account set: only show transactions
+      // from that account. Keeps unrelated Gusto/payroll outflows from
+      // other accounts out of the picker.
+      if (isPayable && sourceAccount) {
+        var acctL = acct.toLowerCase();
+        if (acctL.indexOf(sourceAccount) < 0 && sourceAccount.indexOf(acctL.replace(/[^a-z0-9]/g, '')) < 0) {
+          // Fuzzy match: either the source substring is in the account label,
+          // or vice versa (accounts for "NF USA TX" vs "NF USA TX LLC ···5155").
+          // Normalize both to alphanumeric to be safe.
+          var acctNorm = acctL.replace(/[^a-z0-9]/g, '');
+          var srcNorm  = sourceAccount.replace(/[^a-z0-9]/g, '');
+          if (acctNorm.indexOf(srcNorm) < 0 && srcNorm.indexOf(acctNorm) < 0) return;
+        }
+      }
+      var name = String(r[iName] || '');
+      var merch = iMerch >= 0 ? String(r[iMerch] || '') : '';
+      var haystack = (name + ' ' + merch).toLowerCase();
+      // Skip if already matched by any OTHER loan's pattern.
+      var alreadyMatched = false;
+      for (var pi = 0; pi < allPatterns.length; pi++) {
+        if (haystack.indexOf(allPatterns[pi]) >= 0) { alreadyMatched = true; break; }
+      }
+      if (alreadyMatched) return;
+      var d = r[iDate] instanceof Date ? r[iDate] : new Date(r[iDate]);
+      if (isNaN(d.getTime())) return;
+      var dISO = Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd');
+      var key = dISO + '|' + absAmt.toFixed(2);
+      if (linkedKeys[key]) return;
+      var daysFromDue = dueDate ? Math.round((d.getTime() - dueDate.getTime()) / 86400000) : 0;
+      out.push({
+        date:         dISO,
+        amount:       absAmt,
+        name:         name,
+        merchant:     merch,
+        account:      acct,
+        category:     iCat >= 0 ? String(r[iCat] || '') : '',
+        daysFromDue:  daysFromDue,
+        amountDelta:  absAmt - expected
+      });
     });
+    return out;
+  }
+
+  // Search both sheets so we catch loans that pay from accounts outside the
+  // TLMND sync (Texas → NF USA TX, etc.). Dedupe on date+amount+account.
+  var candidates = scanSheet(ss.getSheetByName('TLMND_TRANSACTIONS'));
+  var plaidCands = scanSheet(ss.getSheetByName('PLAID_TRANSACTIONS'));
+  var seenKey = {};
+  candidates.forEach(function(c) { seenKey[c.date + '|' + c.amount.toFixed(2) + '|' + c.account] = true; });
+  plaidCands.forEach(function(c) {
+    var k = c.date + '|' + c.amount.toFixed(2) + '|' + c.account;
+    if (!seenKey[k]) { candidates.push(c); seenKey[k] = true; }
   });
 
   // Sort by date-proximity to due date (nearest first), then by amount-match.

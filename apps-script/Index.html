@@ -3254,21 +3254,39 @@ function openLinkPlaidTxnModal(loanId, scheduleIdx) {
         '<div style="font-size:14px;font-weight:600;color:#0d2137;margin-top:2px">'+esc(loan.Name||'')+'</div>' +
         '<div style="font-size:11px;color:#5f7791;margin-top:4px">Expected '+fmtUSD(row.payment)+' due '+new Date(row.dueDate+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+'</div>' +
       '</div>' +
-      '<div style="font-size:12px;color:#5f7791;margin-bottom:8px">Showing unmatched Plaid inflows within ±$500 (or 10%) of the expected amount, sorted by date-closeness to the due date. Click one to link it as this payment.</div>' +
+      '<div style="font-size:12px;color:#5f7791;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px">' +
+        '<span id="link-plaid-range-note">Showing unmatched Plaid transactions within ±$500 (or 50%) of the expected amount, sorted by date-closeness. Click one to link it as this payment.</span>' +
+        '<label style="white-space:nowrap;font-size:11.5px;color:#0d0f12;cursor:pointer;display:flex;align-items:center;gap:5px"><input type="checkbox" id="link-plaid-show-all" onchange="_reloadLinkPlaidCandidates()" style="margin:0"> Show all amounts</label>' +
+      '</div>' +
     '</div>' +
     '<div id="loan-linkplaid-list" style="padding:0 20px 18px;max-height:420px;overflow-y:auto">' +
       '<div style="padding:40px;text-align:center;color:#8091a8;font-size:12px">Loading candidates…</div>' +
     '</div>';
   document.getElementById('loan-linkplaid-body').innerHTML = header;
   openModal('loan-linkplaid-modal');
+  _reloadLinkPlaidCandidates();
+}
 
+// Call the backend with the current "Show all amounts" state. Used both on
+// initial open and whenever Amanda toggles the checkbox.
+function _reloadLinkPlaidCandidates() {
+  var s = _linkPlaidState;
+  if (!s) return;
+  var showAllEl = document.getElementById('link-plaid-show-all');
+  var showAll = !!(showAllEl && showAllEl.checked);
+  var noteEl = document.getElementById('link-plaid-range-note');
+  if (noteEl) noteEl.textContent = showAll
+    ? 'Showing ALL unmatched Plaid transactions (amount filter off), sorted by date-closeness. Click one to link it.'
+    : 'Showing unmatched Plaid transactions within ±$500 (or 50%) of the expected amount, sorted by date-closeness. Click one to link it as this payment.';
+  var list = document.getElementById('loan-linkplaid-list');
+  if (list) list.innerHTML = '<div style="padding:40px;text-align:center;color:#8091a8;font-size:12px">Loading candidates…</div>';
   google.script.run
     .withSuccessHandler(_renderLinkPlaidCandidates)
     .withFailureHandler(function(e){
-      document.getElementById('loan-linkplaid-list').innerHTML =
+      if (list) list.innerHTML =
         '<div style="padding:40px;text-align:center;color:#c5221f;font-size:12px">Load failed: '+esc(e.message||String(e))+'</div>';
     })
-    .getUnmatchedTLMNDInflowCandidates(loanId, row.payment, row.dueDate);
+    .getUnmatchedTLMNDInflowCandidates(s.loanId, s.row.payment, s.row.dueDate, { showAll: showAll });
 }
 var _linkPlaidState = null;
 function _renderLinkPlaidCandidates(cands) {
