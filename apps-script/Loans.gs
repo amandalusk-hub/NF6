@@ -2518,3 +2518,122 @@ function setTexasLoanCurrentMonthlyPayment() {
   ui.alert('Texas loan Monthly Payment set to $' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
     '\n\nReload the Loans tab — every pending schedule row should now show this as the Expected amount.');
 }
+
+
+// ── Oriental Bank Dorado Mortgage — one-time seed ─────────────────────────
+//
+// Payable. Fixed-rate 15-yr amortizing refi on Mike's Dorado condo:
+//   Loan ID 280600873064, disbursed 7/11/2025, $2,548,000 @ 5.875%.
+//   P&I = $21,329.78/mo; actual ACH = $21,683.30/mo (P&I + escrow).
+// Pulled from Mike's Fidelity ···9007 first week of every month.
+// First payment: Aug 1, 2025.
+function seedOrientalDoradoLoan() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var loans = getLoans();
+  var existing = loans.filter(function(l) {
+    var n = String(l.Name || '').toLowerCase();
+    return n.indexOf('oriental') >= 0 && (n.indexOf('dorado') >= 0 || n.indexOf('plantation') >= 0);
+  })[0];
+  if (existing) {
+    ui.alert('An Oriental Dorado loan already exists in LOANS — no change made.\n\nExisting: ' + existing.Name);
+    return;
+  }
+  var resp = ui.alert(
+    'Seed Oriental Bank Dorado Mortgage?',
+    'Add the Oriental Bank refi on Plantation Village PH05 (Payable — Mike owes):\n\n' +
+    '  Lender:        Oriental Bank\n' +
+    '  Property:      Plantation Village I PH05, Dorado PR 00646\n' +
+    '  Loan ID:       280600873064\n' +
+    '  Loan Amount:   $2,548,000\n' +
+    '  Rate:          5.875% fixed\n' +
+    '  Term:          15 years (180 months)\n' +
+    '  Type:          Amortizing\n' +
+    '  First Payment: Aug 1, 2025 (disbursed 7/11/2025)\n' +
+    '  P&I only:      $21,329.78/mo\n' +
+    '  Full ACH:      $21,683.30/mo (P&I + escrow)\n' +
+    '  Direction:     Payable\n' +
+    '  Source:        Fidelity ···9007 (Mike personal)\n' +
+    '  Plaid pattern: ORIENTAL BANK|Oriental Prest\n\n' +
+    'The schedule Expected will be $21,683.30 so the actual ACH matches cleanly.\n' +
+    'When the escrow adjusts (it has — Oct = $21,683.30 vs Aug = $21,668.72), run\n' +
+    'Tracker → Loans → Oriental: Set current monthly payment.\n\nProceed?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp !== ui.Button.OK) return;
+  var res = addLoan({
+    name: 'Oriental Bank Mortgage — Plantation Village PH05 (Dorado PR)',
+    entity: 'MN Personal',
+    direction: 'Payable',
+    sourceAccount: 'Fidelity 9007',
+    originalPrincipal: 2548000,
+    accruedInterest: 0,
+    effectivePrincipal: 2548000,
+    annualRate: 5.875,
+    termMonths: 180,
+    firstPaymentDate: '2025-08-01',
+    monthlyPayment: 21683.30,
+    paymentType: 'End of Period',
+    loanType: 'Amortizing',
+    plaidPattern: 'ORIENTAL BANK|Oriental Prest',
+    status: 'Active',
+    notes: 'Oriental Bank refi, Loan ID 280600873064. Closing 7/7/2025, ' +
+           'disbursement 7/11/2025. Property: Plantation Village I PH05, ' +
+           'Dorado PR 00646. Fixed-rate 15-yr amortizing.\n' +
+           '  • P&I = $21,329.78/mo\n' +
+           '  • Escrow varies (property tax / HO6 / homeowner\'s ins)\n' +
+           '  • Full ACH to Oriental = $21,683.30 (Oct/Nov 2026)\n' +
+           '  • Earlier months (Mar-Sep 2026) = $21,668.72 before escrow adjust\n' +
+           'ACH debited from Fidelity ···9007 first week of every month. ' +
+           'Late fee: 5% of P&I after 15 days. Contact: Sandra Cruz Alverio ' +
+           '(scruz@orientalbank.com, 787-644-0817).'
+  });
+  if (!res.success) { ui.alert('Failed to add loan: ' + (res.error || 'unknown')); return; }
+  ui.alert(
+    'Oriental Dorado loan added.\n\n' +
+    'Next steps:\n' +
+    '1. Loans tab → look for "Oriental Bank Mortgage — Plantation Village" under "Loans You Owe"\n' +
+    '2. Historical Aug 2025 → Oct 2026 payments ($21,668.72 × ~14 months) will auto-match ' +
+    'from PLAID_TRANSACTIONS if they\'re synced. Older months may show as Overdue — use ' +
+    'Link Plaid or Mark Received to backfill.\n' +
+    '3. Each Dec 2026 onward should auto-match cleanly.\n' +
+    '4. If the escrow amount changes (it does periodically), run:\n' +
+    '   Tracker → Loans → Oriental: Set current monthly payment'
+  );
+}
+
+// Parallel to setTexasLoanCurrentMonthlyPayment — updates the Oriental loan's
+// Monthly Payment column whenever Oriental's escrow adjusts the bill.
+function setOrientalLoanCurrentMonthlyPayment() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var resp = ui.prompt('Oriental Loan — Current Monthly Payment',
+    'Enter the amount Oriental is currently debiting from Fidelity ···9007 ' +
+    '(P&I + escrow). Updates only the Monthly Payment column — rate, ' +
+    'principal, and term stay the same.\n\n' +
+    'Known amounts: Oct/Nov 2026 = $21,683.30 · Mar-Sep 2026 = $21,668.72',
+    ui.ButtonSet.OK_CANCEL);
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var raw = String(resp.getResponseText() || '').trim().replace(/[$,]/g, '');
+  var amt = Number(raw);
+  if (!amt || amt <= 0) { ui.alert('Enter a valid dollar amount.'); return; }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOANS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('LOANS sheet missing.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iName = hdr.indexOf('Name');
+  var iPay  = hdr.indexOf('Monthly Payment');
+  if (iName < 0 || iPay < 0) { ui.alert('LOANS sheet missing Name or Monthly Payment column.'); return; }
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var updated = 0;
+  data.forEach(function(row, i) {
+    var n = String(row[iName] || '').toLowerCase();
+    if (n.indexOf('oriental') >= 0 && (n.indexOf('dorado') >= 0 || n.indexOf('plantation') >= 0)) {
+      sheet.getRange(i + 2, iPay + 1).setValue(amt);
+      updated++;
+    }
+  });
+  if (!updated) { ui.alert('No Oriental Dorado loan found on LOANS sheet. Seed it first.'); return; }
+  ui.alert('Oriental loan Monthly Payment set to $' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
+    '\n\nReload the Loans tab — every pending schedule row should show this as the Expected amount.');
+}
