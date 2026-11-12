@@ -963,10 +963,24 @@ function _matchLoanPayments_(loan) {
         } else {
           if (amount <= 0) return;    // Receivable needs inflow (positive)
         }
-        // Optional source-account filter for Payable loans.
+        // Optional source-account filter for Payable loans. Supports
+        // pipe-delimited values ("Fidelity 9007|Oriental 0451") so one
+        // loan can match payments from multiple accounts — common when
+        // the borrower switches which account auto-debits over time.
+        // Any substring match (in either direction) counts.
         if (isPayable && srcAccountFilter) {
           var acct = String(r[iAccount] || '').toLowerCase();
-          if (acct.indexOf(srcAccountFilter) < 0) return;
+          var acctNorm = acct.replace(/[^a-z0-9]/g, '');
+          var srcOk = false;
+          var srcParts = srcAccountFilter.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+          for (var si = 0; si < srcParts.length; si++) {
+            var src = srcParts[si];
+            var srcNorm = src.replace(/[^a-z0-9]/g, '');
+            if (acct.indexOf(src) >= 0 || acctNorm.indexOf(srcNorm) >= 0 || srcNorm.indexOf(acctNorm) >= 0) {
+              srcOk = true; break;
+            }
+          }
+          if (!srcOk) return;
         }
         payments.push({
           date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
@@ -2349,18 +2363,22 @@ function getUnmatchedTLMNDInflowCandidates(loanId, expectedAmount, dueDateIso, o
       if (!showAll && Math.abs(absAmt - expected) > tol) return;
       var acct = String(r[iAcct] || '');
       // Payable loans with a Source Account set: only show transactions
-      // from that account. Keeps unrelated Gusto/payroll outflows from
-      // other accounts out of the picker.
+      // from that account (or ANY of them if pipe-delimited — common for
+      // loans whose auto-debit moves between accounts). Fuzzy substring
+      // match in either direction, normalized to alphanumeric.
       if (isPayable && sourceAccount) {
         var acctL = acct.toLowerCase();
-        if (acctL.indexOf(sourceAccount) < 0 && sourceAccount.indexOf(acctL.replace(/[^a-z0-9]/g, '')) < 0) {
-          // Fuzzy match: either the source substring is in the account label,
-          // or vice versa (accounts for "NF USA TX" vs "NF USA TX LLC ···5155").
-          // Normalize both to alphanumeric to be safe.
-          var acctNorm = acctL.replace(/[^a-z0-9]/g, '');
-          var srcNorm  = sourceAccount.replace(/[^a-z0-9]/g, '');
-          if (acctNorm.indexOf(srcNorm) < 0 && srcNorm.indexOf(acctNorm) < 0) return;
+        var acctNorm = acctL.replace(/[^a-z0-9]/g, '');
+        var srcOk = false;
+        var srcParts = sourceAccount.split('|').map(function(s){ return s.trim(); }).filter(Boolean);
+        for (var si = 0; si < srcParts.length; si++) {
+          var src = srcParts[si];
+          var srcNorm = src.replace(/[^a-z0-9]/g, '');
+          if (acctL.indexOf(src) >= 0 || acctNorm.indexOf(srcNorm) >= 0 || srcNorm.indexOf(acctNorm) >= 0) {
+            srcOk = true; break;
+          }
         }
+        if (!srcOk) return;
       }
       var name = String(r[iName] || '');
       var merch = iMerch >= 0 ? String(r[iMerch] || '') : '';
@@ -2565,7 +2583,7 @@ function seedOrientalDoradoLoan() {
     name: 'Oriental Bank Mortgage — Plantation Village PH05 (Dorado PR)',
     entity: 'MN Personal',
     direction: 'Payable',
-    sourceAccount: 'Fidelity 9007',
+    sourceAccount: 'Fidelity 9007|Oriental 0451',
     originalPrincipal: 2548000,
     accruedInterest: 0,
     effectivePrincipal: 2548000,
@@ -2636,4 +2654,34 @@ function setOrientalLoanCurrentMonthlyPayment() {
   if (!updated) { ui.alert('No Oriental Dorado loan found on LOANS sheet. Seed it first.'); return; }
   ui.alert('Oriental loan Monthly Payment set to $' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) +
     '\n\nReload the Loans tab — every pending schedule row should show this as the Expected amount.');
+}
+
+
+// One-shot: patch the Oriental Dorado loan's Source Account column to
+// accept BOTH Fidelity 9007 (current) and Oriental 0451 (historical).
+// Lets the auto-matcher backfill the ~15 months of history without
+// re-seeding.
+function fixOrientalLoanSourceAccounts() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('LOANS');
+  if (!sheet || sheet.getLastRow() < 2) { ui.alert('LOANS sheet missing.'); return; }
+  var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var iName = hdr.indexOf('Name');
+  var iSrc  = hdr.indexOf('Source Account');
+  if (iName < 0 || iSrc < 0) { ui.alert('LOANS sheet missing Name or Source Account column.'); return; }
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+  var updated = 0;
+  data.forEach(function(row, i) {
+    var n = String(row[iName] || '').toLowerCase();
+    if (n.indexOf('oriental') >= 0 && (n.indexOf('dorado') >= 0 || n.indexOf('plantation') >= 0)) {
+      sheet.getRange(i + 2, iSrc + 1).setValue('Fidelity 9007|Oriental 0451');
+      updated++;
+    }
+  });
+  if (!updated) { ui.alert('No Oriental Dorado loan found on LOANS sheet.'); return; }
+  ui.alert('Oriental loan Source Account set to "Fidelity 9007|Oriental 0451".\n\n' +
+    'Reload the Loans tab — every historical Oriental ACH from EITHER account ' +
+    'should now auto-match to the appropriate schedule row. If some months are ' +
+    'still Overdue, use the "Link Plaid" button or Mark Payment Received on each.');
 }

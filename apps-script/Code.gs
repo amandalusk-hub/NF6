@@ -435,6 +435,7 @@ function onOpen() {
     .addItem('Loans → Debug: Dump NF USA TX recent outflows (find the Amegy ACH)', 'debugTexasAccountRecentOutflows')
     .addItem('Loans → Texas: Set current monthly payment (construction loan draw)', 'setTexasLoanCurrentMonthlyPayment')
     .addItem('Loans → Oriental: Set current monthly payment (escrow adjust)', 'setOrientalLoanCurrentMonthlyPayment')
+    .addItem('Loans → Oriental: Add Fidelity 9007 + Oriental 0451 as source accounts', 'fixOrientalLoanSourceAccounts')
     .addItem('Loans → Debug: Test getLoansStatus', 'debugLoansStatus')
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
