@@ -1080,8 +1080,13 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         </div>
         <div>
           <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Subcategory</label>
-          <input id="prop-classify-subcategory" type="text" placeholder="e.g. Guest Deposit" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+          <input id="prop-classify-subcategory" type="text" placeholder="pick category first →" list="prop-classify-sub-suggestions" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
+          <datalist id="prop-classify-sub-suggestions"></datalist>
         </div>
+      </div>
+      <div id="prop-classify-chip-row" style="display:none;margin-bottom:12px">
+        <div style="font-size:11px;color:#5f7791;margin-bottom:5px">Common subcategories (click to use):</div>
+        <div id="prop-classify-chips" style="display:flex;flex-wrap:wrap;gap:5px"></div>
       </div>
       <div>
         <label style="display:block;color:#5f7791;margin-bottom:3px;font-weight:500;font-size:12px">Notes (optional)</label>
@@ -9859,18 +9864,84 @@ function _openClassifyModal(txnId, isRetag) {
   openModal('prop-classify-modal');
 }
 
+// Canonical subcategory menu per Category — matches the seed rules in
+// Properties.gs so classifications roll up into the SAME report line
+// (otherwise you end up with "AC Maintenance" and "Maintenance - AC
+// Quarterly" as two separate lines even though they're the same thing).
+// Order within each list = order they'll show as chips.
+var _PROP_SUBCATEGORY_OPTIONS = {
+  'Revenue': [
+    'Rental Income (Alma)', 'Rental Income (Direct)', 'Rental Income (Owner Use Buyback)',
+    'Interest Income', 'Other Income'
+  ],
+  'Direct Cost': [
+    'Alma Commission', 'Booking Platform Fee', 'Credit Card Processing',
+    'Guest Supplies'
+  ],
+  'Operating Expense': [
+    'Maintenance - AC Quarterly', 'Maintenance - Exterminator',
+    'Maintenance - Pool', 'Maintenance - Landscaping',
+    'Maintenance - General Repairs', 'Maintenance - Golf Cart',
+    'Cleaning (Guest stays)', 'Cleaning (Owner/Friends stays)',
+    'Utilities - Electricity', 'Utilities - Water', 'Utilities - Gas',
+    'Internet', 'Cable / Streaming', 'HOA Dues', 'Property Tax',
+    'Insurance', 'Property Management', 'Supplies', 'Other OpEx'
+  ],
+  'Debt Service': ['Mortgage', 'Interest', 'Principal'],
+  'Pass-through': ['Guest Deposit', 'Membership Fee', 'Refundable Fee'],
+  'Reimbursement': ['Guest Reimbursement', 'Insurance Claim', 'Vendor Refund'],
+  'Internal Transfer': ['Savings ↔ Checking', 'Owner Funding', 'Entity Transfer']
+};
+
 function _updateClassifySubs() {
-  // Prefill subcategory with a sensible default based on category.
   var cat = document.getElementById('prop-classify-category').value;
   var subEl = document.getElementById('prop-classify-subcategory');
-  if (subEl.value) return;   // don't clobber what user already typed
-  var defaults = {
-    'Pass-through':  'Guest Deposit',
-    'Reimbursement': 'Guest Reimbursement',
-    'Internal Transfer': 'Internal Transfer',
-    'Revenue':       'Rental Income (Direct)'
-  };
-  if (defaults[cat]) subEl.value = defaults[cat];
+  var chipsEl = document.getElementById('prop-classify-chips');
+  var chipsRow = document.getElementById('prop-classify-chip-row');
+  var datalist = document.getElementById('prop-classify-sub-suggestions');
+
+  var options = _PROP_SUBCATEGORY_OPTIONS[cat] || [];
+
+  // Populate the datalist (shows as a dropdown on focus) AND chip row
+  // (one-click pick for the most common ones).
+  if (datalist) {
+    datalist.innerHTML = options.map(function(o) {
+      return '<option value="' + o.replace(/"/g, '&quot;') + '">';
+    }).join('');
+  }
+  if (chipsRow && chipsEl) {
+    if (options.length) {
+      chipsEl.innerHTML = options.map(function(o) {
+        var safe = o.replace(/'/g, "\\'");
+        return '<button type="button" onclick="_pickPropSub(\'' + safe + '\')" ' +
+          'style="padding:4px 10px;border:1px solid #c0ccd8;background:#fff;color:#0d2137;border-radius:14px;font-size:11px;cursor:pointer" ' +
+          'onmouseover="this.style.background=\'#eef4fb\';this.style.borderColor=\'#1e5fa8\'" ' +
+          'onmouseout="this.style.background=\'#fff\';this.style.borderColor=\'#c0ccd8\'">' + esc(o) + '</button>';
+      }).join('');
+      chipsRow.style.display = '';
+    } else {
+      chipsRow.style.display = 'none';
+    }
+  }
+  if (subEl) subEl.placeholder = options.length
+    ? 'type or pick a suggestion'
+    : (cat ? 'free text' : 'pick category first →');
+
+  // Prefill a sensible default ONLY if subcategory is empty — don't clobber.
+  if (subEl && !subEl.value) {
+    var defaults = {
+      'Pass-through':  'Guest Deposit',
+      'Reimbursement': 'Guest Reimbursement',
+      'Internal Transfer': 'Internal Transfer',
+      'Revenue':       'Rental Income (Direct)'
+    };
+    if (defaults[cat]) subEl.value = defaults[cat];
+  }
+}
+
+function _pickPropSub(val) {
+  var el = document.getElementById('prop-classify-subcategory');
+  if (el) { el.value = val; el.focus(); }
 }
 
 function _savePropClassification() {
