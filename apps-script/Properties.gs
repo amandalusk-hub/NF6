@@ -215,7 +215,17 @@ function _getPropertySheetRows_(sheetName, headers) {
       obj[h] = idx >= 0 ? row[idx] : '';
     });
     return obj;
-  }).filter(function(o) { return o.ID; });
+  }).filter(function(o) {
+    // Only drop blank rows via ID when the schema actually has an ID
+    // column. Sheets like PROPERTY_TXN_OVERRIDES use composite keys
+    // (Transaction ID + Property ID) and have NO top-level ID — the
+    // old `return o.ID` filter silently dropped every single override
+    // row, so saves "worked" but the report never saw them. For those
+    // schemas, require ANY non-empty value in the first header field.
+    if (headers.indexOf('ID') >= 0) return o.ID;
+    var firstKey = headers[0];
+    return firstKey ? !!o[firstKey] : true;
+  });
 }
 
 function _writePropertyRow_(sheetName, headers, obj) {
