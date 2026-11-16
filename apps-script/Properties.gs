@@ -711,14 +711,22 @@ function setPropertyTxnOverride(txnId, propertyId, category, subcategory, notes)
 // aliases here or in the event titles — keep this list broad so a naming
 // slip doesn't wreck the classification.
 var _PROPERTY_EVENT_SOURCES = [
-  { source: 'owner',  keywords: ['owner', 'mike', 'dr mike', 'dr. mike',
-                                 'michael', 'dr michael', 'dr. michael',
-                                 'michael nguyen', 'nguyen'] },
-  { source: 'family', keywords: ['family', 'brother', 'sister', 'parents',
-                                'mom', 'dad', 'kids', 'personal'] },
-  { source: 'friend', keywords: ['friend', 'friends', 'guest of mike'] },
-  { source: 'alma',   keywords: ['alma', 'airbnb', 'vrbo', 'booking.com', 'expedia'] },
-  { source: 'direct', keywords: ['direct'] }
+  { source: 'owner',       keywords: ['owner', 'mike', 'dr mike', 'dr. mike',
+                                      'michael', 'dr michael', 'dr. michael',
+                                      'michael nguyen', 'nguyen'] },
+  { source: 'family',      keywords: ['family', 'brother', 'sister', 'parents',
+                                      'mom', 'dad', 'kids', 'personal'] },
+  { source: 'friend',      keywords: ['friend', 'friends', 'guest of mike'] },
+  { source: 'alma',        keywords: ['alma', 'airbnb', 'vrbo', 'booking.com', 'expedia'] },
+  { source: 'direct',      keywords: ['direct'] },
+  // Maintenance / vendor stays (AC tech, cleaner, landscaper, etc.) —
+  // don't count as occupancy, don't belong under Friend. Last in the list
+  // so broader keywords don't accidentally steal these.
+  { source: 'maintenance', keywords: ['maintenance', 'maintance', 'ac check', 'ac tech',
+                                      'cleaner', 'cleaning crew', 'exterminator',
+                                      'landscaper', 'landscape', 'pool tech', 'plumber',
+                                      'electrician', 'handyman', 'vendor', 'repair',
+                                      'contractor', 'inspection', 'inspector'] }
 ];
 
 function _classifyEventSource_(title) {
@@ -772,7 +780,7 @@ function _getPropertyReservationOverrides_(propertyId) {
 function setPropertyReservationClassification(eventId, propertyId, classification, titleSnapshot, notes) {
   _requireEditor_();
   ensurePropertiesSheets_();
-  var allowed = ['guest','friend','owner','family','alma','direct','unknown'];
+  var allowed = ['guest','friend','owner','family','alma','direct','maintenance','unknown'];
   var c = String(classification || '').toLowerCase().trim();
   if (allowed.indexOf(c) < 0) {
     throw new Error('Classification must be one of: ' + allowed.join(', '));

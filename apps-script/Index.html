@@ -9666,7 +9666,7 @@ function _renderPropertyReport(r) {
       var countsForOccupancy = res.source === 'guest' || res.source === 'alma' || res.source === 'direct' || res.source === 'unknown';
       var srcColor = countsForOccupancy
         ? (res.source === 'alma' ? '#1e8e3e' : res.source === 'direct' ? '#1a73e8' : res.source === 'guest' ? '#1a73e8' : '#9c6c0f')
-        : '#7a8ba8';
+        : (res.source === 'maintenance' ? '#c5822a' : '#7a8ba8');
       var evtIdEsc = esc(String(res.id || ''));
       html += '<div onclick="_openResClassifyModal(' + i + ')" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f0f3f7;font-size:12px;cursor:pointer;gap:8px" onmouseover="this.style.background=\'#f8f9ff\'" onmouseout="this.style.background=\'\'">' +
         '<div style="flex:1;min-width:0">' +
@@ -9979,12 +9979,13 @@ function _savePropClassification() {
 // ─── Reservation Classify Modal ────────────────────────────────────────────
 
 var _RES_CLASSIFICATION_OPTIONS = [
-  { value: 'guest',  label: 'Paying Guest',      counts: true,  color: '#1a73e8' },
-  { value: 'alma',   label: 'Alma Booking',      counts: true,  color: '#1e8e3e' },
-  { value: 'direct', label: 'Direct Booking',    counts: true,  color: '#1a73e8' },
-  { value: 'friend', label: 'Friend / Co-worker',counts: false, color: '#7a8ba8' },
-  { value: 'owner',  label: 'Owner (Mike)',      counts: false, color: '#7a8ba8' },
-  { value: 'family', label: 'Family',            counts: false, color: '#7a8ba8' }
+  { value: 'guest',       label: 'Paying Guest',             counts: true,  color: '#1a73e8' },
+  { value: 'alma',        label: 'Alma Booking',             counts: true,  color: '#1e8e3e' },
+  { value: 'direct',      label: 'Direct Booking',           counts: true,  color: '#1a73e8' },
+  { value: 'friend',      label: 'Friend / Co-worker',       counts: false, color: '#7a8ba8' },
+  { value: 'owner',       label: 'Owner (Mike)',             counts: false, color: '#7a8ba8' },
+  { value: 'family',      label: 'Family',                   counts: false, color: '#7a8ba8' },
+  { value: 'maintenance', label: 'Maintenance / Vendor',     counts: false, color: '#c5822a' }
 ];
 
 function _openResClassifyModal(resIndex) {
