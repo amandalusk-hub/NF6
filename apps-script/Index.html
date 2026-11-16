@@ -9861,6 +9861,9 @@ function _openClassifyModal(txnId, isRetag) {
   document.getElementById('prop-classify-category').value = preCat;
   document.getElementById('prop-classify-subcategory').value = preSub;
   document.getElementById('prop-classify-notes').value = '';
+  // Setting .value programmatically doesn't fire onchange, so chips/
+  // datalist don't populate on open. Trigger explicitly.
+  _updateClassifySubs();
   openModal('prop-classify-modal');
 }
 
@@ -9948,14 +9951,25 @@ function _savePropClassification() {
   var txnId = _propsState.currentClassifyTxnId;
   var propertyId = _propsState.currentPropertyId;
   var cat = document.getElementById('prop-classify-category').value;
-  var sub = document.getElementById('prop-classify-subcategory').value;
+  var sub = (document.getElementById('prop-classify-subcategory').value || '').trim();
   var notes = document.getElementById('prop-classify-notes').value;
   if (!cat) { toast('Pick a category', 'error'); return; }
-  if (!sub)  sub = cat;
+  // Warn if subcategory is blank or redundant with the category — those
+  // classifications end up as an unlabeled generic line on the report, which
+  // is almost never what the user wanted. Confirm before saving.
+  if (!sub || sub.toLowerCase() === cat.toLowerCase()) {
+    var proceed = confirm('No subcategory picked.\n\n' +
+      'The transaction will land under "' + cat + '" with no detail label, which ' +
+      'rolls up as a generic line on the report.\n\n' +
+      'Click Cancel to go back and pick a subcategory (recommended), ' +
+      'or OK to save as-is.');
+    if (!proceed) return;
+    sub = cat;
+  }
   google.script.run
     .withSuccessHandler(function() {
       closeModal('prop-classify-modal');
-      toast('Classified');
+      toast('✓ Classified as ' + cat + ' · ' + sub);
       _loadPropertyReport();   // refresh the detail — txn moves between buckets as needed
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
