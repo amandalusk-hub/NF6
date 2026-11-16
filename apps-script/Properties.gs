@@ -1665,3 +1665,101 @@ function debugProperties() {
   });
   _propertyDebugOutput_('Properties Diagnostic', lines.join('\n'));
 }
+
+
+// Diagnostic: dump every PROPERTY_TXN_OVERRIDES row + (optionally) check
+// whether each referenced txnId can be found in the current txn pull for
+// its property. Answers "I classified it and hit save but the report
+// didn't change — did the override even get stored?"
+function debugPropertyOverridesForDorado() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  // Find the Dorado property ID.
+  var propsSheet = ss.getSheetByName('PROPERTIES');
+  if (!propsSheet) { ui.alert('PROPERTIES sheet missing.'); return; }
+  var pHdr = propsSheet.getRange(1, 1, 1, propsSheet.getLastColumn()).getValues()[0];
+  var pData = propsSheet.getRange(2, 1, propsSheet.getLastRow() - 1, pHdr.length).getValues();
+  var iPId = pHdr.indexOf('ID'), iPName = pHdr.indexOf('Name');
+  var doradoId = null, doradoRow = null;
+  pData.forEach(function(row) {
+    var n = String(row[iPName] || '').toLowerCase();
+    if (n.indexOf('dorado') >= 0 || n.indexOf('plantation') >= 0 || n.indexOf('kuhlman') < 0 && n.indexOf('1405') >= 0) {
+      doradoId = String(row[iPId]);
+      doradoRow = row;
+    }
+  });
+  if (!doradoId) { ui.alert('No Dorado property found on PROPERTIES.'); return; }
+
+  // Dump all overrides for Dorado.
+  var ovrSheet = ss.getSheetByName('PROPERTY_TXN_OVERRIDES');
+  var overrides = [];
+  if (ovrSheet && ovrSheet.getLastRow() >= 2) {
+    var oHdr = ovrSheet.getRange(1, 1, 1, ovrSheet.getLastColumn()).getValues()[0];
+    var oData = ovrSheet.getRange(2, 1, ovrSheet.getLastRow() - 1, oHdr.length).getValues();
+    var iTxn = oHdr.indexOf('Transaction ID');
+    var iProp = oHdr.indexOf('Property ID');
+    var iCat = oHdr.indexOf('Category');
+    var iSub = oHdr.indexOf('Subcategory');
+    var iEnt = oHdr.indexOf('Entered At');
+    oData.forEach(function(row) {
+      if (String(row[iProp]) !== doradoId) return;
+      overrides.push({
+        txnId: String(row[iTxn] || ''),
+        cat:   String(row[iCat] || ''),
+        sub:   String(row[iSub] || ''),
+        when:  row[iEnt]
+      });
+    });
+  }
+
+  // For each override, can we find its txnId in PLAID_TRANSACTIONS or
+  // TLMND_TRANSACTIONS? That tells us if the report lookup would match.
+  var txnLookup = {};
+  ['TLMND_TRANSACTIONS', 'PLAID_TRANSACTIONS'].forEach(function(sn) {
+    var sh = ss.getSheetByName(sn);
+    if (!sh || sh.getLastRow() < 2) return;
+    var h = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    var iTId = h.indexOf('Transaction ID');
+    var iDate = h.indexOf('Date');
+    var iName = h.indexOf('Name');
+    var iAmt = h.indexOf('Amount USD');
+    var iAcct = h.indexOf('Account');
+    if (iTId < 0) return;
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, h.length).getValues();
+    rows.forEach(function(r) {
+      var id = String(r[iTId] || '');
+      if (!id || txnLookup[id]) return;
+      var d = r[iDate] instanceof Date ? Utilities.formatDate(r[iDate], 'UTC', 'yyyy-MM-dd') : String(r[iDate] || '').substring(0, 10);
+      txnLookup[id] = {
+        sheet: sn,
+        date: d,
+        name: String(r[iName] || '').substring(0, 60),
+        amt: Number(r[iAmt] || 0),
+        acct: String(r[iAcct] || '')
+      };
+    });
+  });
+
+  var lines = ['Dorado property ID: ' + doradoId + '\n'];
+  if (!overrides.length) {
+    lines.push('ZERO overrides stored for Dorado on PROPERTY_TXN_OVERRIDES.\n');
+    lines.push('This means your classify saves are NOT writing to the sheet.');
+  } else {
+    lines.push(overrides.length + ' override row(s):');
+    overrides.forEach(function(o, i) {
+      var match = txnLookup[o.txnId];
+      lines.push('  ' + (i+1) + '. txnId: "' + o.txnId + '"');
+      lines.push('     → Category: ' + o.cat + ' · Subcategory: ' + o.sub);
+      if (match) {
+        lines.push('     ✓ FOUND in ' + match.sheet + ': ' + match.date + ' · ' + match.name + ' · $' + match.amt + ' · ' + match.acct);
+      } else {
+        lines.push('     ✗ NOT FOUND in TLMND/PLAID transactions — this override will NEVER match');
+      }
+    });
+  }
+
+  var msg = lines.join('\n');
+  Logger.log(msg);
+  ui.alert('Dorado Overrides Diagnostic', msg, ui.ButtonSet.OK);
+}
