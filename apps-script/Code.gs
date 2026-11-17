@@ -441,6 +441,7 @@ function onOpen() {
     .addItem('Loans → Deep Sync (backfill 24 months)', 'syncTLMNDCashFlowDeepMenu')
     .addSeparator()
     .addItem('Properties → Seed Dorado (idempotent)', 'seedDoradoProperty')
+    .addItem('Properties → Seed Condado Lagoon Villas (NF PR SJ)', 'seedCondadoProperty')
     .addItem('Properties → Reset Dorado Rules (wipe + reseed with current rules)', 'resetDoradoRules')
     .addItem('Properties → Debug: Show Properties + Rules', 'debugProperties')
     .addItem('Properties → Debug: Dorado overrides (did my classify save?)', 'debugPropertyOverridesForDorado')

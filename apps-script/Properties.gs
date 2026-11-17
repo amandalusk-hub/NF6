@@ -1858,13 +1858,30 @@ function getPropertyPortfolioOverview() {
     }
   } catch (e) { Logger.log('portfolio: assets load failed: ' + e); }
 
-  // Load all active compliance items once.
+  // Load all active compliance items once. getComplianceItems() returns
+  // {items, generatedAt} — unwrap to the array.
   var complianceItems = [];
   try {
     if (typeof getComplianceItems === 'function') {
-      complianceItems = getComplianceItems() || [];
+      var resp = getComplianceItems() || {};
+      complianceItems = Array.isArray(resp) ? resp : (resp.items || []);
     }
   } catch (e) { Logger.log('portfolio: compliance load failed: ' + e); }
+
+  // Per-property entity hints: which COMPLIANCE_ITEMS.Entity values map
+  // cleanly to a specific property? For entities that are property-
+  // specific (NF PR SJ = Condado complex; NF Texas = Kuhlman house;
+  // Paris Thacko = Paris apartment), every item under that entity
+  // belongs to the matching property regardless of obligation text.
+  // For broader entities (MN Personal), we fall back to obligation-
+  // text matching only (otherwise passport renewals would match every
+  // Mike-owned property).
+  var _entityToPropertyName = {
+    'nf pr sj':      ['condado', 'plantation', 'nf pr sj'],
+    'nf texas':      ['texas', 'kuhlman'],
+    'paris thacko':  ['paris', 'quai montebello', 'thacko'],
+    'nf mde co':     ['medellin', 'quebrada', 'cinturón', 'provincia']
+  };
 
   function _countryCode(countryName) {
     var c = String(countryName || '').toLowerCase();
@@ -1881,16 +1898,43 @@ function getPropertyPortfolioOverview() {
 
   function _matchComplianceForProperty(prop) {
     var nameTokens = String(prop['Name'] || '').toLowerCase().split(/[\s\-,.()]+/).filter(function(t) {
-      return t && t.length > 3;   // skip "and", "the", etc.
+      return t && t.length > 3;
     });
     var addrTokens = String(prop['Address'] || '').toLowerCase().split(/[\s\-,.()]+/).filter(function(t) {
       return t && t.length > 3;
     });
     var tokens = nameTokens.concat(addrTokens).filter(function(t, i, a) { return a.indexOf(t) === i; });
-    // Match an item if its Obligation contains ANY distinctive token.
+    // Distinctive property keyword set — the obligation text for this
+    // property's items is EXPECTED to contain one of these somewhere.
+    // Combine the property-name tokens with any aliases the entity hint
+    // list adds (so a "NF PR SJ" property's items mentioning "condado"
+    // or "plantation" also match).
+    var propNameLower = String(prop['Name'] || '').toLowerCase();
+    Object.keys(_entityToPropertyName).forEach(function(ent) {
+      var hints = _entityToPropertyName[ent];
+      if (hints.some(function(h) { return propNameLower.indexOf(h) >= 0; })) {
+        hints.forEach(function(h) { if (tokens.indexOf(h) < 0) tokens.push(h); });
+      }
+    });
+
     return complianceItems.filter(function(it) {
-      var hay = (String(it.Obligation || '') + ' ' + String(it.Category || '') + ' ' + String(it.Notes || '')).toLowerCase();
-      return tokens.some(function(t) { return hay.indexOf(t) >= 0; });
+      var obl = String(it.Obligation || '').toLowerCase();
+      var cat = String(it.Category || '').toLowerCase();
+      var notes = String(it.Notes || '').toLowerCase();
+      var itemEntity = String(it.Entity || '').toLowerCase().trim();
+      var hay = obl + ' ' + cat + ' ' + notes;
+
+      // 1) Direct token match on obligation / category / notes.
+      if (tokens.some(function(t) { return hay.indexOf(t) >= 0; })) return true;
+
+      // 2) Entity-based match ONLY for entities whose items are
+      //    exclusively property-related (NF PR SJ, NF Texas, Paris
+      //    Thacko, NF MDE CO). Skip broad entities like MN Personal
+      //    where items could be anything (passport, medical license).
+      var hints = _entityToPropertyName[itemEntity];
+      if (hints && hints.some(function(h) { return propNameLower.indexOf(h) >= 0; })) return true;
+
+      return false;
     });
   }
 
@@ -1999,4 +2043,53 @@ function getPropertyPortfolioOverview() {
   }
 
   return { totals: totals, properties: out };
+}
+
+
+// Seed the Condado Lagoon Villas property (NF PR SJ LLC). Minimal version
+// — just the PROPERTIES row so it appears in the Portfolio view next to
+// Dorado. No Plaid accounts or calendar yet since the monthly P&L flow
+// isn't needed for this one (it's tracked via compliance items only for
+// now: CRIM taxes, parking fees, Personal/Commercial insurance, PR DOS
+// annual fee). Amanda can add Plaid IDs later via the sheet to turn on
+// monthly rental reports if/when they're wanted.
+function seedCondadoProperty() {
+  _requireEditor_();
+  ensurePropertiesSheets_();
+  var ui; try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+
+  var existing = getProperties().find(function(p) {
+    return /condado|lagoon/i.test(String(p['Name'] || ''));
+  });
+  if (existing) {
+    if (ui) ui.alert('Condado property already exists on PROPERTIES (ID: ' + existing['ID'] + '). No change made.');
+    return;
+  }
+
+  var res = addProperty({
+    name:              'Condado - Lagoon Villas',
+    address:           'Condado Lagoon Villas, San Juan, PR',
+    city:              'San Juan',
+    country:           'Puerto Rico',
+    currency:          'USD',
+    manager:           '',
+    managerFeePct:     0,
+    googleCalendarId:  '',
+    plaidAccountIds:   '',
+    active:            'Yes',
+    notes:             'NF PR SJ LLC property. Compliance items tracked under Entity "NF PR SJ": ' +
+                       'bi-yearly CRIM taxes, Personal/Commercial insurance, deeded + leased parking, ' +
+                       'April 15 PR DOS annual fee. Linked Asset should be set manually to the ' +
+                       'matching Real Estate row on the Assets sheet so purchase/current value show ' +
+                       'up on the Portfolio view.'
+  });
+  if (!res || !res.success) {
+    if (ui) ui.alert('Failed to add Condado: ' + (res && res.error || 'unknown'));
+    return;
+  }
+  if (ui) ui.alert('Condado property added.\n\n' +
+    'Next steps:\n' +
+    '1. Reload the Properties tab — Condado should appear in the Portfolio section.\n' +
+    '2. Compliance items under Entity "NF PR SJ" will auto-group under it (CRIM, insurance, parking, PR DOS fee).\n' +
+    '3. To show purchase/current value, open the PROPERTIES sheet and set the Linked Asset ID column to the Condado row on Assets.');
 }
