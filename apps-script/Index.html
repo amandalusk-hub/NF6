@@ -9580,10 +9580,9 @@ function _renderPropertyPortfolio() {
     listEl.innerHTML = '<div style="padding:30px;text-align:center;color:#6b6b73;background:#fff;border:1px solid #eae4d6;border-radius:8px">No properties yet. Add your first via the Assets tab or run <b>Tracker → Properties → Seed Dorado</b>.</div>';
     return;
   }
-  listEl.innerHTML = props.map(function(p, idx) {
-    // Dorado (first match) opens expanded; others collapsed by default.
-    var expanded = idx === 0 || String(p.name || '').toLowerCase().indexOf('dorado') >= 0;
-    return _renderPropertyCard(p, expanded);
+  // All cards collapsed by default — user taps ± to expand.
+  listEl.innerHTML = props.map(function(p) {
+    return _renderPropertyCard(p, false);
   }).join('');
 }
 
@@ -9641,21 +9640,46 @@ function _renderPropertyCard(p, expanded) {
       ) : '') +
     '</div>';
 
+  // Clean status pill derived from urgency bucket + days-away. One source
+  // of truth, no more "Recurring - Up to date · overdue" conflicts.
+  function _statusPill(item) {
+    var u = item.urgency;
+    var dueIso = item.nextDue;
+    if (item.status && String(item.status).toLowerCase() === 'done')      return _pill('DONE',      '#e0e4ea', '#5f6368');
+    if (item.status && String(item.status).toLowerCase() === 'cancelled') return _pill('CANCELLED', '#e0e4ea', '#9ca9b7');
+    // Compute days away from now for more useful labels than the raw bucket.
+    var days = null;
+    if (dueIso) {
+      var now = new Date();
+      var dt  = new Date(dueIso);
+      if (!isNaN(dt.getTime())) days = Math.floor((dt.getTime() - now.getTime()) / 86400000);
+    }
+    if (u === 'overdue' || (days != null && days < 0)) {
+      return _pill((days != null ? Math.abs(days) + 'd OVERDUE' : 'OVERDUE'), '#fce8e6', '#c5221f');
+    }
+    if (days === 0) return _pill('DUE TODAY',    '#fef7e0', '#9c6c0f');
+    if (days === 1) return _pill('DUE TOMORROW', '#fef7e0', '#9c6c0f');
+    if (days != null && days <= 14) return _pill('DUE IN ' + days + 'd', '#fef7e0', '#9c6c0f');
+    if (days != null && days <= 60) return _pill('IN ' + days + 'd',     '#f5f0e0', '#857252');
+    if (days != null && days > 60)  return _pill('IN ' + days + 'd',     '#e6f4ea', '#1e8e3e');
+    if (!dueIso) return _pill('NO DATE', '#e0e4ea', '#9ca9b7');
+    return _pill('ON TRACK', '#e6f4ea', '#1e8e3e');
+  }
+  function _pill(text, bg, fg) {
+    return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px">' + text + '</span>';
+  }
+
   function complianceSection(title, items, iconBg) {
     if (!items || !items.length) return '';
     var rows = items.slice(0, 5).map(function(i) {
-      var urgColor = i.urgency === 'overdue' ? '#c5221f' : i.urgency === 'critical' ? '#9c6c0f' : i.urgency === 'due-soon' ? '#9c6c0f' : i.urgency === 'ok' ? '#1e5e3e' : '#6b6b73';
-      var dueStr = i.nextDue ? (new Date(i.nextDue)).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '—';
+      var dueStr = i.nextDue ? (new Date(i.nextDue)).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : 'no date set';
       var costStr = i.cost && !isNaN(parseFloat(String(i.cost).replace(/[^0-9.\-]/g,''))) ? '$' + Math.round(parseFloat(String(i.cost).replace(/[^0-9.\-]/g,''))).toLocaleString() : '';
-      return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #faf7f1;font-size:12.5px">' +
-        '<div style="flex:1;min-width:0;padding-right:10px">' +
-          '<div style="color:#0d0f12">' + esc(i.obligation) + '</div>' +
-          '<div style="font-size:10.5px;color:' + urgColor + ';margin-top:2px">' + esc(i.status) + (i.urgency ? ' · ' + i.urgency : '') + '</div>' +
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #faf7f1;font-size:12.5px;gap:10px">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="color:#0d0f12;line-height:1.35">' + esc(i.obligation) + '</div>' +
+          '<div style="font-size:10.5px;color:#6b6b73;margin-top:3px">Next due ' + esc(dueStr) + (costStr ? ' · ' + costStr : '') + '</div>' +
         '</div>' +
-        '<div style="text-align:right;white-space:nowrap">' +
-          (costStr ? '<div style="color:#0d0f12;font-weight:600">' + costStr + '</div>' : '') +
-          '<div style="font-size:10.5px;color:#6b6b73;margin-top:1px">Due ' + esc(dueStr) + '</div>' +
-        '</div>' +
+        '<div style="flex-shrink:0;text-align:right">' + _statusPill(i) + '</div>' +
       '</div>';
     }).join('');
     return '<div style="background:#faf7f1;border:1px solid #eae4d6;border-radius:6px;padding:12px 16px;margin-bottom:10px">' +
@@ -9708,19 +9732,15 @@ function _docStub(label) {
 }
 
 function _propTogglePortfolioCard(propertyId) {
-  // Simplest approach: toggle by re-rendering with the clicked one flipped.
   var data = _propsState.portfolio;
   if (!data) return;
-  // Track expanded set on state.
   _propsState.expandedPortfolioIds = _propsState.expandedPortfolioIds || {};
   _propsState.expandedPortfolioIds[propertyId] = !_propsState.expandedPortfolioIds[propertyId];
-  // Re-render with per-card expansion honoring the toggle set.
   var listEl = document.getElementById('properties-portfolio-list');
   if (!listEl) return;
-  listEl.innerHTML = (data.properties || []).map(function(p, idx) {
-    var defaultExpanded = idx === 0 || String(p.name || '').toLowerCase().indexOf('dorado') >= 0;
-    var toggled = _propsState.expandedPortfolioIds[p.id];
-    var expanded = toggled === undefined ? defaultExpanded : toggled;
+  // All cards default to collapsed; only cards the user has clicked open stay open.
+  listEl.innerHTML = (data.properties || []).map(function(p) {
+    var expanded = !!_propsState.expandedPortfolioIds[p.id];
     return _renderPropertyCard(p, expanded);
   }).join('');
 }
