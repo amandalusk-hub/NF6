@@ -846,10 +846,12 @@ function sheetToObjects_(key) {
 
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
+// NOTE: getFullData is NOT cached. The payload is huge (whole portfolio)
+// and the chunking overhead in _cacheRead_ was slower than just reading
+// the sheets directly. Smaller aggregates (getPropertyPortfolioOverview,
+// getComplianceItems) still benefit from the cache — they're smaller and
+// called on tab-switch so a hit matters more.
 function getFullData() {
-  return _cacheRead_('fullData_v1', _getFullDataImpl_);
-}
-function _getFullDataImpl_() {
   ensureSheets_();
 
   // Read ASSETS once and reuse for both ID assignment and data return
