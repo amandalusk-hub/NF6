@@ -734,14 +734,52 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     </div>
   </div>
 
-  <!-- Properties -->
+  <!-- Properties — editorial portfolio layout at top + legacy grid below for monthly reports -->
   <div class="tab-panel" id="tab-properties">
-    <div class="tl-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-      <h2 style="font-size:20px;color:#0d2137;margin:0">Properties</h2>
-      <button class="btn btn-secondary" onclick="loadProperties()">↻ Refresh</button>
-    </div>
-    <div id="properties-content">
-      <div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>
+    <div style="background:#faf7f1;min-height:100vh;margin:-20px;padding:32px 40px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+      <!-- Header strip -->
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:#6b6b73;letter-spacing:1.5px;font-weight:600;margin-bottom:6px">PROPERTY PORTFOLIO · AS OF <span id="prop-header-asof">—</span></div>
+          <h1 style="font-family:Georgia,'Playfair Display','Times New Roman',serif;font-size:36px;font-weight:400;color:#0d0f12;margin:0;letter-spacing:-.4px">Properties</h1>
+          <div id="prop-header-sub" style="font-size:12px;color:#6b6b73;margin-top:4px">—</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="loadProperties()" style="background:#fff;color:#6b6b73;border:1px solid #eae4d6;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer">↻</button>
+        </div>
+      </div>
+
+      <!-- Portfolio summary tiles -->
+      <div id="prop-portfolio-tiles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:22px">
+        <div style="background:#fff;border:1px solid #eae4d6;border-radius:8px;border-top:3px solid #1e5e3e;padding:16px 20px">
+          <div style="font-size:11px;color:#6b6b73;margin-bottom:6px">Purchase cost</div>
+          <div style="font-family:Georgia,serif;font-size:24px;color:#0d0f12;line-height:1.1">—</div>
+          <div style="font-size:11px;color:#6b6b73;margin-top:4px">—</div>
+        </div>
+        <div style="background:#fff;border:1px solid #eae4d6;border-radius:8px;border-top:3px solid #c5822a;padding:16px 20px">
+          <div style="font-size:11px;color:#6b6b73;margin-bottom:6px">2026 property tax</div>
+          <div style="font-family:Georgia,serif;font-size:24px;color:#0d0f12;line-height:1.1">—</div>
+          <div style="font-size:11px;color:#6b6b73;margin-top:4px">—</div>
+        </div>
+        <div style="background:#fff;border:1px solid #eae4d6;border-radius:8px;border-top:3px solid #c5822a;padding:16px 20px">
+          <div style="font-size:11px;color:#6b6b73;margin-bottom:6px">Deeds on file</div>
+          <div style="font-family:Georgia,serif;font-size:24px;color:#0d0f12;line-height:1.1">—</div>
+          <div style="font-size:11px;color:#6b6b73;margin-top:4px">—</div>
+        </div>
+      </div>
+
+      <!-- Expandable property list -->
+      <div id="properties-portfolio-list">
+        <div style="padding:40px;text-align:center;color:#6b6b73">Loading portfolio…</div>
+      </div>
+
+      <!-- Legacy monthly-report grid (kept — clicking still opens Dorado detail modal) -->
+      <div style="margin-top:28px">
+        <div style="font-family:Georgia,serif;font-size:18px;font-weight:400;color:#0d0f12;margin-bottom:10px">Monthly rental reports</div>
+        <div id="properties-content">
+          <div style="padding:30px;text-align:center;color:#6b6b73;background:#fff;border:1px solid #eae4d6;border-radius:8px">Loading rental-report tiles…</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -9455,7 +9493,16 @@ var _propsState = {
 
 function loadProperties() {
   var el = document.getElementById('properties-content');
-  if (el) el.innerHTML = '<div style="padding:40px;text-align:center;color:#7a8ba8">Loading properties…</div>';
+  if (el) el.innerHTML = '<div style="padding:30px;text-align:center;color:#6b6b73;background:#fff;border:1px solid #eae4d6;border-radius:8px">Loading rental-report tiles…</div>';
+  // Update the "as of" header line.
+  var asOfEl = document.getElementById('prop-header-asof');
+  if (asOfEl) {
+    var mos = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    var d = new Date();
+    asOfEl.textContent = mos[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+  }
+  // Two parallel calls: legacy property grid (for monthly report tiles) +
+  // the new portfolio overview (editorial top section).
   google.script.run
     .withSuccessHandler(function(props) {
       _propsState.properties = props || [];
@@ -9466,6 +9513,216 @@ function loadProperties() {
         '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
     })
     .getProperties();
+  google.script.run
+    .withSuccessHandler(function(overview) {
+      _propsState.portfolio = overview || { totals: {}, properties: [] };
+      _renderPropertyPortfolio();
+    })
+    .withFailureHandler(function(e) {
+      var pl = document.getElementById('properties-portfolio-list');
+      if (pl) pl.innerHTML = '<div style="padding:30px;text-align:center;color:#c5221f">Portfolio load failed: ' + esc(e.message || e) + '</div>';
+    })
+    .getPropertyPortfolioOverview();
+}
+
+// Render the editorial Property Portfolio view — summary tiles + expandable
+// cards per property, each showing compliance items (taxes, insurance, HOA)
+// pulled from COMPLIANCE_ITEMS matched by property name.
+function _renderPropertyPortfolio() {
+  var data = _propsState.portfolio || { totals: {}, properties: [] };
+  var tilesEl = document.getElementById('prop-portfolio-tiles');
+  var listEl  = document.getElementById('properties-portfolio-list');
+  var subEl   = document.getElementById('prop-header-sub');
+  var t = data.totals || {};
+  var props = data.properties || [];
+  if (subEl) subEl.textContent = props.length + ' propert' + (props.length === 1 ? 'y' : 'ies') + ' · purchase price, property tax and deeds';
+
+  function fmtMoney(n) {
+    n = Math.round(Number(n) || 0);
+    return '$' + Math.abs(n).toLocaleString();
+  }
+  function fmtAbbrev(n) {
+    var abs = Math.abs(Number(n) || 0);
+    if (abs >= 1e6) return '$' + (abs / 1e6).toFixed(2) + 'M';
+    if (abs >= 1e3) return '$' + Math.round(abs / 1e3).toLocaleString() + 'K';
+    return '$' + Math.round(abs).toLocaleString();
+  }
+
+  // Summary tiles
+  if (tilesEl) {
+    tilesEl.innerHTML =
+      _propTile('Purchase cost', fmtMoney(t.purchaseCostUSD),
+                props.length + ' propert' + (props.length === 1 ? 'y' : 'ies'), '#1e5e3e') +
+      _propTile('Current value', fmtMoney(t.currentValueUSD),
+                (t.growthUSD >= 0 ? '+' : '−') + fmtAbbrev(Math.abs(t.growthUSD)) + ' (' + (t.growthPct >= 0 ? '+' : '') + t.growthPct.toFixed(1) + '%)',
+                t.growthUSD >= 0 ? '#1e5e3e' : '#c5221f') +
+      _propTile((t.taxYearToDateLabel || 'Property tax'), fmtMoney(t.taxYearToDateUSD),
+                (function() {
+                  var paid = 0, due = 0;
+                  props.forEach(function(p) {
+                    (p.taxItems || []).forEach(function(i) {
+                      if (String(i.status || '').toLowerCase().indexOf('up to date') >= 0) paid++;
+                      else due++;
+                    });
+                  });
+                  if (due === 0 && paid > 0) return 'all current';
+                  return paid + ' paid · ' + due + ' upcoming';
+                })(),
+                '#c5822a') +
+      _propTile('Deeds on file', (t.deedsOnFile || 0) + ' of ' + (t.deedsTotal || 0),
+                (t.deedsTotal - t.deedsOnFile) + ' to upload',
+                '#c5822a');
+  }
+
+  // Property list
+  if (!listEl) return;
+  if (!props.length) {
+    listEl.innerHTML = '<div style="padding:30px;text-align:center;color:#6b6b73;background:#fff;border:1px solid #eae4d6;border-radius:8px">No properties yet. Add your first via the Assets tab or run <b>Tracker → Properties → Seed Dorado</b>.</div>';
+    return;
+  }
+  listEl.innerHTML = props.map(function(p, idx) {
+    // Dorado (first match) opens expanded; others collapsed by default.
+    var expanded = idx === 0 || String(p.name || '').toLowerCase().indexOf('dorado') >= 0;
+    return _renderPropertyCard(p, expanded);
+  }).join('');
+}
+
+function _propTile(label, value, sub, borderColor) {
+  return '<div style="background:#fff;border:1px solid #eae4d6;border-radius:8px;border-top:3px solid ' + borderColor + ';padding:16px 20px">' +
+    '<div style="font-size:11px;color:#6b6b73;margin-bottom:6px">' + esc(label) + '</div>' +
+    '<div style="font-family:Georgia,serif;font-size:24px;color:#0d0f12;line-height:1.1">' + value + '</div>' +
+    '<div style="font-size:11px;color:#6b6b73;margin-top:4px">' + esc(sub) + '</div>' +
+  '</div>';
+}
+
+function _renderPropertyCard(p, expanded) {
+  var ccBg = { FL:'#1e5fa8', PR:'#c5822a', CO:'#1e8e3e', FR:'#5a3eb5', US:'#1a73e8', TX:'#b71c1c', DR:'#c5822a' }[p.countryCode] || '#5f7791';
+  var purchaseStr = p.purchase.amountUSD ? '$' + Math.round(p.purchase.amountUSD).toLocaleString() : '—';
+  var purchaseDate = p.purchase.date ? ' · Bought ' + (new Date(p.purchase.date)).getFullYear() : '';
+  var localStr = p.purchase.currencyLocal && p.purchase.currencyLocal !== 'USD' && p.purchase.amountLocal
+    ? p.purchase.currencyLocal + ' ' + Math.round(p.purchase.amountLocal).toLocaleString() + ' · '
+    : '';
+
+  var collapsed =
+    '<div onclick="_propTogglePortfolioCard(\'' + esc(p.id) + '\')" style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;cursor:pointer;border-top:1px solid #eae4d6" onmouseover="this.style.background=\'#faf7f1\'" onmouseout="this.style.background=\'\'">' +
+      '<div style="display:flex;align-items:center;gap:14px;min-width:0;flex:1">' +
+        '<div style="background:' + ccBg + ';color:#fff;width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">' + esc(p.countryCode) + '</div>' +
+        '<div style="min-width:0;flex:1">' +
+          '<div style="font-size:15px;font-weight:600;color:#0d0f12;line-height:1.3">' + esc(p.name) + '</div>' +
+          '<div style="font-size:12px;color:#6b6b73;margin-top:2px">' + esc(p.city || p.country || '') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="text-align:right;flex-shrink:0;margin-left:10px">' +
+        '<div style="font-size:15px;font-weight:600;color:#0d0f12">' + purchaseStr + '</div>' +
+        '<div style="font-size:11px;color:#6b6b73">' + esc(localStr) + 'Bought ' + (p.purchase.date ? (new Date(p.purchase.date)).getFullYear() : '—') + '</div>' +
+      '</div>' +
+      '<div style="margin-left:14px;color:#6b6b73;font-size:18px">' + (expanded ? '−' : '+') + '</div>' +
+    '</div>';
+
+  if (!expanded) return '<div id="prop-card-' + esc(p.id) + '" style="background:#fff;border:1px solid #eae4d6;border-radius:8px;margin-bottom:10px;overflow:hidden">' + collapsed + '</div>';
+
+  // Expanded view — value, compliance by bucket, docs
+  var currentVal = p.current.amountUSD;
+  var purchaseVal = p.purchase.amountUSD;
+  var growth = p.growth || { amountUSD: 0, pct: 0 };
+  var growthPctWidth = Math.max(0, Math.min(100, 50 + growth.pct / 2));   // crude normalized bar
+  var valueBar =
+    '<div style="background:#faf7f1;border:1px solid #eae4d6;border-radius:6px;padding:14px 16px;margin-bottom:14px">' +
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:10px">' +
+        '<div><div style="font-size:10px;color:#6b6b73;letter-spacing:1px;text-transform:uppercase;font-weight:700;margin-bottom:3px">Market value</div><div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12">' + (currentVal ? '$' + Math.round(currentVal).toLocaleString() : '—') + '</div><div style="font-size:11px;color:#6b6b73">Current</div></div>' +
+        '<div><div style="font-size:10px;color:#6b6b73;letter-spacing:1px;text-transform:uppercase;font-weight:700;margin-bottom:3px">Purchased</div><div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12">' + (purchaseVal ? '$' + Math.round(purchaseVal).toLocaleString() : '—') + '</div><div style="font-size:11px;color:#6b6b73">' + (p.purchase.date ? 'Bought ' + p.purchase.date : 'Date unknown') + '</div></div>' +
+      '</div>' +
+      (purchaseVal ? (
+        '<div style="display:flex;justify-content:space-between;font-size:11px;color:' + (growth.amountUSD >= 0 ? '#1e5e3e' : '#c5221f') + ';font-weight:600;margin-bottom:4px">' +
+          '<span>' + (growth.amountUSD >= 0 ? '▲ +' : '▼ ') + '$' + Math.abs(Math.round(growth.amountUSD)).toLocaleString() + '</span>' +
+          '<span>' + (growth.pct >= 0 ? '+' : '') + growth.pct.toFixed(1) + '%</span>' +
+        '</div>' +
+        '<div style="height:4px;background:#eae4d6;border-radius:2px;overflow:hidden"><div style="height:100%;width:' + growthPctWidth + '%;background:' + (growth.amountUSD >= 0 ? '#1e5e3e' : '#c5221f') + '"></div></div>'
+      ) : '') +
+    '</div>';
+
+  function complianceSection(title, items, iconBg) {
+    if (!items || !items.length) return '';
+    var rows = items.slice(0, 5).map(function(i) {
+      var urgColor = i.urgency === 'overdue' ? '#c5221f' : i.urgency === 'critical' ? '#9c6c0f' : i.urgency === 'due-soon' ? '#9c6c0f' : i.urgency === 'ok' ? '#1e5e3e' : '#6b6b73';
+      var dueStr = i.nextDue ? (new Date(i.nextDue)).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'}) : '—';
+      var costStr = i.cost && !isNaN(parseFloat(String(i.cost).replace(/[^0-9.\-]/g,''))) ? '$' + Math.round(parseFloat(String(i.cost).replace(/[^0-9.\-]/g,''))).toLocaleString() : '';
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:8px 0;border-bottom:1px solid #faf7f1;font-size:12.5px">' +
+        '<div style="flex:1;min-width:0;padding-right:10px">' +
+          '<div style="color:#0d0f12">' + esc(i.obligation) + '</div>' +
+          '<div style="font-size:10.5px;color:' + urgColor + ';margin-top:2px">' + esc(i.status) + (i.urgency ? ' · ' + i.urgency : '') + '</div>' +
+        '</div>' +
+        '<div style="text-align:right;white-space:nowrap">' +
+          (costStr ? '<div style="color:#0d0f12;font-weight:600">' + costStr + '</div>' : '') +
+          '<div style="font-size:10.5px;color:#6b6b73;margin-top:1px">Due ' + esc(dueStr) + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div style="background:#faf7f1;border:1px solid #eae4d6;border-radius:6px;padding:12px 16px;margin-bottom:10px">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+        '<div style="background:' + iconBg + ';color:#fff;width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">' + title.charAt(0) + '</div>' +
+        '<div style="font-size:12px;color:#0d0f12;font-weight:600">' + esc(title) + ' <span style="color:#6b6b73;font-weight:400;font-size:11px">· ' + items.length + '</span></div>' +
+      '</div>' +
+      rows +
+    '</div>';
+  }
+
+  var complianceHtml =
+    complianceSection('Property tax', p.taxItems, '#c5822a') +
+    complianceSection('Insurance', p.insuranceItems, '#1e5fa8') +
+    complianceSection('HOA / dues', p.hoaItems, '#5a3eb5') +
+    (p.otherItems && p.otherItems.length ? complianceSection('Other obligations', p.otherItems, '#6b6b73') : '');
+  if (!complianceHtml) complianceHtml = '<div style="padding:12px;color:#6b6b73;font-size:12px;font-style:italic;background:#faf7f1;border:1px dashed #eae4d6;border-radius:6px;margin-bottom:10px">No compliance items linked to this property yet. Add them in the Compliance tab with "' + esc(p.name.split(/[\s\-,]/)[0]) + '" in the obligation text.</div>';
+
+  var docsHtml =
+    '<div style="background:#faf7f1;border:1px solid #eae4d6;border-radius:6px;padding:12px 16px">' +
+      '<div style="font-size:12px;color:#0d0f12;font-weight:600;margin-bottom:8px">Documents</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">' +
+        _docStub('Deed') + _docStub('Latest tax bill') + _docStub('Insurance policy') + _docStub('Closing disclosure') +
+      '</div>' +
+      '<div style="font-size:10.5px;color:#9aa5b1;font-style:italic;margin-top:8px">Auto-link from Google Drive coming next phase. For now, manually attach a Drive link per doc.</div>' +
+    '</div>';
+
+  var actionBar =
+    '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      '<button onclick="_openPropertyDetail(\'' + esc(p.id) + '\')" style="background:#0d0f12;color:#faf7f1;border:none;padding:8px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:500">Monthly report →</button>' +
+    '</div>';
+
+  var expandedBody =
+    '<div style="padding:0 20px 18px 20px">' +
+      '<div style="color:#6b6b73;font-size:12px;margin-top:-4px;margin-bottom:12px">' + esc(p.address || p.city) + '</div>' +
+      valueBar +
+      complianceHtml +
+      docsHtml +
+      actionBar +
+    '</div>';
+
+  return '<div id="prop-card-' + esc(p.id) + '" style="background:#fff;border:1px solid #eae4d6;border-radius:8px;margin-bottom:10px;overflow:hidden">' + collapsed + expandedBody + '</div>';
+}
+
+function _docStub(label) {
+  return '<button style="background:#fff;border:1px dashed #c0ccd8;color:#6b6b73;padding:8px 12px;border-radius:5px;font-size:11px;cursor:pointer;text-align:left" onclick="toast(\'Doc upload coming in Phase 2 — for now, link manually via the compliance item.\', \'error\')">' +
+    '📄 ' + esc(label) +
+    '<div style="font-size:10px;color:#9aa5b1;margin-top:2px">tap to add</div>' +
+  '</button>';
+}
+
+function _propTogglePortfolioCard(propertyId) {
+  // Simplest approach: toggle by re-rendering with the clicked one flipped.
+  var data = _propsState.portfolio;
+  if (!data) return;
+  // Track expanded set on state.
+  _propsState.expandedPortfolioIds = _propsState.expandedPortfolioIds || {};
+  _propsState.expandedPortfolioIds[propertyId] = !_propsState.expandedPortfolioIds[propertyId];
+  // Re-render with per-card expansion honoring the toggle set.
+  var listEl = document.getElementById('properties-portfolio-list');
+  if (!listEl) return;
+  listEl.innerHTML = (data.properties || []).map(function(p, idx) {
+    var defaultExpanded = idx === 0 || String(p.name || '').toLowerCase().indexOf('dorado') >= 0;
+    var toggled = _propsState.expandedPortfolioIds[p.id];
+    var expanded = toggled === undefined ? defaultExpanded : toggled;
+    return _renderPropertyCard(p, expanded);
+  }).join('');
 }
 
 function _renderPropertiesLanding() {

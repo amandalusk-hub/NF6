@@ -1781,3 +1781,222 @@ function debugPropertyOverridesForDorado() {
   Logger.log(msg);
   ui.alert('Dorado Overrides Diagnostic', msg, ui.ButtonSet.OK);
 }
+
+
+// ─── Property Portfolio Overview (editorial view) ──────────────────────────
+//
+// Returns an aggregated per-property view joining PROPERTIES → ASSETS →
+// COMPLIANCE_ITEMS so the Properties tab can render the "portfolio at a
+// glance" layout Amanda sketched (purchase price · current value · tax
+// status · insurance · docs).
+//
+// Compliance items link to a property via Obligation text match on the
+// property name, plus the property's listed Entity. That's fuzzy but
+// catches "Pay the bi-yearly CRIM Dorado Taxes" → Dorado, "Renew
+// Insurance … Oriental" → Dorado (if Entity is MN Personal + obligation
+// mentions Dorado-specific terms), etc.
+//
+// Returns:
+//   {
+//     totals: {
+//       purchaseCostUSD, currentValueUSD, growthUSD, growthPct,
+//       taxYearToDateUSD, taxYearToDateLabel,
+//       deedsOnFile, deedsTotal
+//     },
+//     properties: [
+//       {
+//         id, name, address, city, country, countryCode,
+//         currency, manager,
+//         purchase: { amountUSD, amountLocal, currencyLocal, year },
+//         current:  { amountUSD, amountLocal, currencyLocal },
+//         growth:   { amountUSD, pct },
+//         taxItems:       [ {id, obligation, nextDue, cost, status, urgency, folio?} ],
+//         insuranceItems: [ … ],
+//         hoaItems:       [ … ],
+//         otherItems:     [ … ],
+//         docs: { deed, taxBill, insurance, closingDisclosure }
+//       }, …
+//     ]
+//   }
+function getPropertyPortfolioOverview() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var properties = getProperties();
+
+  // Index ASSETS by ID for purchase/current value lookup.
+  var assetsById = {};
+  try {
+    var aSheet = ss.getSheetByName('Assets');   // Spreadsheet uses "Assets" not "ASSETS"
+    if (!aSheet) aSheet = ss.getSheetByName('ASSETS');
+    if (aSheet && aSheet.getLastRow() >= 2) {
+      var aHdr = aSheet.getRange(1, 1, 1, aSheet.getLastColumn()).getValues()[0];
+      var aData = aSheet.getRange(2, 1, aSheet.getLastRow() - 1, aHdr.length).getValues();
+      var iAId = aHdr.indexOf('ID');
+      var iAName = aHdr.indexOf('Name');
+      var iACat = aHdr.indexOf('Category');
+      var iACur = aHdr.indexOf('Currency');
+      var iALocal = aHdr.indexOf('Local Value');
+      var iAUsd = aHdr.indexOf('USD Value');
+      var iADet = aHdr.indexOf('Details');
+      var iAEnt = aHdr.indexOf('Entity');
+      aData.forEach(function(row) {
+        var id = String(row[iAId] || '');
+        if (!id) return;
+        var det = {}; try { det = iADet >= 0 && row[iADet] ? JSON.parse(row[iADet]) : {}; } catch(e) {}
+        assetsById[id] = {
+          name: String(row[iAName] || ''),
+          category: iACat >= 0 ? String(row[iACat] || '') : '',
+          currency: iACur >= 0 ? String(row[iACur] || 'USD') : 'USD',
+          localValue: iALocal >= 0 ? Number(row[iALocal] || 0) : 0,
+          usdValue: iAUsd >= 0 ? Number(row[iAUsd] || 0) : 0,
+          entity: iAEnt >= 0 ? String(row[iAEnt] || '') : '',
+          purchasePrice: Number(det.purchasePrice || det.rePurchasePrice || 0),
+          purchaseDate: String(det.purchaseDate || det.rePurchaseDate || ''),
+          folio: String(det.folio || det.reFolio || ''),
+          address: String(det.address || det.reAddress || '')
+        };
+      });
+    }
+  } catch (e) { Logger.log('portfolio: assets load failed: ' + e); }
+
+  // Load all active compliance items once.
+  var complianceItems = [];
+  try {
+    if (typeof getComplianceItems === 'function') {
+      complianceItems = getComplianceItems() || [];
+    }
+  } catch (e) { Logger.log('portfolio: compliance load failed: ' + e); }
+
+  function _countryCode(countryName) {
+    var c = String(countryName || '').toLowerCase();
+    if (c.indexOf('puerto rico') >= 0 || c === 'pr') return 'PR';
+    if (c.indexOf('united states') >= 0 || c.indexOf('usa') >= 0 || c === 'us') return 'US';
+    if (c.indexOf('texas') >= 0) return 'TX';
+    if (c.indexOf('florida') >= 0) return 'FL';
+    if (c.indexOf('colombia') >= 0) return 'CO';
+    if (c.indexOf('france') >= 0) return 'FR';
+    if (c.indexOf('dominican') >= 0) return 'DR';
+    if (c.indexOf('spain') >= 0) return 'ES';
+    return (countryName || '').substring(0, 2).toUpperCase();
+  }
+
+  function _matchComplianceForProperty(prop) {
+    var nameTokens = String(prop['Name'] || '').toLowerCase().split(/[\s\-,.()]+/).filter(function(t) {
+      return t && t.length > 3;   // skip "and", "the", etc.
+    });
+    var addrTokens = String(prop['Address'] || '').toLowerCase().split(/[\s\-,.()]+/).filter(function(t) {
+      return t && t.length > 3;
+    });
+    var tokens = nameTokens.concat(addrTokens).filter(function(t, i, a) { return a.indexOf(t) === i; });
+    // Match an item if its Obligation contains ANY distinctive token.
+    return complianceItems.filter(function(it) {
+      var hay = (String(it.Obligation || '') + ' ' + String(it.Category || '') + ' ' + String(it.Notes || '')).toLowerCase();
+      return tokens.some(function(t) { return hay.indexOf(t) >= 0; });
+    });
+  }
+
+  function _bucketCompliance(items) {
+    var buckets = { tax: [], insurance: [], hoa: [], other: [] };
+    items.forEach(function(it) {
+      var cat = String(it.Category || '').toLowerCase();
+      var obl = String(it.Obligation || '').toLowerCase();
+      if (cat.indexOf('tax') >= 0 || obl.indexOf('tax') >= 0 || cat.indexOf('crim') >= 0 || obl.indexOf('crim') >= 0) {
+        buckets.tax.push(_compSummary(it));
+      } else if (cat.indexOf('insurance') >= 0 || obl.indexOf('insurance') >= 0) {
+        buckets.insurance.push(_compSummary(it));
+      } else if (cat.indexOf('hoa') >= 0 || obl.indexOf('hoa') >= 0 || obl.indexOf('dues') >= 0) {
+        buckets.hoa.push(_compSummary(it));
+      } else {
+        buckets.other.push(_compSummary(it));
+      }
+    });
+    return buckets;
+  }
+
+  function _compSummary(it) {
+    return {
+      id:         it.ID,
+      obligation: String(it.Obligation || '').split('\n')[0],
+      category:   String(it.Category || ''),
+      nextDue:    it['Next Due Date'] || '',
+      lastDone:   it['Last Done'] || '',
+      cost:       it.Cost || '',
+      status:     it.Status || '',
+      urgency:    it._urgency ? it._urgency.bucket : ''
+    };
+  }
+
+  var totals = {
+    purchaseCostUSD: 0, currentValueUSD: 0,
+    growthUSD: 0, growthPct: 0,
+    taxYearToDateUSD: 0, taxYearToDateLabel: new Date().getFullYear() + ' property tax',
+    deedsOnFile: 0, deedsTotal: 0
+  };
+
+  var out = properties.map(function(p) {
+    var asset = assetsById[String(p['Linked Asset ID'] || '')] || null;
+    var purchaseUSD = asset ? asset.purchasePrice : 0;
+    var currentUSD  = asset ? (asset.usdValue || asset.localValue) : 0;
+    var currency    = asset ? asset.currency : (p.Currency || 'USD');
+    totals.purchaseCostUSD += purchaseUSD;
+    totals.currentValueUSD += currentUSD;
+
+    var matched = _matchComplianceForProperty(p);
+    var buckets = _bucketCompliance(matched);
+    // Sum this year's tax cost estimate for the portfolio tile.
+    buckets.tax.forEach(function(t) {
+      var c = Number(String(t.cost || '').replace(/[^0-9.\-]/g, ''));
+      if (!isNaN(c) && c > 0) totals.taxYearToDateUSD += c;
+    });
+
+    // Deeds: no real doc storage yet — stub says 0/1 per property, user can
+    // upload later. (Phase 2: integrate Drive to auto-detect.)
+    totals.deedsTotal += 1;
+
+    return {
+      id:       p['ID'],
+      name:     p['Name'],
+      address:  p['Address'] || '',
+      city:     p['City'] || '',
+      country:  p['Country'] || '',
+      countryCode: _countryCode(p['Country']),
+      currency: currency,
+      manager:  p['Manager'] || '',
+      purchase: {
+        amountUSD:     purchaseUSD,
+        amountLocal:   asset ? (asset.currency !== 'USD' ? asset.localValue : purchaseUSD) : 0,
+        currencyLocal: asset ? asset.currency : 'USD',
+        date:          asset ? asset.purchaseDate : ''
+      },
+      current: {
+        amountUSD:     currentUSD,
+        amountLocal:   asset ? asset.localValue : 0,
+        currencyLocal: asset ? asset.currency : 'USD'
+      },
+      growth: {
+        amountUSD: currentUSD - purchaseUSD,
+        pct:       purchaseUSD ? ((currentUSD - purchaseUSD) / purchaseUSD) * 100 : 0
+      },
+      folio:        asset ? asset.folio : '',
+      hasCalendar:  !!p['Google Calendar ID'],
+      hasAccounts:  !!p['Plaid Account IDs'],
+      taxItems:       buckets.tax,
+      insuranceItems: buckets.insurance,
+      hoaItems:       buckets.hoa,
+      otherItems:     buckets.other,
+      docs: {
+        // Stub — will be populated by Drive integration in Phase 2.
+        deed:               null,
+        latestTaxStatement: null,
+        insurancePolicy:    null,
+        closingDisclosure:  null
+      }
+    };
+  });
+
+  if (totals.purchaseCostUSD > 0) {
+    totals.growthUSD = totals.currentValueUSD - totals.purchaseCostUSD;
+    totals.growthPct = (totals.growthUSD / totals.purchaseCostUSD) * 100;
+  }
+
+  return { totals: totals, properties: out };
+}
