@@ -881,14 +881,23 @@ function getPropertyReservations(propertyId, startIso, endIso) {
   var out = events.map(function(e) {
     var s = e.getStartTime();
     var f = e.getEndTime();
+    var isAllDay = e.isAllDayEvent();
     var nights = Math.max(0, Math.round((f.getTime() - s.getTime()) / 86400000));
-    if (e.isAllDayEvent()) {
+    if (isAllDay) {
       // getAllDayStartDate is timezone-safe; getStartTime for all-day events
       // may skew by a day depending on script timezone.
       s = e.getAllDayStartDate();
       f = e.getAllDayEndDate();
       nights = Math.max(0, Math.round((f.getTime() - s.getTime()) / 86400000));
     }
+    // For display, all-day events have an EXCLUSIVE end date from Google
+    // Calendar: a stay that ends Oct 12 is stored as end=Oct 13 (meaning
+    // "ends at midnight on Oct 13 = end of Oct 12"). Subtract one day for
+    // the human-facing end label so "Laurenmarie Oct 7 → Oct 12" matches
+    // the actual last night. Nights count stays correct using the
+    // exclusive end (above).
+    var displayEnd = f;
+    if (isAllDay) displayEnd = new Date(f.getTime() - 86400000);
     var evtId  = e.getId();
     var title  = e.getTitle();
     var auto   = _classifyEventSource_(title);
@@ -900,7 +909,7 @@ function getPropertyReservations(propertyId, startIso, endIso) {
       start:         s.toISOString(),
       end:           f.toISOString(),
       startIso:      Utilities.formatDate(s, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
-      endIso:        Utilities.formatDate(f, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+      endIso:        Utilities.formatDate(displayEnd, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
       nights:        nights,
       source:        source,
       autoSource:    auto,                        // for UI: show "was X, now Y"
