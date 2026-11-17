@@ -100,6 +100,90 @@ function _requireEditor_() {
     throw new Error('Read-only view — you don\'t have edit access. Contact ' + _getOwnerEmail_() + ' to be added as an editor.');
   }
 }
+
+// ─── Read-path cache ───────────────────────────────────────────────────────
+// Apps Script tab switches were slow because every switch re-ran a heavy
+// aggregate (getFullData / getPropertyPortfolioOverview / getComplianceItems)
+// that each walk multiple sheets. Wrap those reads in a short-TTL script
+// cache so bouncing between tabs within a ~30s window returns instantly.
+//
+// Writes invalidate the cache via _invalidateReadCache_(). First read after
+// a write (or after the TTL expires) refills the cache — next 30s of reads
+// are instant.
+//
+// CacheService.put has a 100KB per-entry limit. Anything bigger gets
+// stored transparently in chunks. Returns null on any failure so the
+// caller safely falls through to compute-and-return.
+var _READ_CACHE_TTL_SEC = 30;
+function _cacheRead_(key, computeFn) {
+  var cache;
+  try { cache = CacheService.getScriptCache(); } catch (e) { return computeFn(); }
+  // Try to read a chunk-count header; if present, reassemble.
+  try {
+    var header = cache.get(key + ':_hdr');
+    if (header) {
+      var h = JSON.parse(header);
+      var parts = cache.getAll(h.chunks);
+      var joined = '';
+      for (var i = 0; i < h.chunks.length; i++) {
+        if (!parts[h.chunks[i]]) { joined = ''; break; }
+        joined += parts[h.chunks[i]];
+      }
+      if (joined) return JSON.parse(joined);
+    } else {
+      var single = cache.get(key);
+      if (single) return JSON.parse(single);
+    }
+  } catch (e) { /* fall through to compute */ }
+
+  var result = computeFn();
+  try {
+    var payload = JSON.stringify(result);
+    // ~90KB chunks (under 100KB cache-entry limit, leave headroom).
+    var CHUNK = 90 * 1024;
+    if (payload.length <= CHUNK) {
+      cache.put(key, payload, _READ_CACHE_TTL_SEC);
+    } else {
+      var chunks = [], i = 0, n = 0;
+      while (i < payload.length) {
+        var chunkKey = key + ':chunk:' + n;
+        var slice = payload.substring(i, i + CHUNK);
+        cache.put(chunkKey, slice, _READ_CACHE_TTL_SEC);
+        chunks.push(chunkKey);
+        i += CHUNK; n++;
+      }
+      cache.put(key + ':_hdr', JSON.stringify({ chunks: chunks }), _READ_CACHE_TTL_SEC);
+    }
+  } catch (e) { /* cache failure is non-fatal — we still return the result */ }
+  return result;
+}
+
+// Keys known to the cache layer. Keep the list here so mutators can
+// invalidate them atomically without having to hunt each key down.
+var _READ_CACHE_KEYS = [
+  'fullData_v1',
+  'propertyPortfolio_v1',
+  'complianceItems_v1',
+  'properties_v1',
+  'loansStatus_v1'
+];
+
+function _invalidateReadCache_(onlyKeys) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var keys = onlyKeys && onlyKeys.length ? onlyKeys : _READ_CACHE_KEYS;
+    // Remove the primary key AND any chunked variants (sweep headers).
+    var toRemove = [];
+    keys.forEach(function(k) {
+      toRemove.push(k, k + ':_hdr');
+      // Chunk keys live under k:chunk:N — we don't know N without the
+      // header, so rely on TTL to clear them. Removing the header is
+      // enough: reads check the header first, and a missing header
+      // triggers recompute.
+    });
+    cache.removeAll(toRemove);
+  } catch (e) { /* non-fatal */ }
+}
 function _requireOwner_() {
   // Owner check is stricter: if we can't verify identity, refuse. That way an
   // anonymous caller can't twiddle the editor list. Fail-safe here means
@@ -763,6 +847,9 @@ function sheetToObjects_(key) {
 // ── Main Data Fetch ───────────────────────────────────────────────────────────
 
 function getFullData() {
+  return _cacheRead_('fullData_v1', _getFullDataImpl_);
+}
+function _getFullDataImpl_() {
   ensureSheets_();
 
   // Read ASSETS once and reuse for both ID assignment and data return

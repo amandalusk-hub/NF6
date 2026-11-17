@@ -281,6 +281,11 @@ function _updatePropertyRow_(sheetName, headers, id, patch) {
 // the end so google.script.run serializes the response cleanly (same
 // workaround that fixed getMovementTemplates returning empty).
 function getProperties() {
+  return (typeof _cacheRead_ === 'function')
+    ? _cacheRead_('properties_v1', _getPropertiesImpl_)
+    : _getPropertiesImpl_();
+}
+function _getPropertiesImpl_() {
   var rows = _getPropertySheetRows_('PROPERTIES', PROPERTIES_HEADERS)
     .filter(function(p) {
       var raw = p['Active'];
@@ -1819,6 +1824,11 @@ function debugPropertyOverridesForDorado() {
 //     ]
 //   }
 function getPropertyPortfolioOverview() {
+  return (typeof _cacheRead_ === 'function')
+    ? _cacheRead_('propertyPortfolio_v1', _getPropertyPortfolioOverviewImpl_)
+    : _getPropertyPortfolioOverviewImpl_();
+}
+function _getPropertyPortfolioOverviewImpl_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var properties = getProperties();
 

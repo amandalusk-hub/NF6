@@ -193,6 +193,11 @@ function _complianceUrgency_(item, nowIso) {
 
 // Returns every item + its computed urgency. Web-callable.
 function getComplianceItems() {
+  return (typeof _cacheRead_ === 'function')
+    ? _cacheRead_('complianceItems_v1', _getComplianceItemsImpl_)
+    : _getComplianceItemsImpl_();
+}
+function _getComplianceItemsImpl_() {
   var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
   var out = items.map(function(it) {
     var u = _complianceUrgency_(it);
