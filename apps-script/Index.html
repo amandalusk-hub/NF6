@@ -164,6 +164,41 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
 </style>
 </head>
 <body>
+<!-- Instant loading splash — shows the moment HTML parses, before any JS or
+     google.script.run calls. Removed by onload handler further down. Helps
+     the blank white page problem on cold starts where the Apps Script
+     container is warming up. -->
+<div id="nf6-boot-splash" style="position:fixed;inset:0;background:#faf7f1;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999999;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;transition:opacity .3s">
+  <div style="font-family:Georgia,'Playfair Display',serif;font-size:32px;color:#0d0f12;margin-bottom:12px;letter-spacing:-.5px">Family Office Wealth Tracker</div>
+  <div style="font-size:12px;color:#6b6b73;margin-bottom:28px;letter-spacing:.8px;text-transform:uppercase">Loading…</div>
+  <div style="width:220px;height:3px;background:#eae4d6;border-radius:2px;overflow:hidden;position:relative">
+    <div style="position:absolute;inset:0;background:#0d0f12;animation:nf6-boot-progress 2.2s ease-in-out infinite"></div>
+  </div>
+  <div style="font-size:10.5px;color:#9aa5b1;margin-top:18px;max-width:280px;text-align:center;line-height:1.5">First load can take 10-15 seconds while Google warms up the server. Repeat opens are cached and instant.</div>
+</div>
+<style>
+  @keyframes nf6-boot-progress {
+    0%   { transform: translateX(-100%); }
+    50%  { transform: translateX(100%); }
+    100% { transform: translateX(-100%); }
+  }
+</style>
+<script>
+  // Auto-remove the splash once window.load fires AND we're a few hundred
+  // ms in (so the splash doesn't vanish before anything else renders).
+  window.addEventListener('load', function() {
+    setTimeout(function() {
+      var s = document.getElementById('nf6-boot-splash');
+      if (s) { s.style.opacity = '0'; setTimeout(function(){ s.remove(); }, 300); }
+    }, 300);
+  });
+  // Safety timeout: if load event doesn't fire in 20s, hide splash anyway
+  // so the user sees whatever did render.
+  setTimeout(function() {
+    var s = document.getElementById('nf6-boot-splash');
+    if (s) { s.style.opacity = '0'; setTimeout(function(){ s.remove(); }, 300); }
+  }, 20000);
+</script>
 
 <header>
   <div class="header-inner">
