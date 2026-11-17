@@ -6584,6 +6584,28 @@ function _getPausedAssetLoansForSettings_() {
   }
 }
 
+// Performance diagnostic: times each of the hot-path endpoints that the
+// web app calls on tab-switch and page-load. Surfaces the actual wall
+// time for every read so a "the site is slow" complaint stops being
+// guesswork. Returns ms per call plus a total; safe to run (read-only).
+function measureHotPathTimings() {
+  var out = { timings: [], generatedAt: new Date().toISOString() };
+  function time(label, fn) {
+    var t0 = Date.now();
+    var err = null;
+    try { fn(); } catch (e) { err = String(e && e.message || e); }
+    out.timings.push({ label: label, ms: Date.now() - t0, error: err });
+  }
+  time('getFullData',                    function() { getFullData(); });
+  time('getProperties (cached)',         function() { getProperties(); });
+  time('getPropertyPortfolioOverview',   function() { getPropertyPortfolioOverview(); });
+  time('getComplianceItems (cached)',    function() { getComplianceItems(); });
+  time('getLoansStatus (cached)',        function() { if (typeof getLoansStatus === 'function') getLoansStatus(); });
+  time('getAdminSettingsPayload',        function() { getAdminSettingsPayload(); });
+  out.totalMs = out.timings.reduce(function(s, t) { return s + t.ms; }, 0);
+  return out;
+}
+
 // Resume overdue alerts for a specific asset-based loan, keyed by Name
 // (the id surfaced in the Settings tab). Reverses the flag that
 // pauseAssetLoanAlerts set in the asset row's Details JSON.

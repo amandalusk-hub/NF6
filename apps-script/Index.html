@@ -9566,24 +9566,44 @@ function loadProperties() {
   }
   // Two parallel calls: legacy property grid (for monthly report tiles) +
   // the new portfolio overview (editorial top section).
+  //
+  // Each call has a 25-second visible-error timeout. A silent hanging GAS
+  // call used to leave the spinner forever — now you see a "took too long,
+  // tap to retry" instead of staring at the loader.
+  var tilesDone = false, portfolioDone = false;
+  var tilesTimer = setTimeout(function() {
+    if (tilesDone) return;
+    var e2 = document.getElementById('properties-content');
+    if (e2) e2.innerHTML = '<div style="padding:22px;text-align:center;color:#8a5f00;background:#fff3cd;border:1px solid #ffe08a;border-radius:8px">Rental report tiles took too long to load (over 25s). <button onclick="loadProperties()" style="margin-left:10px;padding:6px 14px;background:#0d0f12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Try again</button></div>';
+  }, 25000);
+  var portfolioTimer = setTimeout(function() {
+    if (portfolioDone) return;
+    var pl = document.getElementById('properties-portfolio-list');
+    if (pl) pl.innerHTML = '<div style="padding:22px;text-align:center;color:#8a5f00;background:#fff3cd;border:1px solid #ffe08a;border-radius:8px">Portfolio took too long to load (over 25s). <button onclick="loadProperties()" style="margin-left:10px;padding:6px 14px;background:#0d0f12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Try again</button></div>';
+  }, 25000);
+
   google.script.run
     .withSuccessHandler(function(props) {
+      tilesDone = true; clearTimeout(tilesTimer);
       _propsState.properties = props || [];
       _renderPropertiesLanding();
     })
     .withFailureHandler(function(e) {
+      tilesDone = true; clearTimeout(tilesTimer);
       document.getElementById('properties-content').innerHTML =
-        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + '</div>';
+        '<div style="padding:40px;text-align:center;color:#c5221f">Load failed: ' + esc(e.message || e) + ' <button onclick="loadProperties()" style="margin-left:10px;padding:6px 14px;background:#0d0f12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Try again</button></div>';
     })
     .getProperties();
   google.script.run
     .withSuccessHandler(function(overview) {
+      portfolioDone = true; clearTimeout(portfolioTimer);
       _propsState.portfolio = overview || { totals: {}, properties: [] };
       _renderPropertyPortfolio();
     })
     .withFailureHandler(function(e) {
+      portfolioDone = true; clearTimeout(portfolioTimer);
       var pl = document.getElementById('properties-portfolio-list');
-      if (pl) pl.innerHTML = '<div style="padding:30px;text-align:center;color:#c5221f">Portfolio load failed: ' + esc(e.message || e) + '</div>';
+      if (pl) pl.innerHTML = '<div style="padding:30px;text-align:center;color:#c5221f">Portfolio load failed: ' + esc(e.message || e) + ' <button onclick="loadProperties()" style="margin-left:10px;padding:6px 14px;background:#0d0f12;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:13px">Try again</button></div>';
     })
     .getPropertyPortfolioOverview();
 }
@@ -12623,9 +12643,45 @@ function _renderSettings(p) {
       pausedBlock +
     '</div>' +
 
+    // ─── Diagnostics ─────────────────────────────────────────────────
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:20px 22px;margin-bottom:22px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div>' +
+          '<div style="font-family:Georgia,serif;font-size:18px;color:#0d0f12">Site feels slow?</div>' +
+          '<div style="font-size:12px;color:#6b6b73;margin-top:5px">Measures every hot-path server call so you can see which one is the bottleneck. Takes ~5-30 seconds.</div>' +
+        '</div>' +
+        '<button onclick="_settingsRunTimings()" style="background:#0d0f12;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500">Check speed</button>' +
+      '</div>' +
+      '<div id="settings-timings-result" style="margin-top:14px;display:none;font-size:12.5px;line-height:1.7"></div>' +
+    '</div>' +
+
     // ─── Footer hint ─────────────────────────────────────────────────
     '<div style="font-size:11px;color:#8a8580;margin-top:6px">People, FO Calendar, and PDF triggers will move here next. For now those still live under <em>Tracker → Compliance</em> in the spreadsheet.</div>'
   );
+}
+
+function _settingsRunTimings() {
+  var el = document.getElementById('settings-timings-result');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:#6b6b73">Measuring… (this holds the connection for 5-30 seconds)</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      resp = resp || {};
+      var rows = (resp.timings || []).map(function(t) {
+        var color = t.error ? '#c5221f' : (t.ms > 5000 ? '#c5221f' : (t.ms > 2000 ? '#8a5f00' : '#2e7d32'));
+        var val = t.error ? ('ERROR: ' + t.error) : (t.ms + ' ms' + (t.ms > 5000 ? '  ⚠ slow' : t.ms > 2000 ? '  ⚠' : ''));
+        return '<div style="display:flex;justify-content:space-between;border-bottom:1px solid #f3eedf;padding:6px 0"><span>' + _esc(t.label) + '</span><span style="color:' + color + ';font-family:ui-monospace,Menlo,Consolas,monospace">' + _esc(val) + '</span></div>';
+      }).join('');
+      el.innerHTML =
+        rows +
+        '<div style="display:flex;justify-content:space-between;padding:8px 0 2px;font-weight:600;color:#0d0f12"><span>Total</span><span style="font-family:ui-monospace,Menlo,Consolas,monospace">' + resp.totalMs + ' ms</span></div>' +
+        '<div style="margin-top:10px;font-size:11px;color:#6b6b73">Red rows (>5s) are the ones making the app feel slow. Send me a screenshot of this if the problem is specific.</div>';
+    })
+    .withFailureHandler(function(err) {
+      el.innerHTML = '<span style="color:#c5221f">Timing check failed: ' + _esc(err && err.message || err) + '</span>';
+    })
+    .measureHotPathTimings();
 }
 
 function _settingsSaveEmailField(key) {
