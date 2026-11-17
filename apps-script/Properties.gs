@@ -1904,18 +1904,31 @@ function getPropertyPortfolioOverview() {
       return t && t.length > 3;
     });
     var tokens = nameTokens.concat(addrTokens).filter(function(t, i, a) { return a.indexOf(t) === i; });
-    // Distinctive property keyword set — the obligation text for this
-    // property's items is EXPECTED to contain one of these somewhere.
-    // Combine the property-name tokens with any aliases the entity hint
-    // list adds (so a "NF PR SJ" property's items mentioning "condado"
-    // or "plantation" also match).
+    // Earlier versions auto-expanded tokens from a shared "entity hints"
+    // map (NF PR SJ → [condado, plantation, nf pr sj]). That bled Condado
+    // items into Dorado because "plantation" is in BOTH property names.
+    // Now we do strict matching:
+    //   1) item's obligation / category / notes text must contain one of
+    //      the property's own name/address tokens, OR
+    //   2) item's Entity exactly matches the property's own Entity (via
+    //      Linked Asset), AND the property's entity is in the "every
+    //      item under this entity belongs to this property" whitelist
+    //      (a list that only applies when there's exactly ONE property
+    //      under that entity, so Paris Thacko and NF Texas qualify but
+    //      a multi-property entity like NF MDE CO does not).
     var propNameLower = String(prop['Name'] || '').toLowerCase();
-    Object.keys(_entityToPropertyName).forEach(function(ent) {
-      var hints = _entityToPropertyName[ent];
-      if (hints.some(function(h) { return propNameLower.indexOf(h) >= 0; })) {
-        hints.forEach(function(h) { if (tokens.indexOf(h) < 0) tokens.push(h); });
-      }
-    });
+    var linkedAssetId = String(prop['Linked Asset ID'] || '');
+    var propEntity = (linkedAssetId && assetsById[linkedAssetId])
+      ? String(assetsById[linkedAssetId].entity || '').toLowerCase().trim()
+      : '';
+    // Entities where a single property owns ALL items. For now:
+    //   nf pr sj     → Condado
+    //   nf texas     → Kuhlman
+    //   paris thacko → Paris
+    // NF MDE CO is intentionally excluded (3 Medellín properties under it).
+    // MN Personal is excluded (passport / medical license etc.).
+    var singlePropertyEntities = { 'nf pr sj': true, 'nf texas': true, 'paris thacko': true };
+    var propEntityIsStrict = propEntity && singlePropertyEntities[propEntity];
 
     return complianceItems.filter(function(it) {
       var obl = String(it.Obligation || '').toLowerCase();
@@ -1927,12 +1940,10 @@ function getPropertyPortfolioOverview() {
       // 1) Direct token match on obligation / category / notes.
       if (tokens.some(function(t) { return hay.indexOf(t) >= 0; })) return true;
 
-      // 2) Entity-based match ONLY for entities whose items are
-      //    exclusively property-related (NF PR SJ, NF Texas, Paris
-      //    Thacko, NF MDE CO). Skip broad entities like MN Personal
-      //    where items could be anything (passport, medical license).
-      var hints = _entityToPropertyName[itemEntity];
-      if (hints && hints.some(function(h) { return propNameLower.indexOf(h) >= 0; })) return true;
+      // 2) Entity match: this property owns the entity, and the item's
+      //    entity equals ours. Only for single-property entities (so we
+      //    don't attach all NF MDE CO items to one Medellín property).
+      if (propEntityIsStrict && itemEntity === propEntity) return true;
 
       return false;
     });
