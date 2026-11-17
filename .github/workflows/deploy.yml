@@ -13,11 +13,10 @@ on:
       - '.clasp.json'
       - '.claspignore'
       - '.github/workflows/deploy.yml'
-      - '.github/scripts/**'
   workflow_dispatch:
 
 # One deploy at a time per branch — if two commits land back-to-back, cancel
-# the older run so we don't race two pushes into the same script.
+# the older run so we don't race two clasp pushes into the same script.
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: true
@@ -25,14 +24,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
-    # Workload Identity Federation requires id-token write perm so the
-    # workflow can exchange its GitHub OIDC token for a GCP access token.
-    # No key file, no clasp login, no monthly reauth dance.
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -42,37 +33,56 @@ jobs:
         with:
           node-version: '20'
 
-      # Exchanges this workflow's GitHub OIDC token for a short-lived GCP
-      # access token that impersonates the apps-script-deployer service
-      # account. No keys involved — the trust was wired up in Cloud Shell
-      # via `workload-identity-pools providers create-oidc`.
-      - name: Authenticate to Google Cloud via WIF
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-          token_format: access_token
-          access_token_scopes: >-
-            https://www.googleapis.com/auth/script.projects,https://www.googleapis.com/auth/script.deployments
+      - name: Install clasp
+        run: npm install -g @google/clasp@latest
 
-      - name: Deploy to Apps Script
+      - name: Restore Google auth from secret
         env:
-          APPS_SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
-          DEPLOYMENT_ID:  ${{ secrets.DEPLOYMENT_ID }}
-          GCP_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::CLASPRC_JSON secret is not set. Run tools/refresh-deploy-token.bat on your Windows machine to refresh it."
+            exit 1
+          fi
+          echo "$CLASPRC_JSON" > $HOME/.clasprc.json
+          chmod 600 $HOME/.clasprc.json
+
+      - name: Confirm clasp can see the project
+        env:
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: |
+          if [ -n "$SCRIPT_ID" ]; then
+            cat > .clasp.json <<EOF
+          {
+            "scriptId": "$SCRIPT_ID",
+            "rootDir": "apps-script"
+          }
+          EOF
+          fi
+          clasp status || true
+
+      - name: Push code to Apps Script
+        run: clasp push -f
+
+      - name: Update live deployment
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
           COMMIT_SHA: ${{ github.sha }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
-        run: node .github/scripts/deploy-apps-script.js
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::warning::DEPLOYMENT_ID secret is not set — pushed code but did not update a deployment."
+            exit 0
+          fi
+          LABEL="CI $(echo "$COMMIT_SHA" | cut -c1-7): $(echo "$COMMIT_MSG" | head -n1 | cut -c1-80)"
+          clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$LABEL"
 
       - name: Summary
         if: always()
         run: |
           echo "### Apps Script deploy" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Branch: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Auth: Workload Identity Federation (no key file)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "If this failed with an auth error, check that the Apps Script project is shared with the service account email as an Editor." >> $GITHUB_STEP_SUMMARY
+          echo "If this failed with an auth error, double-click \`tools/refresh-deploy-token.bat\` on your Windows machine to refresh the token in ~30 seconds." >> $GITHUB_STEP_SUMMARY
