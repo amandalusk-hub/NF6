@@ -220,6 +220,7 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
     <button class="tab-btn" data-tab="entities">Entities</button>
     <button class="tab-btn" data-tab="history">History</button>
     <button class="tab-btn" data-tab="orgchart">Org Chart</button>
+    <button class="tab-btn" data-tab="settings" title="Who gets which email, paused alerts, etc.">⚙ Settings</button>
   </nav>
 </header>
 
@@ -524,6 +525,32 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
       </div>
     </div>
     <div style="margin-top:8px;font-size:11px;color:#7a8ba8">Click any node to edit · Use − / + / Fit to zoom (or Ctrl+scroll)</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!--   SETTINGS TAB — moves things out of the spreadsheet menu into   -->
+  <!--   the web app, so you don't have to leave the dashboard to       -->
+  <!--   change who gets which email.                                   -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="tab-panel" id="tab-settings">
+    <div style="background:#faf7f1;min-height:100vh;margin:-20px;padding:36px 44px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;gap:16px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:11px;color:#6b6b73;letter-spacing:1.5px;font-weight:600;margin-bottom:6px">SETTINGS</div>
+          <h1 style="font-family:Georgia,'Playfair Display','Times New Roman',serif;font-size:38px;font-weight:400;color:#0d0f12;margin:0;letter-spacing:-.5px">Who gets what</h1>
+          <div style="font-size:13px;color:#6b6b73;margin-top:8px;max-width:620px;line-height:1.5">
+            Everything that used to live under <em>Tracker → Email / Compliance / Loans</em> in the spreadsheet is slowly moving here. Change settings without opening the sheet.
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button onclick="loadSettings()" style="background:#fff;color:#6b6b73;border:1px solid #eae4d6;padding:10px 14px;border-radius:6px;font-size:13px;cursor:pointer" title="Reload">↻</button>
+        </div>
+      </div>
+
+      <div id="settings-content">
+        <div style="padding:40px;text-align:center;color:#6b6b73">Loading settings…</div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -2914,6 +2941,7 @@ function switchTab(name){
   if(name==='quickbooks') loadQuickBooks();
   if(name==='compliance') loadCompliance();
   if(name==='summary')    renderSummaryStatement();
+  if(name==='settings')   loadSettings();
 }
 
 // ─── LOANS TAB ──────────────────────────────────────────────────────────
@@ -12487,6 +12515,200 @@ function _closeSummaryDrill() {
 // Standalone renderer. Reads ONLY from already-loaded state.assets +
 // state.liabilities so it never triggers a new server call and can't break
 // anything else. If data hasn't loaded yet, waits for it.
+
+// ═══════════════════════════════════════════════════════════════════════
+//   SETTINGS TAB
+//   Replaces the spreadsheet "Tracker → Email" and related menus with an
+//   in-app view. Reads from getAdminSettingsPayload(); each row saves on
+//   its own blur/Enter via saveAdminEmailField(key, value) and shows a
+//   confirmation. One-click "point everything at my email" is here too.
+// ═══════════════════════════════════════════════════════════════════════
+var _settingsState = { data: null, loading: false, saving: {} };
+
+function loadSettings() {
+  var container = document.getElementById('settings-content');
+  if (!container) return;
+  if (_settingsState.loading) return;
+  _settingsState.loading = true;
+  container.innerHTML = '<div style="padding:40px;text-align:center;color:#6b6b73">Loading settings…</div>';
+  google.script.run
+    .withSuccessHandler(function(payload) {
+      _settingsState.loading = false;
+      _settingsState.data = payload;
+      _renderSettings(payload);
+    })
+    .withFailureHandler(function(err) {
+      _settingsState.loading = false;
+      container.innerHTML = '<div style="padding:30px;color:#c5221f;font-size:14px">Couldn\'t load settings: ' + (err && err.message || err) + '</div>';
+    })
+    .getAdminSettingsPayload();
+}
+
+function _renderSettings(p) {
+  var container = document.getElementById('settings-content');
+  if (!container) return;
+  p = p || {};
+  var emails = p.emails || {};
+  var defaults = p.emailDefaults || {};
+  var labels = p.emailLabels || {};
+
+  var rows = (p.emailOrder || Object.keys(emails)).map(function(key) {
+    var meta = labels[key] || { label: key, note: '' };
+    var val = emails[key] == null ? '' : String(emails[key]);
+    var def = defaults[key] || '';
+    var effective = val || def || '(none)';
+    var usingDefault = !val && def;
+    return (
+      '<div style="padding:18px 22px;border-top:1px solid #eae4d6;display:grid;grid-template-columns:1fr 1.4fr auto;gap:18px;align-items:center">' +
+        '<div>' +
+          '<div style="font-weight:600;font-size:13px;color:#0d0f12">' + _esc(meta.label) + '</div>' +
+          (meta.note ? '<div style="font-size:11.5px;color:#6b6b73;margin-top:4px;line-height:1.45">' + _esc(meta.note) + '</div>' : '') +
+          (usingDefault ? '<div style="font-size:11px;color:#8a7a3a;margin-top:6px">Currently falls back to <strong>' + _esc(def) + '</strong></div>' : '') +
+        '</div>' +
+        '<input type="text" id="settings-email-' + _esc(key) + '" value="' + _esc(val) + '" placeholder="' + _esc(def || 'leave blank for default') + '" ' +
+          'onblur="_settingsSaveEmailField(\'' + _esc(key) + '\')" ' +
+          'onkeydown="if(event.key===\'Enter\'){this.blur();}" ' +
+          'style="padding:9px 12px;border:1px solid #eae4d6;border-radius:6px;font-size:13px;background:#fff;width:100%;box-sizing:border-box;font-family:inherit">' +
+        '<div id="settings-email-status-' + _esc(key) + '" style="font-size:11px;color:#6b6b73;min-width:80px;text-align:right">' +
+          (effective === '(none)' ? '' : '→ ' + _esc(effective.length > 32 ? effective.slice(0,30) + '…' : effective)) +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+
+  var pausedLoans = p.pausedAssetLoans || [];
+  var pausedBlock = pausedLoans.length
+    ? pausedLoans.map(function(l) {
+        return (
+          '<div style="padding:14px 18px;border-top:1px solid #eae4d6;display:flex;justify-content:space-between;align-items:center;gap:14px">' +
+            '<div>' +
+              '<div style="font-size:13px;color:#0d0f12;font-weight:500">' + _esc(l.name || l.id) + '</div>' +
+              (l.pausedAt ? '<div style="font-size:11px;color:#6b6b73;margin-top:3px">Paused ' + _esc(l.pausedAt) + (l.reason ? ' — ' + _esc(l.reason) : '') + '</div>' : '') +
+            '</div>' +
+            '<button onclick="_settingsResumeLoan(\'' + _esc(l.id) + '\')" style="background:#fff;color:#0d0f12;border:1px solid #c5a572;padding:7px 14px;border-radius:5px;font-size:12px;cursor:pointer;font-weight:500">Resume alerts</button>' +
+          '</div>'
+        );
+      }).join('')
+    : '<div style="padding:16px 22px;color:#6b6b73;font-size:12.5px;border-top:1px solid #eae4d6">No asset-based loan alerts are currently paused.</div>';
+
+  container.innerHTML = (
+    // ─── Quick fix: point every "Amanda" setting at one email ─────────
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:24px 26px;margin-bottom:22px">' +
+      '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:260px">' +
+          '<div style="font-family:Georgia,serif;font-size:18px;color:#0d0f12">Point all my emails at one address</div>' +
+          '<div style="font-size:12px;color:#6b6b73;margin-top:5px">Overwrites owner email, loan alerts (to), daily PDF, Dorado PDF, and Amanda\'s row in the People sheet. Brandon, Mike, and other names are left alone.</div>' +
+        '</div>' +
+        '<input type="email" id="settings-quickfix-email" value="amanda.lusk@nf6.com" style="padding:9px 12px;border:1px solid #eae4d6;border-radius:6px;font-size:13px;background:#fff;min-width:230px;font-family:inherit">' +
+        '<button onclick="_settingsApplyQuickFix()" style="background:#0d0f12;color:#fff;border:none;padding:10px 20px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500">Apply</button>' +
+      '</div>' +
+      '<div id="settings-quickfix-status" style="margin-top:12px;font-size:12px;color:#6b6b73;display:none"></div>' +
+    '</div>' +
+
+    // ─── Email destinations — one row per setting ─────────────────────
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;overflow:hidden;margin-bottom:22px">' +
+      '<div style="padding:20px 22px">' +
+        '<div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12">Email destinations</div>' +
+        '<div style="font-size:12px;color:#6b6b73;margin-top:5px">Each row saves automatically when you click away (or press Enter). Leave a row blank to fall back to the default shown in gray.</div>' +
+      '</div>' +
+      rows +
+    '</div>' +
+
+    // ─── Paused asset-loan alerts ─────────────────────────────────────
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;overflow:hidden;margin-bottom:22px">' +
+      '<div style="padding:20px 22px">' +
+        '<div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12">Paused loan alerts</div>' +
+        '<div style="font-size:12px;color:#6b6b73;margin-top:5px">Loans you\'ve muted overdue emails for. Useful for the Dominican Republic situation where you don\'t want daily reminders. Resume anytime.</div>' +
+      '</div>' +
+      pausedBlock +
+    '</div>' +
+
+    // ─── Footer hint ─────────────────────────────────────────────────
+    '<div style="font-size:11px;color:#8a8580;margin-top:6px">People, FO Calendar, and PDF triggers will move here next. For now those still live under <em>Tracker → Compliance</em> in the spreadsheet.</div>'
+  );
+}
+
+function _settingsSaveEmailField(key) {
+  if (!_settingsState.data) return;
+  var input = document.getElementById('settings-email-' + key);
+  var status = document.getElementById('settings-email-status-' + key);
+  if (!input || !status) return;
+  var newVal = input.value.trim();
+  var oldVal = String((_settingsState.data.emails || {})[key] || '');
+  if (newVal === oldVal) return;  // nothing changed → no spurious save
+  if (_settingsState.saving[key]) return;
+  _settingsState.saving[key] = true;
+  var prevStatusText = status.innerHTML;
+  status.innerHTML = '<span style="color:#6b6b73">saving…</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      _settingsState.saving[key] = false;
+      if (resp && resp.success === false) {
+        status.innerHTML = '<span style="color:#c5221f">' + _esc(resp.error || 'failed') + '</span>';
+        return;
+      }
+      _settingsState.data.emails[key] = newVal;
+      var def = (_settingsState.data.emailDefaults || {})[key] || '';
+      var effective = newVal || def || '';
+      status.innerHTML = effective ? '<span style="color:#2e7d32">saved → ' + _esc(effective.length > 32 ? effective.slice(0,30) + '…' : effective) + '</span>' : '<span style="color:#2e7d32">saved (cleared)</span>';
+      setTimeout(function() {
+        var s = document.getElementById('settings-email-status-' + key);
+        if (s) s.innerHTML = effective ? '→ ' + _esc(effective.length > 32 ? effective.slice(0,30) + '…' : effective) : '';
+      }, 2500);
+    })
+    .withFailureHandler(function(err) {
+      _settingsState.saving[key] = false;
+      status.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || 'save failed') + '</span>';
+      input.value = oldVal;
+    })
+    .saveAdminEmailField(key, newVal);
+}
+
+function _settingsApplyQuickFix() {
+  var input = document.getElementById('settings-quickfix-email');
+  var status = document.getElementById('settings-quickfix-status');
+  if (!input || !status) return;
+  var email = input.value.trim();
+  if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    status.style.display = 'block';
+    status.innerHTML = '<span style="color:#c5221f">Enter a valid email address.</span>';
+    return;
+  }
+  status.style.display = 'block';
+  status.innerHTML = '<span style="color:#6b6b73">Applying…</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      if (resp && resp.success === false) {
+        status.innerHTML = '<span style="color:#c5221f">' + _esc(resp.error || 'failed') + '</span>';
+        return;
+      }
+      var changes = (resp && resp.changes) || [];
+      status.innerHTML = '<span style="color:#2e7d32">Done — ' + (changes.length ? changes.length + ' setting' + (changes.length === 1 ? '' : 's') + ' updated. Reloading…' : 'nothing needed changing.') + '</span>';
+      setTimeout(loadSettings, 600);
+    })
+    .withFailureHandler(function(err) {
+      status.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || 'failed') + '</span>';
+    })
+    .setAllAmandaEmailsToWeb(email);
+}
+
+function _settingsResumeLoan(loanId) {
+  if (!loanId) return;
+  if (!confirm('Resume overdue alerts for this loan?')) return;
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      if (resp && resp.success === false) { alert(resp.error || 'Failed to resume alerts.'); return; }
+      loadSettings();
+    })
+    .withFailureHandler(function(err) { alert(err && err.message || 'Failed to resume alerts.'); })
+    .resumeAssetLoanAlertsById(loanId);
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 function renderSummaryStatement() {
   var container = document.getElementById('summary-content');

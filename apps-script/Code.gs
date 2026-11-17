@@ -6372,3 +6372,248 @@ function protectHeader_(sheet) {
   protection.setDescription('Header row — managed by system');
   protection.setWarningOnly(true); // warns before editing but doesn't block
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//   SETTINGS TAB — web-callable endpoints
+//
+// Keep all cross-cutting admin endpoints together so the Settings tab in
+// Index.html has a single, obvious surface area. Each one is defensive:
+// email fields validate, and read-only fields never throw on missing data.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Which script-property keys the Settings tab exposes for direct edit, in
+// display order, with user-facing labels. Kept here (not in the HTML) so
+// the server owns the schema and the UI just renders what it's given.
+var _ADMIN_EMAIL_KEYS = [
+  'OWNER_EMAIL',
+  'LOAN_ALERT_RECIPIENT',
+  'LOAN_ALERT_CC_RECIPIENT',
+  'COMPLIANCE_CC_EMAILS',
+  'COMPLIANCE_OVERDUE_OWNER_EMAIL',
+  'DAILY_PDF_RECIPIENT',
+  'DORADO_PDF_RECIPIENT'
+];
+var _ADMIN_EMAIL_LABELS = {
+  OWNER_EMAIL:                    { label: 'Owner email',                       note: 'Who the app considers you. Fallback destination for every setting below.' },
+  LOAN_ALERT_RECIPIENT:           { label: 'Loan alerts — to',                  note: 'Daily overdue-loan email. Blank = owner email.' },
+  LOAN_ALERT_CC_RECIPIENT:        { label: 'Loan alerts — cc',                  note: 'Who gets CC\'d on the daily loan email.' },
+  COMPLIANCE_CC_EMAILS:           { label: 'Compliance — CC on every reminder', note: 'Comma-separated. Usually Amanda + Brandon.' },
+  COMPLIANCE_OVERDUE_OWNER_EMAIL: { label: 'Compliance — weekly past-due',      note: 'Monday 7:30 AM past-due list. Blank = the CC list above.' },
+  DAILY_PDF_RECIPIENT:            { label: 'Daily family-office PDF',           note: 'Who gets the daily snapshot PDF.' },
+  DORADO_PDF_RECIPIENT:           { label: 'Dorado monthly report',             note: 'Who gets the monthly Dorado property PDF.' }
+};
+
+function getAdminSettingsPayload() {
+  var props = PropertiesService.getScriptProperties();
+  var emails = {};
+  _ADMIN_EMAIL_KEYS.forEach(function(k) {
+    emails[k] = props.getProperty(k) || '';
+  });
+  var defaults = {
+    OWNER_EMAIL:             (typeof OWNER_EMAIL_DEFAULT !== 'undefined') ? OWNER_EMAIL_DEFAULT : '',
+    LOAN_ALERT_CC_RECIPIENT: (typeof _LOAN_ALERT_CC_DEFAULT !== 'undefined') ? _LOAN_ALERT_CC_DEFAULT : '',
+    LOAN_ALERT_RECIPIENT:    (typeof OWNER_EMAIL_DEFAULT !== 'undefined') ? OWNER_EMAIL_DEFAULT : ''
+  };
+  return {
+    emails:            emails,
+    emailOrder:        _ADMIN_EMAIL_KEYS.slice(),
+    emailLabels:       _ADMIN_EMAIL_LABELS,
+    emailDefaults:     defaults,
+    pausedAssetLoans:  _getPausedAssetLoansForSettings_()
+  };
+}
+
+// Save one script property. Accepts an empty string (clears the override).
+// Multi-value fields (CC list) are stored as the normalized "a, b, c" form.
+function saveAdminEmailField(key, value) {
+  try {
+    _requireEditor_();
+    if (_ADMIN_EMAIL_KEYS.indexOf(key) < 0) {
+      return { success: false, error: 'Unknown setting: ' + key };
+    }
+    var val = String(value == null ? '' : value).trim();
+    if (val) {
+      // Multi-value keys accept a comma-separated list.
+      var isList = (key === 'COMPLIANCE_CC_EMAILS' || key === 'COMPLIANCE_OVERDUE_OWNER_EMAIL');
+      var parts = isList
+        ? val.split(',').map(function(s){ return s.trim(); }).filter(Boolean)
+        : [val];
+      var bad = parts.filter(function(e) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
+      if (bad.length) return { success: false, error: 'Invalid email(s): ' + bad.join(', ') };
+      val = parts.join(', ');
+    }
+    var props = PropertiesService.getScriptProperties();
+    if (val) props.setProperty(key, val);
+    else     props.deleteProperty(key);
+    return { success: true, key: key, value: val };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
+
+// Point every Amanda-shaped email path at one address in one call. Mirrors
+// the menu-callable setAllAmandaEmailsToNf6 but web-safe (no UI prompts,
+// returns a structured list of changes for the UI to display).
+function setAllAmandaEmailsToWeb(newEmail) {
+  try {
+    _requireEditor_();
+    var email = String(newEmail || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      return { success: false, error: 'Please enter a valid email address.' };
+    }
+    var props = PropertiesService.getScriptProperties();
+    var changed = [];
+
+    // Straight overwrites.
+    ['OWNER_EMAIL', 'LOAN_ALERT_RECIPIENT', 'DAILY_PDF_RECIPIENT', 'DORADO_PDF_RECIPIENT'].forEach(function(k) {
+      var prev = props.getProperty(k) || '(unset)';
+      if (prev.toLowerCase() === email.toLowerCase()) return;
+      props.setProperty(k, email);
+      changed.push(k + ': ' + prev + ' → ' + email);
+    });
+
+    // CC list — replace any amanda* entry; keep the rest; ensure the new
+    // address is on the list.
+    var ccKey = 'COMPLIANCE_CC_EMAILS';
+    var ccRaw = props.getProperty(ccKey) || '';
+    var merged;
+    if (ccRaw) {
+      var parts = ccRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+      var next = parts.map(function(e) {
+        return /^amanda[.\-_]?/i.test(e) ? email : e;
+      });
+      if (!next.some(function(e){ return e.toLowerCase() === email.toLowerCase(); })) next.unshift(email);
+      merged = next.join(', ');
+    } else {
+      merged = email;
+    }
+    if (merged !== ccRaw) {
+      props.setProperty(ccKey, merged);
+      changed.push(ccKey + ': ' + (ccRaw || '(empty)') + ' → ' + merged);
+    }
+
+    // Overdue override — rewrite only if it already names Amanda.
+    var overKey = 'COMPLIANCE_OVERDUE_OWNER_EMAIL';
+    var overCur = props.getProperty(overKey);
+    if (overCur && /amanda/i.test(overCur)) {
+      var overNext = overCur.split(',').map(function(s){return s.trim();}).map(function(e) {
+        return /^amanda[.\-_]?/i.test(e) ? email : e;
+      }).join(', ');
+      if (overNext !== overCur) {
+        props.setProperty(overKey, overNext);
+        changed.push(overKey + ': ' + overCur + ' → ' + overNext);
+      }
+    }
+
+    // COMPLIANCE_PEOPLE — Amanda's row.
+    try {
+      if (typeof ensureComplianceSheets_ === 'function') ensureComplianceSheets_();
+      var ss = SpreadsheetApp.getActiveSpreadsheet();
+      var sheet = ss.getSheetByName('COMPLIANCE_PEOPLE');
+      if (sheet && sheet.getLastRow() >= 1) {
+        var data = sheet.getDataRange().getValues();
+        var headers = data[0];
+        var iName = headers.indexOf('Name');
+        var iEmail = headers.indexOf('Email');
+        if (iName >= 0 && iEmail >= 0) {
+          var found = -1;
+          for (var i = 1; i < data.length; i++) {
+            if (String(data[i][iName] || '').trim().toLowerCase() === 'amanda') { found = i + 1; break; }
+          }
+          if (found > 0) {
+            var prev = data[found - 1][iEmail] || '';
+            if (String(prev).toLowerCase() !== email.toLowerCase()) {
+              sheet.getRange(found, iEmail + 1).setValue(email);
+              changed.push('COMPLIANCE_PEOPLE row "Amanda": ' + (prev || '(empty)') + ' → ' + email);
+            }
+          } else {
+            sheet.appendRow(['Amanda', email, 'Yes']);
+            changed.push('COMPLIANCE_PEOPLE: added new row Amanda / ' + email);
+          }
+        }
+      }
+    } catch (e) {
+      changed.push('COMPLIANCE_PEOPLE update FAILED: ' + e.message);
+    }
+
+    return { success: true, email: email, changes: changed };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
+
+// Return the list of asset-based loans whose daily overdue alerts are
+// currently suppressed. Mirrors listPausedAssetLoans's scan but returns
+// a structured list the Settings tab can render + resume from. Uses the
+// asset Name as the stable id (the row index isn't stable across edits).
+function _getPausedAssetLoansForSettings_() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('ASSETS');
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iName = hdr.indexOf('Name');
+    var iCat  = hdr.indexOf('Category');
+    var iEnt  = hdr.indexOf('Entity');
+    var iDet  = hdr.indexOf('Details');
+    var iArch = hdr.indexOf('Archived');
+    if (iName < 0 || iCat < 0 || iDet < 0) return [];
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    var out = [];
+    data.forEach(function(row) {
+      var cat = String(row[iCat] || '').toLowerCase();
+      if (cat.indexOf('loan') < 0 && cat.indexOf('promissory') < 0) return;
+      var arch = iArch >= 0 ? String(row[iArch] || '').toLowerCase() : '';
+      if (arch === 'yes' || arch === 'true') return;
+      var detRaw = row[iDet];
+      var det = {}; try { det = detRaw ? JSON.parse(detRaw) : {}; } catch(e) { det = {}; }
+      if (det.suppressAlerts === true || String(det.alertStatus||'').toLowerCase() === 'paused') {
+        out.push({
+          id:       String(row[iName] || ''),  // name as stable id
+          name:     String(row[iName] || ''),
+          entity:   iEnt >= 0 ? String(row[iEnt] || '') : '',
+          pausedAt: det.alertPausedAt || '',
+          reason:   det.alertPauseReason || ''
+        });
+      }
+    });
+    return out;
+  } catch (e) {
+    return [];
+  }
+}
+
+// Resume overdue alerts for a specific asset-based loan, keyed by Name
+// (the id surfaced in the Settings tab). Reverses the flag that
+// pauseAssetLoanAlerts set in the asset row's Details JSON.
+function resumeAssetLoanAlertsById(idOrName) {
+  try {
+    _requireEditor_();
+    var needle = String(idOrName || '').trim();
+    if (!needle) return { success: false, error: 'Missing loan id.' };
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('ASSETS');
+    if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'ASSETS sheet not found.' };
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iName = hdr.indexOf('Name');
+    var iDet  = hdr.indexOf('Details');
+    if (iName < 0 || iDet < 0) return { success: false, error: 'ASSETS sheet missing Name/Details columns.' };
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][iName] || '').trim().toLowerCase() === needle.toLowerCase()) {
+        var detRaw = data[i][iDet];
+        var det = {}; try { det = detRaw ? JSON.parse(detRaw) : {}; } catch(e) { det = {}; }
+        det.suppressAlerts = false;
+        delete det.alertStatus;
+        delete det.alertPausedAt;
+        delete det.alertPauseReason;
+        sheet.getRange(i + 2, iDet + 1).setValue(JSON.stringify(det));
+        return { success: true, name: needle };
+      }
+    }
+    return { success: false, error: 'No ASSETS row named "' + needle + '" found.' };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
