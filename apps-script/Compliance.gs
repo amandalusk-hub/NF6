@@ -1319,6 +1319,172 @@ function installComplianceReminderTriggers() {
 
 // ── Menu-callable helpers ─────────────────────────────────────────────────
 
+// Diagnostic: dump every email destination the system currently uses so
+// Amanda can see at a glance where her reminder emails are actually going.
+// Covers owner email, loan alert to/cc, daily PDF recipient, Dorado PDF
+// recipient, compliance CC list, compliance overdue recipient, and
+// Amanda's row in COMPLIANCE_PEOPLE.
+function showAllEmailDestinations() {
+  var props = PropertiesService.getScriptProperties();
+  var lines = [];
+
+  function row(label, val, note) {
+    lines.push('  ' + label + ': ' + (val || '(not set)') + (note ? '  — ' + note : ''));
+  }
+
+  lines.push('═══ OWNER / GLOBAL ═══');
+  row('OWNER_EMAIL (script property)', props.getProperty('OWNER_EMAIL'), 'default: ' + OWNER_EMAIL_DEFAULT);
+  row('Effective owner email', _getOwnerEmail_());
+
+  lines.push('');
+  lines.push('═══ LOAN ALERTS (daily 7 AM) ═══');
+  row('LOAN_ALERT_RECIPIENT (to)', props.getProperty('LOAN_ALERT_RECIPIENT'), 'falls back to owner email');
+  row('LOAN_ALERT_CC_RECIPIENT (cc)', props.getProperty('LOAN_ALERT_CC_RECIPIENT'), 'default: ' + _LOAN_ALERT_CC_DEFAULT);
+
+  lines.push('');
+  lines.push('═══ COMPLIANCE REMINDERS ═══');
+  var ccList = _complianceCcList_();
+  row('COMPLIANCE_CC_EMAILS (cc on every reminder)', ccList);
+  row('COMPLIANCE_OVERDUE_OWNER_EMAIL (weekly past-due to)', props.getProperty(_COMPLIANCE_OWNER_EMAIL_KEY), 'falls back to CC list, then owner email');
+  row('Effective weekly past-due recipient', _complianceOverdueOwnerEmail_());
+
+  lines.push('');
+  lines.push('═══ COMPLIANCE_PEOPLE sheet (one row per person) ═══');
+  try {
+    ensureComplianceSheets_();
+    var people = _getComplianceRows_('COMPLIANCE_PEOPLE', COMPLIANCE_PEOPLE_HEADERS);
+    if (!people.length) {
+      lines.push('  (sheet is empty — no one will get reminders)');
+    } else {
+      people.forEach(function(p) {
+        var active = String(p.Active || 'Yes');
+        lines.push('  ' + (p.Name || '?') + ': ' + (p.Email || '(no email)') + '  [Active: ' + active + ']');
+      });
+    }
+  } catch(e) {
+    lines.push('  (could not read: ' + e.message + ')');
+  }
+
+  lines.push('');
+  lines.push('═══ OTHER EMAIL RECIPIENTS ═══');
+  row('DAILY_PDF_RECIPIENT', props.getProperty('DAILY_PDF_RECIPIENT'));
+  row('DORADO_PDF_RECIPIENT', props.getProperty('DORADO_PDF_RECIPIENT'));
+
+  SpreadsheetApp.getUi().alert('Email destinations', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// One-click: set every "goes to Amanda" path to amanda.lusk@nf6.com. This
+// updates the script-property overrides AND the COMPLIANCE_PEOPLE row for
+// Amanda. Brandon's CC entries stay as they are. Use this after switching
+// domains so you don't have to hunt for every stale config.
+function setAllAmandaEmailsToNf6() {
+  _requireEditor_();
+  var ui = SpreadsheetApp.getUi();
+  var NEW = 'amanda.lusk@nf6.com';
+
+  var r = ui.alert('Point every Amanda email path at ' + NEW + '?',
+    'This will update:\n' +
+    '  • OWNER_EMAIL (script property)\n' +
+    '  • LOAN_ALERT_RECIPIENT (script property)\n' +
+    '  • DAILY_PDF_RECIPIENT (script property)\n' +
+    '  • DORADO_PDF_RECIPIENT (script property)\n' +
+    '  • COMPLIANCE_CC_EMAILS (replaces Amanda\'s entry; keeps Brandon)\n' +
+    '  • COMPLIANCE_OVERDUE_OWNER_EMAIL (if it already names Amanda)\n' +
+    '  • COMPLIANCE_PEOPLE sheet — Amanda\'s row\n\n' +
+    'Nothing else is touched (Brandon\'s own email, Mike\'s, etc. all stay).\n\n' +
+    'Continue?',
+    ui.ButtonSet.OK_CANCEL);
+  if (r !== ui.Button.OK) return;
+
+  var props = PropertiesService.getScriptProperties();
+  var changed = [];
+
+  // Script properties — straight overwrites.
+  [
+    'OWNER_EMAIL',
+    'LOAN_ALERT_RECIPIENT',
+    'DAILY_PDF_RECIPIENT',
+    'DORADO_PDF_RECIPIENT'
+  ].forEach(function(k) {
+    var prev = props.getProperty(k) || '(unset)';
+    if (prev.toLowerCase() === NEW) { changed.push(k + ': already ' + NEW); return; }
+    props.setProperty(k, NEW);
+    changed.push(k + ': ' + prev + ' → ' + NEW);
+  });
+
+  // CC list — replace any "amanda*" entry; leave the rest alone.
+  var ccRaw = props.getProperty(_COMPLIANCE_CC_KEY) || '';
+  if (ccRaw) {
+    var parts = ccRaw.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    var next = parts.map(function(e) {
+      return /^amanda[.\-_]?/i.test(e) ? NEW : e;
+    });
+    // Ensure Amanda is on the list at all.
+    if (!next.some(function(e){ return e.toLowerCase() === NEW; })) next.unshift(NEW);
+    var merged = next.join(', ');
+    if (merged !== ccRaw) {
+      props.setProperty(_COMPLIANCE_CC_KEY, merged);
+      changed.push(_COMPLIANCE_CC_KEY + ': ' + ccRaw + ' → ' + merged);
+    }
+  } else {
+    // No CC list at all — seed with just Amanda; user can add Brandon via
+    // the existing menu if they want.
+    props.setProperty(_COMPLIANCE_CC_KEY, NEW);
+    changed.push(_COMPLIANCE_CC_KEY + ': (empty) → ' + NEW);
+  }
+
+  // Overdue owner override — only rewrite if it already names Amanda. Leave
+  // non-Amanda overrides alone (someone may have intentionally pointed the
+  // weekly digest somewhere else).
+  var overKey = _COMPLIANCE_OWNER_EMAIL_KEY;
+  var overCur = props.getProperty(overKey);
+  if (overCur && /amanda/i.test(overCur)) {
+    var overNext = overCur.split(',').map(function(s){ return s.trim(); }).map(function(e) {
+      return /^amanda[.\-_]?/i.test(e) ? NEW : e;
+    }).join(', ');
+    if (overNext !== overCur) {
+      props.setProperty(overKey, overNext);
+      changed.push(overKey + ': ' + overCur + ' → ' + overNext);
+    }
+  }
+
+  // COMPLIANCE_PEOPLE sheet — Amanda's row.
+  try {
+    ensureComplianceSheets_();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('COMPLIANCE_PEOPLE');
+    if (sheet) {
+      var data = sheet.getDataRange().getValues();
+      var headers = data[0];
+      var iName = headers.indexOf('Name');
+      var iEmail = headers.indexOf('Email');
+      var foundRow = -1;
+      for (var i = 1; i < data.length; i++) {
+        if (String(data[i][iName] || '').trim().toLowerCase() === 'amanda') {
+          foundRow = i + 1; break;
+        }
+      }
+      if (foundRow > 0) {
+        var prev = data[foundRow - 1][iEmail] || '';
+        if (String(prev).toLowerCase() !== NEW) {
+          sheet.getRange(foundRow, iEmail + 1).setValue(NEW);
+          changed.push('COMPLIANCE_PEOPLE row "Amanda": ' + (prev || '(empty)') + ' → ' + NEW);
+        }
+      } else {
+        sheet.appendRow(['Amanda', NEW, 'Yes']);
+        changed.push('COMPLIANCE_PEOPLE: added new row Amanda / ' + NEW);
+      }
+    }
+  } catch(e) {
+    changed.push('COMPLIANCE_PEOPLE update FAILED: ' + e.message);
+  }
+
+  ui.alert('Done — all Amanda-addressed email now goes to ' + NEW,
+    changed.length ? changed.join('\n') : 'Nothing needed changing — every path was already pointing there.',
+    ui.ButtonSet.OK);
+}
+
+
 function setComplianceCcListFromMenu() {
   var ui = SpreadsheetApp.getUi();
   var cur = _complianceCcList_() || '(none)';
