@@ -6426,7 +6426,9 @@ function getAdminSettingsPayload() {
 }
 
 // Save one script property. Accepts an empty string (clears the override).
-// Multi-value fields (CC list) are stored as the normalized "a, b, c" form.
+// Any field accepts a comma-separated list (MailApp.sendEmail's `to` and
+// `cc` fields both accept one), so validation splits on commas and
+// validates each address independently.
 function saveAdminEmailField(key, value) {
   try {
     _requireEditor_();
@@ -6435,11 +6437,7 @@ function saveAdminEmailField(key, value) {
     }
     var val = String(value == null ? '' : value).trim();
     if (val) {
-      // Multi-value keys accept a comma-separated list.
-      var isList = (key === 'COMPLIANCE_CC_EMAILS' || key === 'COMPLIANCE_OVERDUE_OWNER_EMAIL');
-      var parts = isList
-        ? val.split(',').map(function(s){ return s.trim(); }).filter(Boolean)
-        : [val];
+      var parts = val.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
       var bad = parts.filter(function(e) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e); });
       if (bad.length) return { success: false, error: 'Invalid email(s): ' + bad.join(', ') };
       val = parts.join(', ');
