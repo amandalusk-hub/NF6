@@ -10061,18 +10061,33 @@ function _renderPropertyReport(r) {
       allCategorized.forEach(function(txn, i) {
         var amtColor = txn.amount >= 0 ? '#1e8e3e' : '#c5221f';
         var catBadgeColor = _catBadgeColor(txn.category);
+        var sourceLabel = '';
+        var actionBtn = '';
+        var safeId = String(txn.id).replace(/'/g, "\\'");
+        if (txn.source === 'recurring') {
+          sourceLabel = ' <span style="color:#9c6c0f">· recurring (sheet)</span>';
+          actionBtn = '<button class="btn" style="padding:4px 10px;font-size:10px;white-space:nowrap;background:#fff3cd;color:#8a5f00;border:1px solid #ffe08a" ' +
+                     'onclick="_removeRecurringFromReport(\'' + safeId + '\')">Remove</button>';
+        } else if (txn.source === 'manual') {
+          sourceLabel = ' <span style="color:#9c6c0f">· one-off (sheet)</span>';
+          actionBtn = '<button class="btn" style="padding:4px 10px;font-size:10px;white-space:nowrap;background:#fff3cd;color:#8a5f00;border:1px solid #ffe08a" ' +
+                     'onclick="_removeManualFromReport(\'' + safeId + '\')">Delete</button>';
+        } else {
+          if (txn.source === 'override') sourceLabel = ' <span style="color:#9c6c0f">· manual</span>';
+          actionBtn = '<button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;white-space:nowrap" ' +
+                     'onclick="_openClassifyModal(\'' + safeId + '\', true)">Retag</button>';
+        }
         html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid #f0f3f7;font-size:12px;gap:8px">' +
           '<div style="flex:1;min-width:0">' +
             '<div style="color:#0d2137;font-weight:500">' + esc(txn.name || '(no name)') + '</div>' +
             '<div style="margin-top:3px;font-size:10px"><span style="background:' + catBadgeColor + ';color:#fff;padding:1px 6px;border-radius:3px;font-weight:600">' + esc(txn.category) + '</span>' +
               (txn.subcategory ? ' <span style="color:#5f7791">· ' + esc(txn.subcategory) + '</span>' : '') +
-              (txn.source === 'override' ? ' <span style="color:#9c6c0f">· manual</span>' : '') +
+              sourceLabel +
             '</div>' +
             '<div style="color:#7a8ba8;font-size:10px;margin-top:2px">' + esc(txn.date) + ' · ' + esc(txn.account) + '</div>' +
           '</div>' +
           '<div style="color:' + amtColor + ';font-weight:600;white-space:nowrap">' + _fmtPropAccounting(txn.amount) + '</div>' +
-          '<button class="btn btn-secondary" style="padding:4px 10px;font-size:10px;white-space:nowrap" ' +
-                  'onclick="_openClassifyModal(\'' + esc(String(txn.id).replace(/'/g, "\\'")) + '\', true)">Retag</button>' +
+          actionBtn +
         '</div>';
       });
       html += '</div>';
@@ -10339,6 +10354,40 @@ function _savePropClassification() {
     .setPropertyTxnOverride(txnId, propertyId, cat, sub, notes);
 }
 
+// Virtual recurring entry: deactivate the row in PROPERTY_RECURRING.
+// txn.id is "recurring:<ID>:<YYYY-MM>" — parse out the row ID.
+function _removeRecurringFromReport(txnId) {
+  var parts = String(txnId).split(':');
+  if (parts[0] !== 'recurring' || !parts[1]) { toast('Not a recurring entry', 'error'); return; }
+  var rowId = parts[1];
+  if (!confirm('Deactivate this recurring entry?\n\nIt will stop showing up on every future month\'s report (the row stays in the sheet but gets Active=No).')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success === false) { toast(r.error || 'Failed', 'error'); return; }
+      toast('✓ Recurring entry deactivated');
+      _loadPropertyReport();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .deactivatePropertyRecurring(rowId);
+}
+
+// Virtual manual one-off: delete the row in PROPERTY_MANUAL.
+// txn.id is "manual:<ID>".
+function _removeManualFromReport(txnId) {
+  var parts = String(txnId).split(':');
+  if (parts[0] !== 'manual' || !parts[1]) { toast('Not a manual entry', 'error'); return; }
+  var rowId = parts[1];
+  if (!confirm('Delete this one-off entry from the sheet?\n\nThis is permanent — the row is removed from PROPERTY_MANUAL.')) return;
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success === false) { toast(r.error || 'Failed', 'error'); return; }
+      toast('✓ One-off entry deleted');
+      _loadPropertyReport();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .deletePropertyManual(rowId);
+}
+
 // "Not this property": tag the transaction as Excluded for the current
 // property only. Report drops it from every total; the raw transaction
 // stays visible and can be assigned to the correct property's report
@@ -10445,9 +10494,13 @@ function _collectCategorizedTxns(r) {
     if (!buckets) return;
     Object.keys(buckets).forEach(function(sub) {
       (buckets[sub].transactions || []).forEach(function(t) {
-        // Skip virtual recurring/manual entries — those have category/sub
-        // set at the sheet level, not by rule, and can be edited in the sheet.
-        if (t.source === 'recurring' || t.source === 'manual') return;
+        // Previously recurring/manual entries were hidden here since
+        // they're virtual (sheet-sourced rather than Plaid), but then
+        // when a $295 "Exterminator quarterly" recurring was wrong for
+        // this property, there was no way to find the line to remove.
+        // Include them so Amanda can click → Remove without touching
+        // the sheet. The row renderer branches on .source to show the
+        // right action button.
         if (seen[t.id]) return;
         seen[t.id] = true;
         out.push({

@@ -2130,3 +2130,70 @@ function seedCondadoProperty() {
     '2. Compliance items under Entity "NF PR SJ" will auto-group under it (CRIM, insurance, parking, PR DOS fee).\n' +
     '3. To show purchase/current value, open the PROPERTIES sheet and set the Linked Asset ID column to the Condado row on Assets.');
 }
+
+
+// ── Deactivate / delete virtual report lines ──────────────────────────────
+//
+// The report aggregates three sources: Plaid transactions, recurring
+// entries (PROPERTY_RECURRING, one virtual txn per month), and manual
+// one-offs (PROPERTY_MANUAL). Plaid txns are editable via
+// setPropertyTxnOverride, but recurring and manual entries used to only
+// be editable in the sheet. These two endpoints close that gap so a line
+// Amanda didn't want on the report can be removed from the web app.
+//
+// deactivatePropertyRecurring(id)
+//   Sets Active='No' on a PROPERTY_RECURRING row. The row stays in the
+//   sheet so history is preserved, but every future month skips it.
+//
+// deletePropertyManual(id)
+//   Removes a PROPERTY_MANUAL row entirely. One-offs have no history
+//   value — if you want it gone, it's gone.
+
+function deactivatePropertyRecurring(id) {
+  try {
+    _requireEditor_();
+    ensurePropertiesSheets_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_RECURRING');
+    if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'PROPERTY_RECURRING sheet is empty.' };
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iId     = hdr.indexOf('ID');
+    var iActive = hdr.indexOf('Active');
+    var iUpd    = hdr.indexOf('Last Updated');
+    if (iId < 0 || iActive < 0) return { success: false, error: 'PROPERTY_RECURRING missing ID / Active columns.' };
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][iId]) === String(id)) {
+        sheet.getRange(i + 2, iActive + 1).setValue('No');
+        if (iUpd >= 0) sheet.getRange(i + 2, iUpd + 1).setValue(new Date());
+        try { if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_(['propertyPortfolio_v1']); } catch(e) {}
+        return { success: true, id: String(id) };
+      }
+    }
+    return { success: false, error: 'Recurring entry not found: ' + id };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
+
+function deletePropertyManual(id) {
+  try {
+    _requireEditor_();
+    ensurePropertiesSheets_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_MANUAL');
+    if (!sheet || sheet.getLastRow() < 2) return { success: false, error: 'PROPERTY_MANUAL sheet is empty.' };
+    var hdr = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    var iId = hdr.indexOf('ID');
+    if (iId < 0) return { success: false, error: 'PROPERTY_MANUAL missing ID column.' };
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, hdr.length).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][iId]) === String(id)) {
+        sheet.deleteRow(i + 2);
+        try { if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_(['propertyPortfolio_v1']); } catch(e) {}
+        return { success: true, id: String(id) };
+      }
+    }
+    return { success: false, error: 'Manual entry not found: ' + id };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
