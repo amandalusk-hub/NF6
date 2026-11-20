@@ -753,6 +753,216 @@ function syncAllComplianceToCalendar() {
            '\nActive items with a Next Due Date now have calendar events; Done/Cancelled items were cleaned up.');
 }
 
+// One-click: convert exterminator / bug-spray compliance items to a
+// proper per-property quarterly schedule.
+//
+// Logic:
+//   1. Scan COMPLIANCE_ITEMS for every active exterminator/bug-spray
+//      row (loose match on obligation).
+//   2. For each one:
+//        • Already labeled "dorado" → set Frequency=Quarterly, Entity=
+//          "MN Personal", recompute Next Due = Last Done + 3 months.
+//        • Already labeled "condado" → same, Entity="NF PR SJ".
+//        • Generic (neither)   → mark Cancelled (keeps history + the
+//          old calendar event is deleted by the sync pass) and ensure
+//          two new rows exist: one Dorado (MN Personal), one Condado
+//          (NF PR SJ), both Quarterly, both with the same Last Done
+//          and Person Responsible copied forward.
+//   3. If there's NO existing row at all, create both from scratch with
+//      today as Last Done and today+3mo as Next Due so the cadence
+//      starts cleanly.
+//   4. Re-sync every touched item to the FO Calendar.
+//
+// Idempotent: re-running just keeps everything at Quarterly, won't
+// create duplicate Dorado / Condado rows (it checks for an existing
+// labeled row before creating one).
+function setBugSprayToQuarterly() {
+  try {
+    _requireEditor_();
+    ensureComplianceSheets_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_ITEMS');
+    if (!sheet) return { ok: false, error: 'COMPLIANCE_ITEMS sheet missing.' };
+    var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
+    var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var iId      = hdr.indexOf('ID');
+    var iObl     = hdr.indexOf('Obligation');
+    var iFreq    = hdr.indexOf('Frequency');
+    var iLast    = hdr.indexOf('Last Done');
+    var iDue     = hdr.indexOf('Next Due Date');
+    var iStatus  = hdr.indexOf('Status');
+    var iEntity  = hdr.indexOf('Entity');
+    var iPerson  = hdr.indexOf('Person Responsible');
+    var iCat     = hdr.indexOf('Category');
+    var iType    = hdr.indexOf('Item Type');
+    var iLoc     = hdr.indexOf('Location');
+    var iCost    = hdr.indexOf('Cost');
+    var iPoc     = hdr.indexOf('Point of Contact');
+    var iLastUpd = hdr.indexOf('Last Updated');
+    if (iObl < 0 || iFreq < 0 || iDue < 0) {
+      return { ok: false, error: 'COMPLIANCE_ITEMS missing Obligation / Frequency / Next Due Date columns.' };
+    }
+    var tz = Session.getScriptTimeZone();
+
+    var data = sheet.getLastRow() >= 2
+      ? sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues()
+      : [];
+
+    // Pass 1: classify every existing exterminator / bug-spray row.
+    var existing = { dorado: null, condado: null, generic: [] };
+    var template = null;  // for copying Person / Category / etc. onto new rows
+    for (var i = 0; i < data.length; i++) {
+      var obl = String(data[i][iObl] || '').toLowerCase();
+      var status = iStatus >= 0 ? String(data[i][iStatus] || '').toLowerCase() : '';
+      if (status === 'done' || status === 'cancelled') continue;
+      if (!/exterminator|bug\s*spray|\bspray\b|pest|fumigat/i.test(obl)) continue;
+      var rec = { rowIdx: i + 2, row: data[i] };
+      if (/dorado/i.test(obl))       existing.dorado = rec;
+      else if (/condado/i.test(obl)) existing.condado = rec;
+      else                           existing.generic.push(rec);
+      if (!template) template = rec;
+    }
+
+    // Pass 2: pick a Last Done + Person + Cost to use for any new row.
+    // Priority: existing Dorado/Condado row (preserves whatever's there),
+    // then generic, then sensible defaults.
+    function _lastDate(rec) {
+      if (!rec || iLast < 0) return null;
+      var v = rec.row[iLast];
+      if (v instanceof Date) return v;
+      if (!v) return null;
+      var d = new Date(v);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    var templateLast = _lastDate(template) || new Date();
+    var templatePerson = (template && iPerson >= 0) ? String(template.row[iPerson] || '').trim() : '';
+    var templateCost   = (template && iCost   >= 0) ? template.row[iCost]   : '';
+    var templatePoc    = (template && iPoc    >= 0) ? template.row[iPoc]    : '';
+
+    function addMonths(d, n) { var out = new Date(d); out.setMonth(out.getMonth() + n); return out; }
+    function fmt(d) { return d ? Utilities.formatDate(d, tz, 'yyyy-MM-dd') : ''; }
+
+    var touched = [];  // { id, obligation, action, prevDue, newDue }
+
+    function updateInPlace(rec, labelObligation, entity) {
+      var last = _lastDate(rec) || templateLast;
+      var newDue = addMonths(last, 3);
+      var prevDueRaw = rec.row[iDue];
+      var prevDue = prevDueRaw instanceof Date ? prevDueRaw : (prevDueRaw ? new Date(prevDueRaw) : null);
+      sheet.getRange(rec.rowIdx, iObl + 1).setValue(labelObligation);
+      sheet.getRange(rec.rowIdx, iFreq + 1).setValue('Quarterly');
+      sheet.getRange(rec.rowIdx, iDue  + 1).setValue(newDue);
+      if (iEntity >= 0) sheet.getRange(rec.rowIdx, iEntity + 1).setValue(entity);
+      if (iStatus >= 0 && !String(rec.row[iStatus] || '').trim()) {
+        sheet.getRange(rec.rowIdx, iStatus + 1).setValue('Up to Date');
+      }
+      if (iLastUpd >= 0) sheet.getRange(rec.rowIdx, iLastUpd + 1).setValue(new Date());
+      touched.push({
+        id:         String(rec.row[iId] || ''),
+        obligation: labelObligation,
+        action:     'updated',
+        prevDue:    fmt(prevDue),
+        newDue:     fmt(newDue)
+      });
+    }
+
+    function cancelGeneric(rec) {
+      if (iStatus >= 0) sheet.getRange(rec.rowIdx, iStatus + 1).setValue('Cancelled');
+      if (iLastUpd >= 0) sheet.getRange(rec.rowIdx, iLastUpd + 1).setValue(new Date());
+      touched.push({
+        id:         String(rec.row[iId] || ''),
+        obligation: String(rec.row[iObl] || '') + ' (archived)',
+        action:     'cancelled',
+        prevDue:    '',
+        newDue:     ''
+      });
+    }
+
+    function createNew(labelObligation, entity) {
+      var newDue = addMonths(templateLast, 3);
+      var row = {};
+      hdr.forEach(function(h) { if (h) row[h] = ''; });
+      row['Obligation']        = labelObligation;
+      row['Entity']            = entity;
+      row['Status']            = 'Up to Date';
+      row['Frequency']         = 'Quarterly';
+      row['Last Done']         = templateLast;
+      row['Next Due Date']     = newDue;
+      row['Item Type']         = 'Property';
+      row['Category']          = 'Maintenance';
+      row['Location']          = 'Puerto Rico';
+      row['Person Responsible']= templatePerson || 'Brandon';
+      row['Cost']              = templateCost;
+      row['Point of Contact']  = templatePoc;
+      row['On FO Calendar']    = 'No';
+      row['Calendar Event Link'] = '';
+      // upsertComplianceItem handles ID assignment + calendar sync.
+      var resp = upsertComplianceItem(row);
+      touched.push({
+        id:         resp && resp.id || '',
+        obligation: labelObligation,
+        action:     'created',
+        prevDue:    '',
+        newDue:     fmt(newDue)
+      });
+    }
+
+    // Dorado = MN Personal (Mike holds the villa personally)
+    // Condado = NF PR SJ
+    if (existing.dorado)  updateInPlace(existing.dorado,  'Exterminator quarterly service - Dorado',  'MN Personal');
+    else                  createNew('Exterminator quarterly service - Dorado',  'MN Personal');
+
+    if (existing.condado) updateInPlace(existing.condado, 'Exterminator quarterly service - Condado', 'NF PR SJ');
+    else                  createNew('Exterminator quarterly service - Condado', 'NF PR SJ');
+
+    // Cancel every generic row AFTER the split rows exist so history is
+    // preserved but the old monthly item no longer generates reminders.
+    existing.generic.forEach(cancelGeneric);
+
+    // Re-sync FO Calendar for every touched item (new, updated, and
+    // cancelled — sync deletes the event for cancelled rows). writeComplianceItem
+    // already syncs on create, but re-syncing is idempotent and safe.
+    var calSynced = 0, calFailed = 0;
+    touched.forEach(function(u) {
+      if (!u.id) return;
+      try { _syncComplianceCalendarEvent_(u.id); calSynced++; }
+      catch(e) { calFailed++; Logger.log('bug-spray cal sync failed for ' + u.id + ': ' + e.message); }
+    });
+
+    // Bust the cache so the web app shows the new state immediately.
+    try {
+      if (typeof _invalidateReadCache_ === 'function') {
+        _invalidateReadCache_(['complianceItems_v1', 'propertyPortfolio_v1', 'fullData_v1']);
+      }
+    } catch(e) {}
+
+    return {
+      ok: true,
+      count:     touched.length,
+      items:     touched,
+      calSynced: calSynced,
+      calFailed: calFailed
+    };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+}
+
+// Menu wrapper — same logic, with a UI alert so the spreadsheet menu
+// gives a confirmation even without the web app open.
+function setBugSprayToQuarterlyFromMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var r = setBugSprayToQuarterly();
+  if (!r || r.ok === false) { ui.alert('Bug spray → Quarterly failed: ' + ((r && r.error) || 'unknown error')); return; }
+  if (!r.count) { ui.alert('No bug spray / exterminator items found in COMPLIANCE_ITEMS.'); return; }
+  var lines = r.items.map(function(u) {
+    return '  • ' + u.obligation + (u.prevDue ? '  (was due ' + u.prevDue + ')' : '') + '  → next ' + u.newDue;
+  }).join('\n');
+  ui.alert('Updated ' + r.count + ' item(s) to Quarterly',
+    lines + '\n\nFO Calendar events updated: ' + r.calSynced +
+      (r.calFailed ? ' (failed: ' + r.calFailed + ' — see Apps Script logs)' : ''),
+    ui.ButtonSet.OK);
+}
+
 
 // ── Reminder policy (Amanda, Oct 2026) ────────────────────────────────────
 //

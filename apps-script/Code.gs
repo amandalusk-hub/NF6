@@ -557,6 +557,7 @@ function onOpen() {
     .addItem('Compliance → TEST send weekly digest now (real items only, if any)', 'sendComplianceDigestTest')
     .addItem('Compliance → Send PREVIEW reminder email (modern format, sample data)', 'sendTestComplianceReminderEmail')
     .addItem('Compliance → Send PREVIEW past-due email (modern format, sample data)', 'sendTestCompliancePastDueEmail')
+    .addItem('Compliance → Bug spray / exterminator → Quarterly (one-click)', 'setBugSprayToQuarterlyFromMenu')
     .addSeparator()
     .addItem('All Transactions → Sync ALL Plaid Transactions', 'syncAllPlaidTransactionsMenu')
     .addItem('All Transactions → Debug: List Accounts in PLAID_TRANSACTIONS', 'debugListPlaidTransactionAccounts')

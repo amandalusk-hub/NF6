@@ -12643,6 +12643,22 @@ function _renderSettings(p) {
       pausedBlock +
     '</div>' +
 
+    // ─── Quick fixes ──────────────────────────────────────────────────
+    // One-click compliance / loan tweaks. Buttons stay available after
+    // use (they\'re idempotent — re-running is safe).
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:20px 22px;margin-bottom:22px">' +
+      '<div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12;margin-bottom:4px">Quick fixes</div>' +
+      '<div style="font-size:12px;color:#6b6b73;margin-bottom:14px">One-off changes you asked for — no spreadsheet required. Safe to re-run.</div>' +
+      '<div style="padding:14px 0;border-top:1px solid #f3eedf;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:260px">' +
+          '<div style="font-size:13px;font-weight:600;color:#0d0f12">Bug spray / exterminator → Quarterly</div>' +
+          '<div style="font-size:11.5px;color:#6b6b73;margin-top:4px;line-height:1.45">Flips every active exterminator / bug-spray / pest-control compliance item (Condado, Dorado, etc.) to a quarterly frequency and updates the FO Calendar events to match.</div>' +
+        '</div>' +
+        '<button onclick="_settingsRunBugSprayFix()" style="background:#0d0f12;color:#fff;border:none;padding:9px 16px;border-radius:5px;font-size:12.5px;cursor:pointer;font-weight:500">Run</button>' +
+      '</div>' +
+      '<div id="settings-quickfix-bugspray-result" style="margin-top:8px;display:none;font-size:12px;line-height:1.55"></div>' +
+    '</div>' +
+
     // ─── Diagnostics ─────────────────────────────────────────────────
     '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:20px 22px;margin-bottom:22px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">' +
@@ -12658,6 +12674,40 @@ function _renderSettings(p) {
     // ─── Footer hint ─────────────────────────────────────────────────
     '<div style="font-size:11px;color:#8a8580;margin-top:6px">People, FO Calendar, and PDF triggers will move here next. For now those still live under <em>Tracker → Compliance</em> in the spreadsheet.</div>'
   );
+}
+
+function _settingsRunBugSprayFix() {
+  var el = document.getElementById('settings-quickfix-bugspray-result');
+  if (!el) return;
+  if (!confirm('Split the exterminator schedule into Dorado + Condado items and set both to Quarterly? Calendar events will be updated too.')) return;
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:#6b6b73">Working… (updating items + syncing calendar)</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      if (!resp || resp.ok === false) {
+        el.innerHTML = '<span style="color:#c5221f">' + _esc((resp && resp.error) || 'failed') + '</span>';
+        return;
+      }
+      if (!resp.count) {
+        el.innerHTML = '<span style="color:#6b6b73">Nothing to do — no bug-spray items were found and none needed creating.</span>';
+        return;
+      }
+      var rows = (resp.items || []).map(function(u) {
+        var tag = u.action === 'created'   ? '<span style="color:#2e7d32">+ created</span>'
+                : u.action === 'cancelled' ? '<span style="color:#8a5f00">× archived</span>'
+                :                            '<span style="color:#1a6fc2">↻ updated</span>';
+        return '<div style="padding:4px 0;border-bottom:1px solid #f3eedf">' + tag + '  ' + _esc(u.obligation) + (u.newDue ? ' <span style="color:#6b6b73">— next ' + _esc(u.newDue) + '</span>' : '') + '</div>';
+      }).join('');
+      el.innerHTML =
+        '<div style="color:#2e7d32;font-weight:600;margin-bottom:6px">Done — ' + resp.count + ' change' + (resp.count === 1 ? '' : 's') + ', ' + resp.calSynced + ' calendar event' + (resp.calSynced === 1 ? '' : 's') + ' synced' + (resp.calFailed ? ' (' + resp.calFailed + ' cal failed)' : '') + '</div>' +
+        rows;
+      // Also refresh the compliance tab if it\'s already loaded.
+      if (typeof loadCompliance === 'function') { try { loadCompliance(); } catch(e) {} }
+    })
+    .withFailureHandler(function(err) {
+      el.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || err) + '</span>';
+    })
+    .setBugSprayToQuarterly();
 }
 
 function _settingsRunTimings() {
