@@ -10345,7 +10345,8 @@ function _savePropClassification() {
     sub = cat;
   }
   google.script.run
-    .withSuccessHandler(function() {
+    .withSuccessHandler(function(resp) {
+      if (resp && resp.success === false) { toast(resp.error || 'Could not save', 'error'); return; }
       closeModal('prop-classify-modal');
       toast('✓ Classified as ' + cat + ' · ' + sub);
       _loadPropertyReport();   // refresh the detail — txn moves between buckets as needed
@@ -10398,7 +10399,8 @@ function _excludePropTxnFromProperty() {
   var notes = document.getElementById('prop-classify-notes').value;
   if (!confirm('Mark this transaction as "not this property"?\n\nIt will be removed from every total on this property\'s report (useful when a shared account like Oriental 0451 has charges for both Dorado and Condado — one of them is for the other property).')) return;
   google.script.run
-    .withSuccessHandler(function() {
+    .withSuccessHandler(function(resp) {
+      if (resp && resp.success === false) { toast(resp.error || 'Could not save', 'error'); return; }
       closeModal('prop-classify-modal');
       toast('✓ Excluded from this property');
       _loadPropertyReport();

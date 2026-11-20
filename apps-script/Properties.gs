@@ -680,14 +680,37 @@ function _getPropertyTxnOverrides_(propertyId) {
 // Web-callable: set a per-transaction override. Overwrites any prior override
 // for the same (txn, property) pair. Amanda calls this from the "Needs Review"
 // queue in the UI when she wants a one-off classification without a rule.
+//
+// PROPERTY_TXN_OVERRIDES is only consulted for REAL Plaid transaction IDs
+// (TLMND_TRANSACTIONS / PLAID_TRANSACTIONS). Virtual IDs from the report
+// aggregator ("recurring:<ID>:<YYYY-MM>" and "manual:<ID>") never match,
+// so a write against those IDs would silently do nothing — the UI closes
+// with a success toast but the report doesn't change. Detect that up
+// front and return an actionable error instead.
 function setPropertyTxnOverride(txnId, propertyId, category, subcategory, notes) {
   _requireEditor_();
+  var sid = String(txnId || '');
+  if (!sid) return { success: false, error: 'Missing transaction id.' };
+  if (sid.indexOf('recurring:') === 0) {
+    return {
+      success: false,
+      error: 'This line comes from a recurring schedule, not a Plaid transaction. Reload the page (Ctrl+Shift+R) and use the amber "Remove" button on this row instead.'
+    };
+  }
+  if (sid.indexOf('manual:') === 0) {
+    return {
+      success: false,
+      error: 'This line is a manual one-off entry. Reload the page (Ctrl+Shift+R) and use the amber "Delete" button on this row instead.'
+    };
+  }
+
   ensurePropertiesSheets_();
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PROPERTY_TXN_OVERRIDES');
   var lastCol = Math.max(sheet.getLastColumn(), PROPERTY_TXN_OVERRIDES_HEADERS.length);
   var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
   var iTxn  = hdr.indexOf('Transaction ID');
   var iProp = hdr.indexOf('Property ID');
+  var wrote = false;
   if (sheet.getLastRow() >= 2) {
     var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
     for (var r = 0; r < data.length; r++) {
@@ -698,20 +721,28 @@ function setPropertyTxnOverride(txnId, propertyId, category, subcategory, notes)
         sheet.getRange(r + 2, iSub + 1).setValue(subcategory || '');
         if (iNotes >= 0) sheet.getRange(r + 2, iNotes + 1).setValue(notes || '');
         if (iEnt >= 0)   sheet.getRange(r + 2, iEnt + 1).setValue(new Date());
-        return { success: true, updated: true };
+        wrote = true;
+        break;
       }
     }
   }
-  _writePropertyRow_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS, {
-    'Transaction ID': String(txnId),
-    'Property ID':    String(propertyId),
-    'Category':       category || '',
-    'Subcategory':    subcategory || '',
-    'Notes':          notes || '',
-    'Entered By':     _currentUserEmail_(),
-    'Entered At':     new Date()
-  });
-  return { success: true, updated: false };
+  if (!wrote) {
+    _writePropertyRow_('PROPERTY_TXN_OVERRIDES', PROPERTY_TXN_OVERRIDES_HEADERS, {
+      'Transaction ID': String(txnId),
+      'Property ID':    String(propertyId),
+      'Category':       category || '',
+      'Subcategory':    subcategory || '',
+      'Notes':          notes || '',
+      'Entered By':     _currentUserEmail_(),
+      'Entered At':     new Date()
+    });
+  }
+  // Property Portfolio reads getPropertyPortfolioOverview via the 30s
+  // read-cache; without busting it the tiles and card totals lag the
+  // override by up to 30 seconds. Detail-modal reads are uncached, so
+  // _loadPropertyReport picks up the change immediately on its own.
+  try { if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_(['propertyPortfolio_v1']); } catch(e) {}
+  return { success: wrote ? true : true, updated: wrote };
 }
 
 
