@@ -12657,6 +12657,15 @@ function _renderSettings(p) {
         '<button onclick="_settingsRunBugSprayFix()" style="background:#0d0f12;color:#fff;border:none;padding:9px 16px;border-radius:5px;font-size:12.5px;cursor:pointer;font-weight:500">Run</button>' +
       '</div>' +
       '<div id="settings-quickfix-bugspray-result" style="margin-top:8px;display:none;font-size:12px;line-height:1.55"></div>' +
+
+      '<div style="padding:14px 0;border-top:1px solid #f3eedf;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:260px">' +
+          '<div style="font-size:13px;font-weight:600;color:#0d0f12">Add Condado AC maintenance</div>' +
+          '<div style="font-size:11.5px;color:#6b6b73;margin-top:4px;line-height:1.45">Creates a new Condado AC maintenance compliance item (NF PR SJ, Quarterly, Gabriel Echevarria POC, $295) mirroring the Dorado one. Safe to re-click — it\'s a no-op if a Condado AC row already exists.</div>' +
+        '</div>' +
+        '<button onclick="_settingsAddCondadoAC()" style="background:#0d0f12;color:#fff;border:none;padding:9px 16px;border-radius:5px;font-size:12.5px;cursor:pointer;font-weight:500">Add</button>' +
+      '</div>' +
+      '<div id="settings-quickfix-condado-ac-result" style="margin-top:8px;display:none;font-size:12px;line-height:1.55"></div>' +
     '</div>' +
 
     // ─── Diagnostics ─────────────────────────────────────────────────
@@ -12708,6 +12717,30 @@ function _settingsRunBugSprayFix() {
       el.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || err) + '</span>';
     })
     .setBugSprayToQuarterly();
+}
+
+function _settingsAddCondadoAC() {
+  var el = document.getElementById('settings-quickfix-condado-ac-result');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = '<span style="color:#6b6b73">Adding…</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      if (!resp || resp.ok === false) {
+        el.innerHTML = '<span style="color:#c5221f">' + _esc((resp && resp.error) || 'failed') + '</span>';
+        return;
+      }
+      if (!resp.created) {
+        el.innerHTML = '<span style="color:#8a5f00">Already exists — nothing to do. Matched row: ' + _esc(resp.obligation || '') + '</span>';
+        return;
+      }
+      el.innerHTML = '<span style="color:#2e7d32;font-weight:600">✓ Created</span>  ' + _esc(resp.obligation) + '  <span style="color:#6b6b73">— next due ' + _esc(resp.nextDue) + '</span>';
+      if (typeof loadCompliance === 'function') { try { loadCompliance(); } catch(e) {} }
+    })
+    .withFailureHandler(function(err) {
+      el.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || err) + '</span>';
+    })
+    .addCondadoACMaintenanceItem();
 }
 
 function _settingsRunTimings() {

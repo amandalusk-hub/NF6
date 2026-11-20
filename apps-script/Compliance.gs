@@ -947,6 +947,85 @@ function setBugSprayToQuarterly() {
   }
 }
 
+// Create a Condado AC-maintenance compliance item, mirroring the Dorado
+// one's cadence (quarterly, Gabriel Echevarria as POC, $295). Idempotent:
+// if any active item with obligation matching /ac.*condado|condado.*ac/i
+// already exists, this is a no-op and reports it.
+//
+// Entity = NF PR SJ (the Condado complex). Last Done = today so the
+// first quarterly reminder lands ~90 days out.
+function addCondadoACMaintenanceItem() {
+  try {
+    _requireEditor_();
+    ensureComplianceSheets_();
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_ITEMS');
+    if (!sheet) return { ok: false, error: 'COMPLIANCE_ITEMS sheet missing.' };
+    var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
+    var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var iObl    = hdr.indexOf('Obligation');
+    var iStatus = hdr.indexOf('Status');
+    var iEntity = hdr.indexOf('Entity');
+    if (iObl < 0) return { ok: false, error: 'COMPLIANCE_ITEMS missing Obligation column.' };
+
+    // Dup check: any non-terminal row whose obligation names both AC and
+    // Condado, or whose entity is NF PR SJ with "AC" in the obligation.
+    if (sheet.getLastRow() >= 2) {
+      var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+      for (var i = 0; i < data.length; i++) {
+        var status = iStatus >= 0 ? String(data[i][iStatus] || '').toLowerCase() : '';
+        if (status === 'done' || status === 'cancelled') continue;
+        var obl = String(data[i][iObl] || '').toLowerCase();
+        var entity = iEntity >= 0 ? String(data[i][iEntity] || '').trim().toLowerCase() : '';
+        var looksAC = /\bac\b|air\s*cond/i.test(obl);
+        if (!looksAC) continue;
+        if (/condado/i.test(obl) || entity === 'nf pr sj') {
+          return { ok: true, created: false, reason: 'already exists', obligation: String(data[i][iObl] || '') };
+        }
+      }
+    }
+
+    var tz = Session.getScriptTimeZone();
+    var today = new Date();
+    var nextDue = new Date(today); nextDue.setMonth(nextDue.getMonth() + 3);
+
+    var row = {};
+    hdr.forEach(function(h) { if (h) row[h] = ''; });
+    row['Obligation']         = 'AC maintenance quarterly - Condado';
+    row['Entity']             = 'NF PR SJ';
+    row['Status']             = 'Up to Date';
+    row['Frequency']          = 'Quarterly';
+    row['Last Done']          = today;
+    row['Next Due Date']      = nextDue;
+    row['Item Type']          = 'Property';
+    row['Category']           = 'Maintenance';
+    row['Location']           = 'Puerto Rico';
+    row['Person Responsible'] = 'Amanda/Brandon';
+    row['Cost']               = 295;
+    row['Point of Contact']   = 'Gabriel Echevarria\n787-458-3334';
+    row['Description']        = 'AC Maintenance Schedule';
+    row['Link to Docs']       = 'AC';
+    row['On FO Calendar']     = 'No';
+    row['Calendar Event Link'] = '';
+
+    var resp = upsertComplianceItem(row);
+    try {
+      if (typeof _invalidateReadCache_ === 'function') {
+        _invalidateReadCache_(['complianceItems_v1', 'propertyPortfolio_v1', 'fullData_v1']);
+      }
+    } catch(e) {}
+
+    return {
+      ok: true,
+      created: true,
+      id: resp && resp.id || '',
+      obligation: 'AC maintenance quarterly - Condado',
+      nextDue: Utilities.formatDate(nextDue, tz, 'yyyy-MM-dd')
+    };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
+}
+
 // Menu wrapper — same logic, with a UI alert so the spreadsheet menu
 // gives a confirmation even without the web app open.
 function setBugSprayToQuarterlyFromMenu() {
