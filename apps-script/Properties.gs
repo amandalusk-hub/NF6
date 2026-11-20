@@ -995,6 +995,13 @@ function getPropertyMonthlyReport(propertyId, year, month) {
   txns.forEach(function(t) {
     var ovr = overrides[t.id];
     if (ovr && (ovr.category || ovr.subcategory)) {
+      // "Excluded" = this transaction belongs to a different property on
+      // the same shared account (e.g. one of two Oriental 0451
+      // exterminator charges is for Condado, not Dorado). Skip it
+      // entirely so it drops off every total on this property's report
+      // but stays available for whichever property it actually belongs
+      // to.
+      if (String(ovr.category).toLowerCase() === 'excluded') return;
       categorized.push(Object.assign({}, t, { category: ovr.category, subcategory: ovr.subcategory, source: 'override' }));
       return;
     }

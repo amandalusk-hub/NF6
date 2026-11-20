@@ -1193,9 +1193,12 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
         <input id="prop-classify-notes" type="text" placeholder="e.g. Guest deposit for Oct 2027 stay" style="width:100%;padding:8px;border:1px solid #c0ccd8;border-radius:5px;font-size:14px">
       </div>
     </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('prop-classify-modal')">Cancel</button>
-      <button class="btn btn-primary" onclick="_savePropClassification()">Save</button>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn" onclick="_excludePropTxnFromProperty()" title="This charge is for a different property on the same shared account (e.g. shared Oriental 0451). Drops it from this property's report without changing the transaction itself." style="background:#fff3cd;color:#8a5f00;border:1px solid #ffe08a;font-size:12px">Not this property</button>
+      <div>
+        <button class="btn btn-secondary" onclick="closeModal('prop-classify-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="_savePropClassification()">Save</button>
+      </div>
     </div>
   </div>
 </div>
@@ -10334,6 +10337,25 @@ function _savePropClassification() {
     })
     .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
     .setPropertyTxnOverride(txnId, propertyId, cat, sub, notes);
+}
+
+// "Not this property": tag the transaction as Excluded for the current
+// property only. Report drops it from every total; the raw transaction
+// stays visible and can be assigned to the correct property's report
+// instead.
+function _excludePropTxnFromProperty() {
+  var txnId = _propsState.currentClassifyTxnId;
+  var propertyId = _propsState.currentPropertyId;
+  var notes = document.getElementById('prop-classify-notes').value;
+  if (!confirm('Mark this transaction as "not this property"?\n\nIt will be removed from every total on this property\'s report (useful when a shared account like Oriental 0451 has charges for both Dorado and Condado — one of them is for the other property).')) return;
+  google.script.run
+    .withSuccessHandler(function() {
+      closeModal('prop-classify-modal');
+      toast('✓ Excluded from this property');
+      _loadPropertyReport();
+    })
+    .withFailureHandler(function(e) { toast(e.message || String(e), 'error'); })
+    .setPropertyTxnOverride(txnId, propertyId, 'Excluded', '', notes);
 }
 
 // ─── Reservation Classify Modal ────────────────────────────────────────────
