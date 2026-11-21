@@ -12745,6 +12745,15 @@ function _renderSettings(p) {
       '<div id="settings-quickfix-condado-ac-result" style="margin-top:8px;display:none;font-size:12px;line-height:1.55"></div>' +
     '</div>' +
 
+    // ─── FO Compliance Calendar picker ────────────────────────────────
+    '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:20px 22px;margin-bottom:22px">' +
+      '<div style="font-family:Georgia,serif;font-size:22px;color:#0d0f12">FO Compliance Calendar</div>' +
+      '<div style="font-size:12px;color:#6b6b73;margin-top:5px;margin-bottom:14px">Which Google Calendar compliance reminders land on. Default is your personal calendar — pick the Family Office calendar so events show up for Brandon too.</div>' +
+      '<div id="settings-cal-picker">' +
+        '<div style="padding:16px;color:#6b6b73;font-size:12.5px">Loading your calendars…</div>' +
+      '</div>' +
+    '</div>' +
+
     // ─── Diagnostics ─────────────────────────────────────────────────
     '<div style="background:#fff;border:1px solid #eae4d6;border-radius:10px;padding:20px 22px;margin-bottom:22px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">' +
@@ -12758,8 +12767,10 @@ function _renderSettings(p) {
     '</div>' +
 
     // ─── Footer hint ─────────────────────────────────────────────────
-    '<div style="font-size:11px;color:#8a8580;margin-top:6px">People, FO Calendar, and PDF triggers will move here next. For now those still live under <em>Tracker → Compliance</em> in the spreadsheet.</div>'
+    '<div style="font-size:11px;color:#8a8580;margin-top:6px">People management and PDF triggers will move here next. For now those still live under <em>Tracker → Compliance</em> in the spreadsheet.</div>'
   );
+  // Kick off the FO calendar list fetch now that the picker DOM exists.
+  _settingsLoadCalendars();
 }
 
 function _settingsRunBugSprayFix() {
@@ -12842,6 +12853,77 @@ function _settingsRunTimings() {
       el.innerHTML = '<span style="color:#c5221f">Timing check failed: ' + _esc(err && err.message || err) + '</span>';
     })
     .measureHotPathTimings();
+}
+
+function _settingsLoadCalendars() {
+  var el = document.getElementById('settings-cal-picker');
+  if (!el) return;
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      resp = resp || {};
+      if (resp.success === false) {
+        el.innerHTML = '<div style="color:#c5221f;font-size:12.5px">Couldn\'t list your calendars: ' + _esc(resp.error || 'unknown') + '</div>';
+        return;
+      }
+      var cals = resp.calendars || [];
+      if (!cals.length) {
+        el.innerHTML = '<div style="color:#6b6b73;font-size:12.5px">No calendars accessible from this account. Make sure the FO calendar is shared with you.</div>';
+        return;
+      }
+      var opts = cals.map(function(c) {
+        var tags = [];
+        if (c.isCurrent) tags.push('current');
+        if (c.isPrimary) tags.push('personal');
+        if (c.isOwner && !c.isPrimary) tags.push('owner');
+        var label = c.name + (tags.length ? '  (' + tags.join(', ') + ')' : '');
+        return '<option value="' + _esc(c.id) + '"' + (c.isCurrent ? ' selected' : '') + '>' + _esc(label) + '</option>';
+      }).join('');
+      el.innerHTML =
+        '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+          '<select id="settings-cal-select" style="flex:1;min-width:260px;padding:9px 12px;border:1px solid #eae4d6;border-radius:6px;font-size:13px;background:#fff;font-family:inherit">' + opts + '</select>' +
+          '<button onclick="_settingsSaveCalendar()" style="background:#0d0f12;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:500">Save</button>' +
+        '</div>' +
+        '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#6b6b73;cursor:pointer;line-height:1.5">' +
+          '<input id="settings-cal-move" type="checkbox" checked>' +
+          '<span>Also move existing compliance events over (deletes them from the old calendar and recreates on the new one). Uncheck to leave existing events where they are and only route new ones.</span>' +
+        '</label>' +
+        '<div id="settings-cal-status" style="margin-top:10px;font-size:12px;display:none"></div>';
+    })
+    .withFailureHandler(function(err) {
+      el.innerHTML = '<div style="color:#c5221f;font-size:12.5px">' + _esc(err && err.message || err) + '</div>';
+    })
+    .listAccessibleCalendars();
+}
+
+function _settingsSaveCalendar() {
+  var sel = document.getElementById('settings-cal-select');
+  var mv  = document.getElementById('settings-cal-move');
+  var status = document.getElementById('settings-cal-status');
+  if (!sel || !status) return;
+  var id = sel.value;
+  if (!id) { status.style.display='block'; status.innerHTML = '<span style="color:#c5221f">Pick a calendar first.</span>'; return; }
+  var moveExisting = !!(mv && mv.checked);
+  status.style.display = 'block';
+  status.innerHTML = '<span style="color:#6b6b73">Saving…' + (moveExisting ? ' (moving existing events too, may take 20-60s)' : '') + '</span>';
+  google.script.run
+    .withSuccessHandler(function(resp) {
+      if (!resp || resp.success === false) {
+        status.innerHTML = '<span style="color:#c5221f">' + _esc((resp && resp.error) || 'failed') + '</span>';
+        return;
+      }
+      var parts = ['Saved — compliance events now land on <strong>' + _esc(resp.newName) + '</strong>.'];
+      if (resp.moveExisting) {
+        parts.push('Deleted from old calendar: ' + resp.deleted + (resp.deleteFailed ? ' (' + resp.deleteFailed + ' failed)' : ''));
+        parts.push('Created on new calendar: ' + resp.synced + (resp.syncFailed ? ' (' + resp.syncFailed + ' failed)' : ''));
+      }
+      status.innerHTML = '<span style="color:#2e7d32">' + parts.join('<br>') + '</span>';
+      // Reload the picker so "(current)" tag moves to the right row.
+      setTimeout(_settingsLoadCalendars, 400);
+    })
+    .withFailureHandler(function(err) {
+      status.innerHTML = '<span style="color:#c5221f">' + _esc(err && err.message || err) + '</span>';
+    })
+    .switchComplianceCalendar(id, moveExisting);
 }
 
 function _settingsSaveEmailField(key) {

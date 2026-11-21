@@ -708,6 +708,128 @@ function setComplianceCalendarId(calendarId) {
   return { success: true, calendarId: val, calendarName: cal.getName() };
 }
 
+// Web-callable: list every Google Calendar Amanda has access to, with the
+// currently-configured compliance calendar flagged. The Settings tab
+// renders this as a dropdown so she can pick "FO Calendar" by name
+// instead of hunting down an ID string. Primary calendar is marked.
+function listAccessibleCalendars() {
+  try {
+    var cals = CalendarApp.getAllCalendars() || [];
+    var currentId = _complianceCalendarId_() || '';
+    var defaultCal;
+    try { defaultCal = CalendarApp.getDefaultCalendar(); } catch(e) { defaultCal = null; }
+    var defaultId = defaultCal ? defaultCal.getId() : '';
+    // Sort: current pick first, then default (personal), then owned
+    // calendars alphabetically, then everything else.
+    var rows = cals.map(function(c) {
+      var id = c.getId();
+      return {
+        id: id,
+        name: c.getName(),
+        isOwner: c.isOwnedByMe ? c.isOwnedByMe() : false,
+        isPrimary: id === defaultId,
+        isCurrent: currentId && id === currentId
+      };
+    });
+    rows.sort(function(a, b) {
+      if (a.isCurrent !== b.isCurrent) return a.isCurrent ? -1 : 1;
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      if (a.isOwner   !== b.isOwner)   return a.isOwner   ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    return {
+      success:    true,
+      currentId:  currentId || defaultId,
+      currentName: (rows.find(function(r){ return r.isCurrent; }) || rows.find(function(r){ return r.isPrimary; }) || {}).name || '',
+      calendars:  rows
+    };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e), calendars: [] };
+  }
+}
+
+// Switch the FO compliance calendar. When moveExisting is true, every
+// active compliance item's calendar event is DELETED from the previous
+// calendar and re-CREATED on the new one, so "AC maintenance" etc. don't
+// linger on the personal calendar after the switch.
+function switchComplianceCalendar(newCalendarId, moveExisting) {
+  try {
+    _requireEditor_();
+    var oldId = _complianceCalendarId_() || '';
+    var oldCal = _getComplianceCalendar_();   // honor the old pick for the cleanup pass
+    var newIdRaw = String(newCalendarId || '').trim();
+    if (!newIdRaw) return { success: false, error: 'Pick a calendar.' };
+
+    var newCal;
+    try { newCal = CalendarApp.getCalendarById(newIdRaw); } catch(e) {}
+    if (!newCal) return { success: false, error: 'No calendar found with that ID. Make sure it\'s shared with you (and you can edit it).' };
+
+    // First pass: if the user asked us to move existing events, delete
+    // them from the OLD calendar BEFORE flipping the property. If we
+    // flipped first, the delete loop would read the new calendar and
+    // find nothing to delete, leaving orphans behind.
+    var deleted = 0, deleteFailed = 0;
+    if (moveExisting && oldCal && oldCal.getId() !== newCal.getId()) {
+      var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('COMPLIANCE_ITEMS');
+      if (sheet && sheet.getLastRow() >= 2) {
+        var lastCol = Math.max(sheet.getLastColumn(), COMPLIANCE_ITEMS_HEADERS.length);
+        var hdr = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+        var iLink = hdr.indexOf('Calendar Event Link');
+        var iOn   = hdr.indexOf('On FO Calendar');
+        if (iLink >= 0) {
+          var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, lastCol).getValues();
+          for (var i = 0; i < data.length; i++) {
+            var link = String(data[i][iLink] || '').trim();
+            if (!link) continue;
+            var evtId = _extractComplianceEventId_(link);
+            if (!evtId) continue;
+            try {
+              var evt = oldCal.getEventById(evtId);
+              if (evt) { evt.deleteEvent(); deleted++; }
+            } catch(e) { deleteFailed++; }
+            // Clear the sheet's stored link + flag — _syncComplianceCalendarEvent_
+            // will populate them again with the new-calendar event below.
+            sheet.getRange(i + 2, iLink + 1).setValue('');
+            if (iOn >= 0) sheet.getRange(i + 2, iOn + 1).setValue('No');
+          }
+        }
+      }
+    }
+
+    // Flip the script property so _getComplianceCalendar_ returns the new one.
+    PropertiesService.getScriptProperties().setProperty(_COMPLIANCE_CALENDAR_KEY, newIdRaw);
+
+    // Re-sync every item to the new calendar if we're moving or if no
+    // calendar was configured before (first-time setup). Honors status
+    // internally — Done/Cancelled items don't get events.
+    var synced = 0, syncFailed = 0;
+    if (moveExisting || !oldId) {
+      var items = _getComplianceRows_('COMPLIANCE_ITEMS', COMPLIANCE_ITEMS_HEADERS);
+      items.forEach(function(it) {
+        try { _syncComplianceCalendarEvent_(it.ID); synced++; }
+        catch(e) { syncFailed++; Logger.log('calendar switch resync failed for ' + it.ID + ': ' + e.message); }
+      });
+    }
+
+    // Bust the compliance cache so next read reflects the new calendar links.
+    try { if (typeof _invalidateReadCache_ === 'function') _invalidateReadCache_(['complianceItems_v1']); } catch(e) {}
+
+    return {
+      success:      true,
+      newId:        newIdRaw,
+      newName:      newCal.getName(),
+      oldId:        oldId || '(default/none)',
+      moveExisting: !!moveExisting,
+      deleted:      deleted,
+      deleteFailed: deleteFailed,
+      synced:       synced,
+      syncFailed:   syncFailed
+    };
+  } catch (e) {
+    return { success: false, error: String(e && e.message || e) };
+  }
+}
+
 // Menu-callable: prompt for calendar ID.
 function setComplianceCalendarIdFromMenu() {
   var ui = SpreadsheetApp.getUi();
