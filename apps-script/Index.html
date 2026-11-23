@@ -921,15 +921,27 @@ body.read-only .btn-secondary[onclick*="close"]{ display:inline-flex !important;
             </select></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Item Type</label>
-            <input id="comp-f-type" type="text" list="comp-f-type-list" placeholder="Pick or type…" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
-            <datalist id="comp-f-type-list"></datalist></div>
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Category</label>
-            <input id="comp-f-category" type="text" list="comp-f-category-list" placeholder="Pick or type…" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
-            <datalist id="comp-f-category-list"></datalist></div>
-          <div><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Location</label>
-            <input id="comp-f-location" type="text" list="comp-f-location-list" placeholder="Pick or type…" style="width:100%;padding:7px;border:1px solid #c0ccd8;border-radius:4px;font-size:13px">
-            <datalist id="comp-f-location-list"></datalist></div>
+          <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Item Type</label>
+            <div style="display:flex;gap:4px">
+              <input id="comp-f-type" type="text" placeholder="Pick or type…" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
+              <button type="button" onclick="_compToggleVocabPicker(event,'type')" style="padding:0 10px;border:1px solid #c0ccd8;border-left:none;border-radius:0 4px 4px 0;background:#faf7f1;color:#0d0f12;font-size:13px;cursor:pointer" title="Pick from existing types">▾</button>
+            </div>
+            <div id="comp-type-picker" style="display:none;position:absolute;z-index:1001;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #eae4d6;border-radius:5px;padding:6px;box-shadow:0 4px 16px rgba(13,15,18,.1);max-height:220px;overflow-y:auto"></div>
+          </div>
+          <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Category</label>
+            <div style="display:flex;gap:4px">
+              <input id="comp-f-category" type="text" placeholder="Pick or type…" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
+              <button type="button" onclick="_compToggleVocabPicker(event,'category')" style="padding:0 10px;border:1px solid #c0ccd8;border-left:none;border-radius:0 4px 4px 0;background:#faf7f1;color:#0d0f12;font-size:13px;cursor:pointer" title="Pick from existing categories">▾</button>
+            </div>
+            <div id="comp-category-picker" style="display:none;position:absolute;z-index:1001;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #eae4d6;border-radius:5px;padding:6px;box-shadow:0 4px 16px rgba(13,15,18,.1);max-height:220px;overflow-y:auto"></div>
+          </div>
+          <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Location</label>
+            <div style="display:flex;gap:4px">
+              <input id="comp-f-location" type="text" placeholder="Pick or type…" style="flex:1;padding:7px;border:1px solid #c0ccd8;border-radius:4px 0 0 4px;font-size:13px;min-width:0">
+              <button type="button" onclick="_compToggleVocabPicker(event,'location')" style="padding:0 10px;border:1px solid #c0ccd8;border-left:none;border-radius:0 4px 4px 0;background:#faf7f1;color:#0d0f12;font-size:13px;cursor:pointer" title="Pick from existing locations">▾</button>
+            </div>
+            <div id="comp-location-picker" style="display:none;position:absolute;z-index:1001;top:calc(100% + 2px);left:0;right:0;background:#fff;border:1px solid #eae4d6;border-radius:5px;padding:6px;box-shadow:0 4px 16px rgba(13,15,18,.1);max-height:220px;overflow-y:auto"></div>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
           <div style="position:relative"><label style="display:block;color:#5f7791;font-size:11px;font-weight:600;margin-bottom:3px">Entity</label>
@@ -11993,37 +12005,89 @@ function _compUrgencyChip(u) {
   return '<span style="display:inline-block;background:' + bg + ';color:' + fg + ';padding:3px 8px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.4px">' + label + '</span>';
 }
 
-// Fill Item Type / Category / Location datalists from the distinct values
-// already in use across the loaded compliance items, so the Add/Edit modal
-// shows them as proper dropdowns. "Item Type" also gets a fallback core
-// vocabulary (Property / Entity / Personal / Legal) in case the live sheet
-// doesn't yet have examples of every one.
-function _compPopulateDatalists() {
+// Pull the list of distinct values for one of the vocab-style fields
+// (Item Type / Category / Location) from loaded compliance items. Item
+// Type gets a core fallback vocabulary unioned in so the dropdown isn't
+// empty on a fresh sheet.
+function _compVocabOptions(field) {
   var items = (_compState && _compState.items) || [];
-  function distinct(field) {
-    var seen = {};
-    items.forEach(function(it) {
-      var v = String(it[field] || '').trim();
-      if (v) seen[v] = true;
-    });
-    return Object.keys(seen).sort(function(a, b) { return a.localeCompare(b); });
-  }
-  var types   = distinct('Item Type');
-  // Union with core vocab so the dropdown isn't empty on a fresh sheet.
-  ['Property', 'Entity', 'Personal', 'Legal', 'Insurance', 'Tax'].forEach(function(v) {
-    if (types.indexOf(v) < 0) types.push(v);
+  var seen = {};
+  items.forEach(function(it) {
+    var v = String(it[field] || '').trim();
+    if (v) seen[v] = true;
   });
-  types.sort(function(a, b) { return a.localeCompare(b); });
-  var cats    = distinct('Category');
-  var locs    = distinct('Location');
-  function fill(id, arr) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.innerHTML = arr.map(function(v) { return '<option value="' + v.replace(/"/g, '&quot;') + '"></option>'; }).join('');
+  if (field === 'Item Type') {
+    ['Property', 'Entity', 'Personal', 'Legal', 'Insurance', 'Tax']
+      .forEach(function(v) { seen[v] = true; });
   }
-  fill('comp-f-type-list', types);
-  fill('comp-f-category-list', cats);
-  fill('comp-f-location-list', locs);
+  return Object.keys(seen).sort(function(a, b) { return a.localeCompare(b); });
+}
+
+// Generic picker: open/close the dropdown for one of the three vocab
+// fields on the Add/Edit modal. kind is 'type' | 'category' | 'location'.
+var _COMP_VOCAB_FIELDS = {
+  type:     { label: 'Item Type', field: 'Item Type', inputId: 'comp-f-type',     popId: 'comp-type-picker'     },
+  category: { label: 'Category',  field: 'Category',  inputId: 'comp-f-category', popId: 'comp-category-picker' },
+  location: { label: 'Location',  field: 'Location',  inputId: 'comp-f-location', popId: 'comp-location-picker' }
+};
+var _compVocabOutsideHandlers = {};
+
+function _compToggleVocabPicker(ev, kind) {
+  if (ev && ev.stopPropagation) ev.stopPropagation();
+  var cfg = _COMP_VOCAB_FIELDS[kind]; if (!cfg) return;
+  var pop = document.getElementById(cfg.popId);
+  if (!pop) return;
+  if (pop.style.display !== 'none') { pop.style.display = 'none'; return; }
+  // Close other open vocab pickers.
+  Object.keys(_COMP_VOCAB_FIELDS).forEach(function(k) {
+    if (k === kind) return;
+    var o = document.getElementById(_COMP_VOCAB_FIELDS[k].popId);
+    if (o) o.style.display = 'none';
+  });
+  var vals = _compVocabOptions(cfg.field);
+  if (!vals.length) {
+    pop.innerHTML = '<div style="color:#6b6b73;font-size:12px;padding:6px">Nothing on file yet — type a new ' + cfg.label.toLowerCase() + ' directly in the field above.</div>';
+    pop.style.display = '';
+    return;
+  }
+  var current = String((document.getElementById(cfg.inputId) || {}).value || '').trim().toLowerCase();
+  pop.innerHTML = vals.map(function(v) {
+    var active = v.toLowerCase() === current;
+    return '<div onclick="_compPickVocab(\'' + kind + '\',\'' + v.replace(/'/g, "\\'") + '\')" ' +
+      'style="padding:7px 10px;cursor:pointer;font-size:12.5px;color:#0d0f12;border-radius:3px;' +
+      (active ? 'background:#faf7f1;font-weight:600;' : '') + '" ' +
+      'onmouseover="this.style.background=\'#f4f8fc\'" ' +
+      'onmouseout="this.style.background=\'' + (active ? '#faf7f1' : 'transparent') + '\'">' +
+      esc(v) +
+    '</div>';
+  }).join('') +
+  '<div style="margin-top:4px;padding:5px 10px;border-top:1px solid #eae4d6;font-size:10.5px;color:#6b6b73;line-height:1.4">' +
+    'Click to select, or type a new one directly in the field above.' +
+  '</div>';
+  pop.style.display = '';
+  var handler = function(e) {
+    var p = document.getElementById(cfg.popId);
+    if (!p || p.style.display === 'none') { document.removeEventListener('click', handler, true); return; }
+    if (p.contains(e.target)) return;
+    // Don't close if clicking the toggle button itself (it calls us).
+    var parent = p.parentElement;
+    var btn = parent && parent.querySelector('button');
+    if (btn && btn.contains(e.target)) return;
+    p.style.display = 'none';
+    document.removeEventListener('click', handler, true);
+  };
+  _compVocabOutsideHandlers[kind] = handler;
+  setTimeout(function() { document.addEventListener('click', handler, true); }, 0);
+}
+
+function _compPickVocab(kind, val) {
+  var cfg = _COMP_VOCAB_FIELDS[kind]; if (!cfg) return;
+  var inp = document.getElementById(cfg.inputId);
+  if (inp) inp.value = val;
+  var pop = document.getElementById(cfg.popId);
+  if (pop) pop.style.display = 'none';
+  var handler = _compVocabOutsideHandlers[kind];
+  if (handler) document.removeEventListener('click', handler, true);
 }
 
 function _compOpenNew() {
@@ -12037,7 +12101,6 @@ function _compOpenNew() {
   });
   document.getElementById('comp-f-status').value = 'Up to Date';
   document.getElementById('comp-f-frequency').value = 'Yearly';
-  _compPopulateDatalists();
   // No history to show for a brand-new item.
   var panel = document.getElementById('comp-history-panel');
   if (panel) panel.style.display = 'none';
@@ -12054,7 +12117,6 @@ function _compOpenEdit(id) {
   // Hide Mark Done for items that are already Done or Cancelled; otherwise show it.
   var curStatus = String(it.Status || '').toLowerCase();
   if (mdBtn) mdBtn.style.display = (curStatus === 'done' || curStatus === 'cancelled') ? 'none' : '';
-  _compPopulateDatalists();
   document.getElementById('comp-f-obligation').value = it.Obligation || '';
   document.getElementById('comp-f-status').value = it.Status || 'Up to Date';
   document.getElementById('comp-f-type').value = it['Item Type'] || '';
